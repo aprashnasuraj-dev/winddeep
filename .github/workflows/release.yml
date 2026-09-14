@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -166,6 +167,7 @@ jobs:
         run: |
           set -euo pipefail
           requested="${{ inputs.release_version }}"
+          mkdir -p "$RUNNER_TEMP/version-check"
           python scripts/bump_version.py "$requested" --root "$RUNNER_TEMP/version-check"
           git fetch origin main --tags
           current="$(git show origin/main:VERSION | tr -d '\r\n')"
