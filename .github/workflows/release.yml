@@ -1,0 +1,191 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Optional SemVer. If set, sync VERSION and create v{version} tag.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run tests
+        run: pytest -q
+
+  version-check:
+    name: version-check
+    runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
+            throw "VERSION is not valid SemVer: $version"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          if ('${{ github.ref_type }}' -eq 'tag') {
+            $expected = "v$version"
+            if ('${{ github.ref_name }}' -ne $expected) {
+              throw "Tag ${{ github.ref_name }} does not match VERSION ($expected)."
+            }
+          }
+
+  build-windows:
+    name: build-windows
+    needs: [test, version-check]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - name: Cache pip downloads
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+      - name: Download pinned portable tools
+        shell: pwsh
+        run: ./installer/setup_tools.ps1
+      - name: Build executable
+        run: pyinstaller --clean --noconfirm Windeep.spec
+      - name: Build portable archive
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path portable -Force | Out-Null
+          Copy-Item dist\Windeep.exe portable\Windeep.exe
+          Copy-Item README.md,LICENSE,VERSION portable\
+          Compress-Archive -Path portable\* -DestinationPath dist\Windeep-Portable.zip -Force
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc" }
+          $version = (Get-Content VERSION -Raw).Trim()
+          & $iscc "/DMyAppVersion=$version" installer\BugBountyInstaller.iss
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          $files = @('dist\Windeep-Setup.exe', 'dist\Windeep-Portable.zip')
+          $lines = foreach ($file in $files) {
+            $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $([IO.Path]::GetFileName($file))"
+          }
+          $lines | Set-Content -Encoding ascii dist\SHA256SUMS.txt
+          Copy-Item CHANGELOG.md dist\CHANGELOG.md
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windeep-Windows
+          path: |
+            dist/Windeep-Setup.exe
+            dist/Windeep-Portable.zip
+            dist/SHA256SUMS.txt
+            dist/CHANGELOG.md
+          if-no-files-found: error
+
+  release:
+    name: release
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
+    needs: [version-check, build-windows]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Windeep-Windows
+          path: dist
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Windeep-Setup.exe
+            dist/Windeep-Portable.zip
+            dist/SHA256SUMS.txt
+            dist/CHANGELOG.md
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+
+  sync-version-and-tag:
+    name: sync-version-and-tag
+    if: github.event_name == 'workflow_dispatch' && inputs.release_version != ''
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Prepare protected-branch-safe release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          requested="${{ inputs.release_version }}"
+          python scripts/bump_version.py "$requested" --root "$RUNNER_TEMP/version-check"
+          git fetch origin main --tags
+          current="$(git show origin/main:VERSION | tr -d '\r\n')"
+          if [ "$current" != "$requested" ]; then
+            branch="release/v${requested}"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git checkout -B "$branch" origin/main
+            python scripts/bump_version.py "$requested"
+            git add VERSION
+            git commit -m "chore: prepare release v${requested}"
+            git push --force-with-lease origin "$branch"
+            gh pr create --base main --head "$branch" --title "chore: prepare release v${requested}" --body "Automated VERSION update for v${requested}. Merge after required review/status checks, then re-run the release workflow with the same version to create the tag." || true
+            echo "VERSION on main is $current; opened/updated release PR for $requested."
+            exit 0
+          fi
+          tag="v${requested}"
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            echo "Tag $tag already exists"
+          else
+            git tag "$tag" origin/main
+            git push origin "$tag"
+          fi
