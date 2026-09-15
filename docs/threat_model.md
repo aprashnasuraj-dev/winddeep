@@ -1,133 +1,175 @@
 # Windeep threat model
 
-This document is the release-blocking threat model for Windeep v3. Every attack surface introduced by P0-P6 must have a concrete threat, mitigation, regression test, and residual-risk statement. **A phase cannot close while an uncovered threat remains.** New attack surfaces must extend this document and add a test before release.
+This document is the release-blocking threat model for Windeep v3. Every attack surface introduced by P0-P8 and the v3 release workstreams must have a concrete threat, mitigation, executable regression test, and residual-risk statement. **A phase cannot close while an uncovered threat remains.**
 
 ## Trust boundaries and security invariants
 
-Windeep is a loopback-only authorized-security-testing application. Targets, HTTP flows, JavaScript, smart-contract source, deployed bytecode, third-party tool output, LLM-visible text, imported program scope, and exported report fields are untrusted input. The authenticated local operator may select targets and tools but cannot bypass scope, consent, rate, crypto, audit, evidence integrity, or scheduler controls.
+Windeep is a loopback-only authorized-security-testing application. Targets, HTTP flows, JavaScript, smart-contract source, deployed bytecode, third-party tool output, LLM-visible text, imported program scope, target-class declarations, handling policies, and report fields are untrusted input. The authenticated local operator may select targets and tools but cannot bypass scope, consent, rate, crypto, audit, evidence integrity, verification, or scheduler controls.
 
-P0 owns scheduler/preflight/event ordering. **P1 forensic capture** owns encrypted raw artifacts, custody metadata, hashes, redaction maps, and replay inputs. P2 binds normalized findings to immutable evidence. P3 renders evidence-only reports/exports. P4 handles guarded hard-middle/LLM assistance. P5 adds static/read-only web3 analysis. P6 adds restart recovery, budgets, structured observability, backpressure, and cleanup.
+P0 owns scheduler/preflight/event ordering. **P1 forensic capture** owns encrypted raw artifacts, custody metadata, hashes, redaction maps, replay inputs, and raw HTTP evidence. P2 binds findings to immutable evidence. P3 renders deterministic evidence-only reports. P4 handles guarded hard-middle/LLM assistance. P5 adds static/read-only web3 analysis. P6 adds restart recovery, budgets, observability, backpressure, and cleanup. P7 makes this model release-blocking. P8 governs compatibility and evidence-preserving schema change. V3-A broadens target classes without broadening authority.
 
-Tool subprocesses are permitted only through the guarded wrapper/scheduler path. Target HTTP is permitted only through the capture/interceptor path. Web3 chain access is read-only. Exploitation-required conclusions remain `needs-human-review`; Windeep does not autonomously exploit, transact, fork, deploy, sign, or mutate a target.
+Tool subprocesses remain inside the guarded wrapper/scheduler boundary. Target HTTP remains inside the capture/interceptor boundary. Web3 access is read-only. Exploitation-required conclusions remain `needs-human-review`; Windeep does not autonomously exploit, transact, fork, deploy, sign, or mutate a target.
 
 ## P7 platform closeout
 
 ### Prompt injection from malicious target content
 
-**Threat.** HTML, JavaScript, HTTP bodies, detector output, repository text, verified contract source, or bytecode-derived strings can contain instruction-like content intended to override system intent, cause a model to invoke tools, fabricate evidence, escape scope, or promote a hypothesis to a finding.
+**Threat.** HTML, JavaScript, HTTP bodies, detector output, repository text, verified contract source, or bytecode-derived strings may contain instructions intended to make a model escape scope, invoke a tool, fabricate evidence, or promote an unsupported conclusion.
 
-**Mitigation.** P4 treats all target-derived content as untrusted data, bounds and labels it before model use, routes model interaction only through the existing `llm_client`/`prompt_guard` boundary, validates structured model output, and drops plus audits invalid output. The model cannot invoke tools directly: any proposed action must become a scheduler plan and pass live `PreFlightGuard`. P0-P3 evidence/report stages remain deterministic and do not depend on model-authored proof.
+**Mitigation.** P4 labels/bounds target-derived text, uses the existing prompt guard and LLM client, validates structured output, audits invalid output, and gives the model no direct tool authority. Proposed actions must return to the scheduler and pass live preflight. Deterministic P0-P3 evidence never depends on model-authored proof.
 
-**Tests.** `tests/test_p4_hard_middle.py` exercises adversarial instruction text, schema rejection, evidence attribution, and non-tool-invoking model behavior. P0 preflight-spy tests additionally prove that a denied scheduler action never reaches a runner.
+**Tests.** `tests/test_p4_hard_middle.py` covers adversarial target instructions, schema rejection, evidence attribution, and non-tool-invoking model behavior. P0 scheduler/preflight tests prove denied actions never reach runners.
 
-**Residual risk.** A future model/provider change can alter narrative quality or discover new prompt-injection patterns. Structured validation constrains authority, but reviewers must still treat LLM narrative as assistance rather than evidence and keep provider/version changes behind regression tests.
+**Residual risk.** Model/provider changes can discover new injection patterns or change narrative quality. Model text therefore remains assistance, never evidence, and provider changes require regression testing.
 
 ### Artifact path traversal
 
-**Threat.** Target-controlled filenames, URLs, archive members, source-tree paths, detector labels, or export names could attempt `../` traversal, absolute-path writes, symlink escape, or plaintext writes outside Windeep's encrypted state/temp boundaries.
+**Threat.** Target-controlled paths, archive members, URLs, source-tree names, detector labels, or export names may attempt traversal, absolute writes, symlink escape, or plaintext writes outside encrypted state/temp storage.
 
-**Mitigation.** P1 forensic capture stores evidence through the encrypted, content-addressed artifact layer instead of using target-derived filesystem paths. Temporary files are restricted to the encrypted-temp namespace and P6 `CleanupSweeper.register_temp()` refuses paths outside that root. Release/tool staging retains archive-member path-safety checks. P5 source, bytecode, disassembly, and engine output reuse P1 artifact references rather than direct filesystem writes.
+**Mitigation.** P1 uses encrypted content-addressed artifact identities rather than target filenames. P6 restricts registered temp files to encrypted-temp and actively sweeps them. Release/tool staging retains archive path-safety checks; P5 web3 artifacts reuse P1 custody.
 
-**Tests.** `tests/test_p1_forensic_capture.py` covers encrypted artifact custody and safe storage behavior. `tests/test_p6_operational.py` and `tests/test_p6_operational_depth.py` cover encrypted-temp cleanup and rejection of outside paths. Existing release staging tests cover unsafe archive paths.
+**Tests.** `tests/test_p1_forensic_capture.py`, `tests/test_p6_operational.py`, and `tests/test_p6_operational_depth.py` cover encrypted storage, outside-temp rejection, and cleanup. Release staging tests reject unsafe archive members.
 
-**Residual risk.** Third-party tools can emit path-looking strings into stdout or source maps; they are preserved as data. Any future feature that materializes those strings as paths must add canonicalization/symlink tests before the phase can close.
+**Residual risk.** Third-party tools can still emit path-looking strings as data. Any future feature that materializes those strings as paths must add canonicalization/symlink tests before release.
 
 ### SSRF against the loopback control plane
 
-**Threat.** Redirects, imported URLs, browser navigation, replay inputs, or malicious target content could attempt to make a target-facing component request Windeep's own `127.0.0.1`/`::1` control plane or another out-of-scope host.
+**Threat.** Redirects, imported URLs, replay inputs, browser navigation, or malicious target content may try to redirect target-facing traffic toward `127.0.0.1`, `::1`, or another unauthorized destination.
 
-**Mitigation.** Scope and consent are fail-closed and revalidated immediately before target-facing actions. P1 capture/replay retains canonical target identity and evidence provenance; P4 auth-diff uses already authorized captured flows rather than arbitrary URLs; P5 chain resolution accepts a scoped contract address and exposes only read RPC methods. The dashboard itself remains loopback-only, while target traffic stays in the guarded capture/wrapper boundary.
+**Mitigation.** Scope/consent are fail-closed and revalidated before target-facing actions. P1 replay preserves captured identity, P4 auth-diff uses authorized captured flows, V3-A literal-IP replay pins the declared IP, and the dashboard remains loopback-only while target traffic remains in capture/wrapper code.
 
-**Tests.** P0 scope/preflight tests assert out-of-scope denial. `tests/test_p1_forensic_capture.py` covers captured-flow/replay custody. `tests/test_p4_hard_middle.py` covers bounded authorization-diff inputs. P5 tests assert the read-only RPC surface.
+**Tests.** P0 scope/preflight tests, `tests/test_p1_forensic_capture.py`, `tests/test_p4_hard_middle.py`, and `tests/test_v3_target_classes.py` exercise authorization boundaries and pinned target identity.
 
-**Residual risk.** Third-party scanners and browsers implement their own redirect stacks. Redirect-final-destination enforcement therefore remains a boundary that must be retested whenever a wrapper/browser engine is upgraded.
+**Residual risk.** Third-party scanners/browsers own redirect behavior. Final-destination enforcement must be retested whenever those components are upgraded.
 
 ### Compromised tool binary
 
-**Threat.** A replaced or compromised Slither, Aderyn, Mythril, recon utility, browser binary, or other catalog executable could reinterpret argv, read unexpected environment values, emit malicious parser input, or produce misleading findings.
+**Threat.** A replaced Slither, Aderyn, Mythril, recon tool, browser, or catalog binary can reinterpret argv, inspect unexpected environment values, emit malicious parser input, or fabricate internally consistent results.
 
-**Mitigation.** Process creation remains in the catalog/tool-wrapper boundary; shell interpolation is prohibited. P1 forensic capture records command/argv identity, tool version, binary provenance/hash where available, bounded environment metadata, exit status, and raw output artifacts. P2/P5 provenance binds normalized findings back to engine/version/detector and immutable raw artifacts. P5 cross-engine corroboration records independent engine agreement instead of silently treating one tool as authoritative.
+**Mitigation.** Process creation stays in the wrapper boundary; shell interpolation is prohibited. P1 records invocation/raw-output provenance. P2/P5 bind findings to engine/version/detector/upstream/raw artifacts, and P5 preserves independent-engine corroboration instead of treating one engine as authoritative.
 
-**Tests.** `tests/test_p1_forensic_capture.py` covers raw invocation/evidence custody. Existing tool-wrapper tests cover argv/process contracts. `tests/test_p5_web3_depth.py` and `tests/test_p5_web3_validation.py` verify engine provenance, SWC mapping, corroboration, and immutable raw-output references.
+**Tests.** `tests/test_p1_forensic_capture.py`, tool-wrapper tests, `tests/test_p5_web3_depth.py`, and `tests/test_p5_web3_validation.py` verify invocation custody, maintained-engine provenance, SWC/location mapping, and corroboration.
 
-**Residual risk.** A compromised binary can still emit internally consistent but false output. Hash/provenance makes the event attributable; independent-engine corroboration and human review reduce, but do not eliminate, this supply-chain risk.
+**Residual risk.** A compromised binary may still emit plausible false output. Provenance makes the event attributable; independent corroboration and human review reduce but cannot eliminate supply-chain risk.
 
 ### Leaked master key
 
-**Threat.** Theft of the local master key can expose encrypted artifacts, flows, findings, scan authorization references, structured logs, and web3 source/bytecode evidence.
+**Threat.** Theft of the local master key can expose encrypted artifacts, flows, findings, authorization references, logs, target declarations, and web3 evidence.
 
-**Mitigation.** P1 forensic capture separates evidence into encrypted, content-addressed records with context-specific AAD and scan custody metadata; P0/P2/P3/P5/P6 continue using encrypted database/artifact paths rather than introducing plaintext evidence stores. Scan evidence can be independently integrity-checked by content digests/custody roots, limiting silent tampering even if confidentiality is lost.
+**Mitigation.** P1 uses per-scan encrypted artifact custody and context-specific AAD; later phases reuse those stores rather than introducing plaintext evidence. Hash/custody roots detect silent mutation even if confidentiality is lost.
 
-**Tests.** `tests/test_p1_forensic_capture.py` validates encrypted artifact payloads, hashing/custody, and no plaintext source evidence. Existing crypto/secure-database tests validate authenticated decryption failure and encrypted sensitive fields.
+**Tests.** `tests/test_p1_forensic_capture.py` and crypto/secure-database tests validate encrypted payloads, authenticated decryption, hashing/custody, and absence of plaintext evidence.
 
-**Residual risk.** A live compromise with access to the active key and process memory can decrypt data available to that process. Key rotation/per-scan destruction limits historical blast radius but cannot protect evidence while legitimately open in the compromised process.
+**Residual risk.** A live compromise that controls the active process/key can read evidence legitimately opened by that process. Rotation/per-scan destruction limits historical blast radius but cannot prevent live-process disclosure.
 
 ### Operator-supplied redaction regex DoS
 
-**Threat.** A pathological user-provided regular expression can cause catastrophic backtracking and CPU denial of service during report/HAR/artifact export; overly broad patterns can also destroy triage value.
+**Threat.** Pathological user regexes can cause catastrophic backtracking/CPU denial during export and overly broad rules can erase triage value.
 
-**Mitigation.** Core P1/P3 redaction uses versioned, deterministic bounded rules and fixed secret semantics rather than executing arbitrary operator regexes in the hot export path. Stable placeholders and redaction metadata make repeated exports reproducible. If operator-defined patterns are accepted by a future adapter, they must be length/complexity bounded and time-limited before becoming active.
+**Mitigation.** P1/P3 use deterministic bounded secret semantics and versioned redaction behavior rather than arbitrary regex execution on the hot path. Stable placeholders/maps keep exports reproducible. Any future custom-regex adapter must be length/complexity/time bounded.
 
-**Tests.** `tests/test_p1_forensic_capture.py` covers deterministic redaction/custody behavior and `tests/test_p3_reporting.py` verifies that secrets are absent from Markdown, HTML, HAR, and attachment manifests while evidence references remain stable.
+**Tests.** `tests/test_p1_forensic_capture.py` and `tests/test_p3_reporting.py` verify deterministic redaction and secret-free Markdown/HTML/HAR/attachments.
 
-**Residual risk.** Fixed/bounded detectors can miss novel secret shapes or over-redact benign values. Operators must inspect redacted exports before submission, and any future arbitrary-regex feature requires dedicated worst-case CPU tests.
+**Residual risk.** Bounded detectors can miss novel secret shapes or over-redact benign data; operators must inspect redacted exports before submission.
 
 ### Authorization-diff session misuse
 
-**Threat.** A user or model could misuse P4 authorization-diff analysis by inventing credentials, swapping sessions outside operator intent, comparing unrelated principals, or replaying state-changing requests in an attempt to confirm an authorization flaw.
+**Threat.** A user/model may invent credentials, swap unrelated sessions, compare principals outside intent, or replay state-changing requests to try to confirm an authorization flaw.
 
-**Mitigation.** P4 accepts two operator-supplied authorized sessions and uses captured, in-scope, read-only flows. It produces a byte-level comparison artifact and `needs-human-review` evidence where stronger confirmation would require exploitation. It does not guess credentials, mint sessions, mutate request bodies into exploit payloads, or bypass replay/preflight policy.
+**Mitigation.** P4 accepts two operator-supplied authorized sessions and captured in-scope read-only flows. It stores byte-level comparison evidence and uses `needs-human-review` where stronger confirmation would require exploitation. It never guesses credentials, mints sessions, or mutates a request into an exploit.
 
-**Tests.** `tests/test_p4_hard_middle.py` covers two-session attribution, bounded diff artifacts, prompt injection resistance, and refusal to elevate unsupported conclusions. P1 replay tests protect exact captured-request provenance.
+**Tests.** `tests/test_p4_hard_middle.py` covers two-session attribution, bounded diffs, injection resistance, and unsupported-conclusion refusal; P1 replay tests preserve captured-request provenance.
 
-**Residual risk.** Two valid sessions can still represent roles whose business semantics are unknown to Windeep. A response difference is therefore evidence for triage, not proof that the authorization policy is wrong.
+**Residual risk.** Two legitimate sessions can still represent business roles whose intended policy is unknown. A difference is evidence for review, not proof of authorization failure.
 
 ### Web3 write-RPC escalation
 
-**Threat.** A web3 adapter, symbolic engine integration, resolver, or later model plan could escalate from static/read-only inspection into `eth_sendTransaction`, `eth_sendRawTransaction`, signing, deployment, fork mutation, or other state-changing behavior.
+**Threat.** A chain adapter, symbolic engine, resolver, or later model plan may escalate static inspection into transaction sending, signing, deployment, fork mutation, or state change.
 
-**Mitigation.** P5 exposes a positive read-only RPC allowlist through `ReadOnlyRPC`; source resolution uses only chain id, pinned-block lookup, deployed bytecode, and other explicitly read-only methods. Verified-source resolution is audited in the fixed Sourcify → Etherscan → Blockscout → Routescout order. Static engines consume encrypted cached artifacts. Mythril execution is bounded and used for static/symbolic inspection only. No fork, transaction, signing, deployment, or executable calldata validation exists in the P5 path.
+**Mitigation.** P5 exposes a positive read-only RPC allowlist, audited resolver ordering, cached encrypted source/bytecode/disassembly, bounded Mythril, and no fork/sign/deploy path.
 
-**Tests.** `tests/test_p5_web3_depth.py` spies on RPC calls and proves that write methods are absent, covers resolver fallback/compiler pinning/bytecode disassembly/corroboration, and verifies bytecode-only results remain `needs-human-review`. `tests/test_p5_web3_validation.py` additionally asserts direct write-RPC calls fail closed.
+**Tests.** `tests/test_p5_web3_depth.py` spies on RPC calls and verifies resolver/compiler/bytecode/corroboration behavior; `tests/test_p5_web3_validation.py` asserts write-RPC denial.
 
-**Residual risk.** A third-party engine can contain unexpected behavior outside Windeep's RPC abstraction. Process/network sandboxing is not a substitute for supply-chain trust, so maintained engine pins and binary provenance remain required.
+**Residual risk.** A compromised third-party binary may behave outside Windeep's RPC abstraction. Engine pins/binary provenance remain required.
 
 ### Crash-resume state confusion
 
-**Threat.** A process crash or restart can cause completed stages to rerun, skipped stages to be treated as committed, stale transient state to overwrite newer evidence, or a partially failed scan to be marked complete.
+**Threat.** A crash/restart may rerun completed work, skip incomplete work, overwrite newer evidence, or mark a partial scan complete.
 
-**Mitigation.** P6 persists encrypted stage checkpoints and resumes only from committed boundaries. `ScanResumeCoordinator.run_stage()` returns committed outputs without rerunning work and commits a new boundary only after the callback succeeds. P0/P2 evidence writes remain idempotent/append-oriented. P6 scan and per-tool budgets are persisted, and budget exhaustion moves the scan to `incomplete` rather than `complete`.
+**Mitigation.** P6 stores encrypted committed stage boundaries and only commits after success. V3 release wiring adds its own ordered release-stage checkpoints/transitions above P0-P8. Budgets persist and exhaustion marks work incomplete.
 
-**Tests.** `tests/test_p6_operational.py` simulates a fresh coordinator reading prior committed boundaries. `tests/test_p6_operational_depth.py` proves committed work is skipped, a failing callback is not checkpointed, per-tool budget exhaustion is fail-closed, and only an active budget may transition to complete.
+**Tests.** `tests/test_p6_operational.py`, `tests/test_p6_operational_depth.py`, and `tests/test_v3_release_wiring.py` prove restart resume, failed-stage non-commit, budget failure, and v3 transition replay.
 
-**Residual risk.** External tools may have performed non-Windeep-local work immediately before a host crash. Windeep can recover its committed evidence/stage state, but cannot roll back side effects of a misbehaving third-party tool; this is another reason state-changing tools are excluded.
+**Residual risk.** Windeep cannot roll back side effects of a misbehaving third-party tool immediately before host failure; state-changing tools remain excluded.
 
 ### Slow-client backpressure
 
-**Threat.** A slow or disconnected browser/SSE consumer can fill an event queue, block scheduler progress, or cause findings/evidence to be discarded when the UI cannot keep up.
+**Threat.** A slow/disconnected SSE/browser client can fill queues, block scan progress, or lose visible events.
 
-**Mitigation.** Durable evidence/event persistence happens before UI fanout. P6 `BackpressureChannel` is bounded and non-blocking; once full, it records a dropped delivery attempt rather than blocking the producer. `DurableFanout` persists first and then attempts UI delivery, so a dropped UI event does not mean lost scan evidence.
+**Mitigation.** Durable persistence precedes bounded non-blocking UI fanout. Dropped live delivery does not remove durable evidence; persisted replay is authoritative.
 
-**Tests.** `tests/test_p6_operational.py` proves bounded queue behavior. `tests/test_p6_operational_depth.py` verifies durable persistence of both events even when the second UI enqueue is dropped.
+**Tests.** `tests/test_p6_operational.py` and `tests/test_p6_operational_depth.py` prove bounded queues and durable-first fanout.
 
-**Residual risk.** A client can miss live events and need persisted replay to catch up. Operators should treat the durable event/evidence store as authoritative and the live stream as a convenience view.
+**Residual risk.** A client may miss live display and need `Last-Event-ID` replay; the durable event/evidence store remains authoritative.
 
 ### Plaintext temp or orphan-process leakage
 
-**Threat.** A crash/cancellation path can leave plaintext temporary files, child processes, browser/tool handles, or unreferenced artifact chunks behind after a scan ends.
+**Threat.** Crash/cancellation may leave plaintext temp files, subprocesses, browser/tool handles, or orphan artifact chunks after a scan.
 
-**Mitigation.** Temporary evidence is restricted to the encrypted-temp namespace. P6 `CleanupSweeper` actively unlinks registered temp files, terminates then kills stubborn registered processes within a bounded timeout, invokes the orphan-chunk sweeper, and finally fails the cleanup invariant if any registered temp/process/chunk remains.
+**Mitigation.** Temps are restricted to encrypted-temp. P6 actively unlinks registered temps, terminates then kills stubborn registered processes, sweeps orphan chunks, and fails closed if residue remains.
 
-**Tests.** `tests/test_p6_operational.py` verifies that leaked files/running processes make `assert_clean()` fail. `tests/test_p6_operational_depth.py` verifies active deletion, normal termination, forced kill of a stubborn process, orphan-chunk sweeping, and rejection of temp registrations outside encrypted-temp.
+**Tests.** `tests/test_p6_operational.py` and `tests/test_p6_operational_depth.py` verify leak detection, active deletion, graceful/forced process shutdown, orphan sweeping, and outside-temp rejection.
 
-**Residual risk.** A process unknown to the scheduler cannot be registered or cleaned by this mechanism. C7 therefore remains important: background processes/threads must be scheduler-owned and registered, otherwise the phase cannot close.
+**Residual risk.** An unregistered process cannot be cleaned. C7 therefore requires background work to be scheduler-owned and registered.
+
+## V3-A target-surface expansion
+
+### IP/CIDR declaration used as a preflight bypass
+
+**Threat.** Raw IPs, CIDRs, IP ranges, IP-addressed HTTPS, IPv6, or unusual ports could be treated as discovery output and tested without the same explicit authorization used for domain targets.
+
+**Mitigation.** Every V3-A target is a persisted declaration containing class, value, explicit port set, consent token id, and justification. CIDR/IP-range declarations additionally require `max_hosts`. `TargetDeclarationStore.declare()` runs the same live `PreFlightGuard` before persistence; `authorize_route()` re-runs preflight immediately before a target send. CIDR planning re-authorizes the declared range before host selection. No reverse-DNS/certificate name expands scope.
+
+**Tests.** `tests/test_v3_target_classes.py` declares every supported target class, requires consent/justification, verifies deterministic capped CIDR planning/rate acquisition/audit, and proves PTR output does not create a target.
+
+**Residual risk.** A very broad authorized range can still create operational load. To preserve P6 resource budgets while auditing every candidate, one declaration is limited to 4096 auditable candidate hosts; larger ranges must be split into separately justified/consented declarations.
+
+### Undeclared SNI, Host, or non-standard port injection
+
+**Threat.** A scanner might connect to an authorized IP while silently substituting an undeclared SNI, HTTP `Host`/`:authority`, or port, effectively testing a different virtual service.
+
+**Mitigation.** Ports, SNI values, and Host values are declaration fields, not discovery hints. `authorize_route()` rejects an undeclared value before the connector is invoked and records a denial audit event. The capture-layer connector never invents DNS names and keeps the socket destination literal.
+
+**Tests.** `tests/test_v3_target_classes.py` injects undeclared SNI/Host/port values and asserts connector invocation count remains zero.
+
+**Residual risk.** A permitted Host/SNI can still route within a multi-tenant service according to server configuration. Authorization therefore depends on the operator having explicitly declared that exact virtual-host value.
+
+### Literal-IP TLS verification ambiguity
+
+**Threat.** HTTPS by IP may fail normal certificate-name validation, omit SNI, expose a different default certificate, or tempt the scanner to treat certificate mismatch as a transport error and silently retry against a hostname/DNS address.
+
+**Mitigation.** V3-A pins the literal IP. It records separate IP-SAN and SNI-less verification attempts as evidence, including peer/server IP, SNI/Host sent, TLS version/cipher, certificate fingerprint, best-available chain, and verification outcome. A validation failure may be observed read-only against the same already-authorized IP; it never changes the destination. IP replay remains pinned to the original literal IP.
+
+**Tests.** `tests/test_v3_target_classes.py` verifies two cert-backed flows, additive HAR metadata, and IP-pinned replay. `tests/test_v3_ip_tls_connector.py` covers successful IP-SAN verification, captured certificate mismatch, SNI-less IPv4/IPv6 behavior, bounded response capture, transport preflight/rate recheck, and failure handling.
+
+**Residual risk.** Python/OpenSSL may expose only the leaf certificate on some platforms. Windeep records `cert_chain_complete=false` rather than fabricating intermediates; operators requiring full chain custody should run on a transport/runtime that exposes the chain.
+
+### IPv6 zone-id retargeting
+
+**Threat.** A link-local IPv6 zone id such as `%eth0` is a host-local routing hint and can make the same textual target identify a different interface/context on another operator machine.
+
+**Mitigation.** Zone/scope IDs are rejected at declaration/preflight. IPv6 services use portable `[address]:port` syntax and otherwise follow the same explicit ports, consent, rate, and evidence rules as IPv4.
+
+**Tests.** `tests/test_v3_target_classes.py` asserts a zone-id declaration is refused before any target action.
+
+**Residual risk.** Link-local addresses that legitimately require a zone cannot be tested by this portable v3 target class; operators must use a routable explicitly authorized address instead.
 
 ## Cross-phase evidence and reporting integrity
 
-P1 forensic capture records immutable raw evidence. P2 validates hashes, provenance, and completeness. P3 refuses to render evidence-backed reports from missing or corrupt bundles and redacts before export. P4 adds narrative/analysis but not proof. P5 extends provenance to chain id, contract address, pinned block, resolver response hash, source/bytecode/disassembly artifacts, engine/version/detector/SWC, and cross-engine corroboration. P6 makes stage completion and budgets durable across restart.
+P1 forensic capture records immutable raw evidence. P2 validates hashes/provenance/completeness. P3 refuses corrupt or missing bundles and redacts before export. P4 adds guarded analysis but not proof. P5 extends provenance to chain/block/resolver/engine/detector/SWC. P6 makes completion and budgets durable. V3-A extends the frozen HAR `_winddeep` block additively and preserves literal-IP identity in replay.
 
-Corrections append/supersede evidence; they do not rewrite historical evidence in place. `observed` and `needs-human-review` remain the only exploitability states. High/Critical closure requires the evidence depth defined by the phase that produced the finding.
+Corrections append/supersede evidence; they do not rewrite historical evidence. `observed` and `needs-human-review` remain the only exploitability states. High/Critical closure requires the evidence depth defined by its producing phase.
 
-## P7 closure rule
+## P7/v3 closure rule
 
-P7 is documentation backed by executable release tests, not a substitute for controls. When a new attack surface is introduced, the owning PR must add or update: (1) a named threat here, (2) its concrete mitigation, (3) an executable test reference, and (4) a non-empty residual-risk statement. **Any uncovered threat blocks phase and release closure.**
+Threat-model documentation is backed by executable release tests, not a substitute for controls. A new attack surface must add: (1) a named threat, (2) a concrete mitigation, (3) an executable test reference, and (4) a non-empty residual-risk statement. **Any uncovered threat blocks phase and release closure.**
