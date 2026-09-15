@@ -1,0 +1,37 @@
+{
+  "schema_version": 2,
+  "default": {
+    "release_support": "unsupported",
+    "unsupported_reason": "Catalogued integration is not certified for the self-contained Windows v0.1.0 release. It remains disabled until a reviewed Windows/runtime contract, license or redistribution decision, checksum pin where applicable, and non-invasive liveness verification are committed."
+  },
+  "tools": {
+    "subfinder": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/subfinder"},
+    "dnsx": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/dnsx"},
+    "httpx": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/httpx"},
+    "naabu": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/naabu"},
+    "katana": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/katana"},
+    "nuclei": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/nuclei"},
+
+    "shodan": {"release_support":"external-service","unsupported_reason":"Requires user-supplied Shodan credentials and an explicitly configured external service/API workflow; no Shodan binary is bundled."},
+    "censys": {"release_support":"external-service","unsupported_reason":"Requires user-supplied Censys credentials and an explicitly configured external service/API workflow; no Censys binary is bundled."},
+    "etherscan": {"release_support":"external-service","unsupported_reason":"Requires an authenticated Etherscan API workflow rather than a redistributable Windows binary."},
+    "corellium": {"release_support":"external-service","unsupported_reason":"External commercial service requiring a separately authorized tenant and credentials."},
+    "mobsf": {"release_support":"external-service","unsupported_reason":"Supported only as a separately deployed and explicitly configured service/container; it is not silently installed by the desktop release."},
+
+    "aquatone": {"release_support":"deprecated","unsupported_reason":"Upstream project is archived. Retained for historical catalog compatibility only.","replacement":"gowitness"},
+    "jsparser": {"release_support":"deprecated","unsupported_reason":"Registered upstream JSParser depends on Python 2.7 and is incompatible with the production runtime.","replacement":"linkfinder"},
+    "waffw00f": {"release_support":"deprecated","unsupported_reason":"Duplicate/suspect spelling. Windeep canonicalizes the maintained integration as wafw00f.","replacement":"wafw00f"},
+    "sublist3r": {"release_support":"legacy","unsupported_reason":"Legacy Python dependency stack is not certified for the packaged Windows runtime.","replacement":"subfinder"},
+
+    "burpsuite": {"release_support":"unsupported","unsupported_reason":"Commercial/independent application; Windeep does not redistribute or silently install it."},
+    "owasp_zap": {"release_support":"unsupported","unsupported_reason":"Independent Java desktop/runtime dependency is not part of the self-contained v0.1.0 package."},
+    "nmap": {"release_support":"unsupported","unsupported_reason":"Nmap/Npcap redistribution and driver installation require separate license/admin review before bundling."},
+    "tshark": {"release_support":"unsupported","unsupported_reason":"Wireshark/Npcap driver installation requires separate consent, license, and elevation handling."},
+    "metasploit": {"release_support":"unsupported","unsupported_reason":"Large independent runtime is not certified for the self-contained Windows release."},
+    "remix": {"release_support":"unsupported","unsupported_reason":"Remix is a browser IDE/link rather than a deterministic portable Windows CLI artifact.","replacement":"hardhat"},
+    "class_dump": {"release_support":"unsupported","unsupported_reason":"macOS/iOS host tooling; no native Windows execution contract."},
+    "ios_deploy": {"release_support":"unsupported","unsupported_reason":"Requires macOS/iOS host tooling; not Windows-compatible."},
+    "checkra1n": {"release_support":"unsupported","unsupported_reason":"Host/device workflow is not compatible with the Windows desktop release."},
+    "frida_server": {"release_support":"unsupported","unsupported_reason":"Device-side binary is target OS/CPU specific and must be deployed explicitly to an authorized test device."}
+  }
+}
