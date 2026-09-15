@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import re
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -34,9 +37,24 @@ _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
     "not_applicable": set(),
 }
 
+REPORT_SUBMISSION_STATUSES = ("draft", "queued", "submitted", "acknowledged", "closed")
+_REPORT_NEXT = {
+    "draft": "queued",
+    "queued": "submitted",
+    "submitted": "acknowledged",
+    "acknowledged": "closed",
+    "closed": None,
+}
+_REPORT_PLATFORMS = {"hackerone", "jira", "github"}
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+
 
 class SubmissionError(ValueError):
     """Raised when a submission workflow operation is invalid."""
+
+
+class ReportSubmissionError(ValueError):
+    """Raised when the P3 report-submission lifecycle is invalid."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,3 +228,167 @@ class SubmissionTracker:
         for submission in self.list(limit=5000):
             board[str(submission["status"])].append(submission)
         return board
+
+
+class ReportSubmissionTracker:
+    """Track P3 report delivery with strict forward-only audited transitions."""
+
+    def __init__(self, database: Database, audit: Any) -> None:
+        self.database = database
+        self.audit = audit
+        self._require_schema()
+        if not callable(getattr(database, "_enc", None)) or not callable(getattr(database, "_dec", None)):
+            raise ReportSubmissionError("P3 submission payloads require encrypted database fields")
+
+    def _require_schema(self) -> None:
+        with self.database._connect() as conn:
+            names = {
+                str(row["name"])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('report_submissions', 'report_submission_events')"
+                ).fetchall()
+            }
+        if names != {"report_submissions", "report_submission_events"}:
+            raise ReportSubmissionError("P3 reporting tables are missing; apply database migrations first")
+
+    @staticmethod
+    def _platform(value: str) -> str:
+        platform = value.strip().casefold()
+        if platform not in _REPORT_PLATFORMS:
+            raise ReportSubmissionError(f"unsupported report platform: {value}")
+        return platform
+
+    @staticmethod
+    def _digest(value: str) -> str:
+        digest = value.strip().casefold()
+        if not _SHA256_RE.fullmatch(digest):
+            raise ReportSubmissionError("report_sha256 must be a lowercase 64-character SHA-256 digest")
+        return digest
+
+    def _encode_payload(self, payload: Mapping[str, Any]) -> str:
+        raw = json.dumps(dict(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+        return self.database._enc(raw, field="report_submission.payload")
+
+    def _decode_row(self, row: Mapping[str, Any]) -> dict[str, Any]:
+        item = dict(row)
+        plaintext = self.database._dec(item.get("payload"), field="report_submission.payload")
+        item["payload"] = json.loads(plaintext) if plaintext else {}
+        return item
+
+    def create(
+        self,
+        *,
+        platform: str,
+        report_sha256: str,
+        finding_id: int | None,
+        payload: Mapping[str, Any],
+    ) -> int:
+        """Create a draft and audit that initial lifecycle state."""
+        if not isinstance(payload, Mapping):
+            raise ReportSubmissionError("payload must be an object")
+        normalized_platform = self._platform(platform)
+        digest = self._digest(report_sha256)
+        now = time.time()
+        with self.database._connect() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO report_submissions(
+                    finding_id, platform, report_sha256, status, payload,
+                    external_id, external_url, created_at, updated_at
+                ) VALUES (?, ?, ?, 'draft', ?, NULL, NULL, ?, ?)
+                """,
+                (finding_id, normalized_platform, digest, self._encode_payload(payload), now, now),
+            )
+            submission_id = int(cursor.lastrowid)
+        try:
+            audit_hash = self.audit.append(
+                "p3.submission.transition",
+                {
+                    "submission_id": submission_id,
+                    "platform": normalized_platform,
+                    "report_sha256": digest,
+                    "from_status": None,
+                    "to_status": "draft",
+                },
+            )
+        except Exception:
+            with self.database._connect() as conn:
+                conn.execute("DELETE FROM report_submissions WHERE id = ?", (submission_id,))
+            raise
+        with self.database._connect() as conn:
+            conn.execute(
+                "INSERT INTO report_submission_events(submission_id, from_status, to_status, audit_hash, created_at) VALUES (?, NULL, 'draft', ?, ?)",
+                (submission_id, audit_hash, now),
+            )
+        return submission_id
+
+    def get(self, submission_id: int) -> dict[str, Any] | None:
+        """Return one submission with its encrypted payload decrypted."""
+        with self.database._connect() as conn:
+            row = conn.execute("SELECT * FROM report_submissions WHERE id = ?", (submission_id,)).fetchone()
+        return self._decode_row(dict(row)) if row is not None else None
+
+    def transition(
+        self,
+        submission_id: int,
+        new_status: str,
+        *,
+        external_id: str | None = None,
+        external_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Move exactly one state forward and audit the transition."""
+        normalized = new_status.strip().casefold()
+        if normalized not in REPORT_SUBMISSION_STATUSES:
+            raise ReportSubmissionError(f"unsupported report submission status: {new_status}")
+        current = self.get(submission_id)
+        if current is None:
+            raise ReportSubmissionError(f"report submission not found: {submission_id}")
+        previous = str(current["status"])
+        expected = _REPORT_NEXT[previous]
+        if normalized != expected:
+            raise ReportSubmissionError(f"invalid transition: {previous} -> {normalized}")
+        now = time.time()
+        event_data = {
+            "submission_id": submission_id,
+            "platform": str(current["platform"]),
+            "report_sha256": str(current["report_sha256"]),
+            "from_status": previous,
+            "to_status": normalized,
+        }
+        audit_hash = self.audit.append("p3.submission.transition", event_data)
+        changes: list[str] = ["status = ?", "updated_at = ?"]
+        values: list[Any] = [normalized, now]
+        if external_id is not None:
+            changes.append("external_id = ?")
+            values.append(external_id)
+        if external_url is not None:
+            changes.append("external_url = ?")
+            values.append(external_url)
+        with self.database._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            live = conn.execute("SELECT status FROM report_submissions WHERE id = ?", (submission_id,)).fetchone()
+            if live is None:
+                raise ReportSubmissionError(f"report submission not found: {submission_id}")
+            if str(live["status"]) != previous:
+                raise ReportSubmissionError("submission state changed concurrently; transition refused")
+            conn.execute(
+                f"UPDATE report_submissions SET {', '.join(changes)} WHERE id = ?",
+                (*values, submission_id),
+            )
+            conn.execute(
+                "INSERT INTO report_submission_events(submission_id, from_status, to_status, audit_hash, created_at) VALUES (?, ?, ?, ?, ?)",
+                (submission_id, previous, normalized, audit_hash, now),
+            )
+        updated = self.get(submission_id)
+        if updated is None:
+            raise RuntimeError("updated report submission disappeared")
+        return updated
+
+    def history(self, submission_id: int) -> list[dict[str, Any]]:
+        """Return the append-only lifecycle history in transition order."""
+        with self.database._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, submission_id, from_status, to_status, audit_hash, created_at FROM report_submission_events WHERE submission_id = ? ORDER BY id ASC",
+                (submission_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
