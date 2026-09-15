@@ -10,6 +10,7 @@ on:
       - 'tests/test_v2_product.py'
       - 'scripts/audit/ui_v2_smoke.py'
       - 'scripts/migrate_v2_overhaul.py'
+      - 'scripts/migrate_v2_ui_selection.py'
       - 'tools_config.json'
       - 'VERSION'
 
@@ -37,7 +38,9 @@ jobs:
           cache: pip
 
       - name: Apply deterministic v2 migration
-        run: python scripts/migrate_v2_overhaul.py
+        run: |
+          python scripts/migrate_v2_overhaul.py
+          python scripts/migrate_v2_ui_selection.py
 
       - name: Install dependencies
         run: |
@@ -82,7 +85,7 @@ jobs:
         if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
         shell: bash
         run: |
-          git add app/engine/tool_wrapper.py app/server.py app/tools/config/*.json
+          git add app/engine/tool_wrapper.py app/server.py app/tools/config/*.json app/static/app.js
           if git diff --cached --quiet; then
             echo "No generated migration changes to commit."
             exit 0
