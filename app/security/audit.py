@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import threading
@@ -33,6 +34,8 @@ class AuditLog:
         payload = dict(data or {})
         with self._lock:
             previous = self._last_hash_unlocked()
+            if previous == "INVALID":
+                raise RuntimeError("audit log is corrupt; refusing to append")
             record = {"ts": time.time(), "event": event, "data": payload, "prev_hash": previous}
             digest = hashlib.sha256(previous.encode("ascii") + self._canonical(record)).hexdigest()
             record["hash"] = digest
@@ -73,7 +76,7 @@ class AuditLog:
                 if record.get("prev_hash") != previous:
                     return False, count
                 expected = hashlib.sha256(previous.encode("ascii") + self._canonical(record)).hexdigest()
-                if not hashlib.compare_digest(expected, supplied_hash):
+                if not hmac.compare_digest(expected, supplied_hash):
                     return False, count
                 previous = supplied_hash
                 count += 1
