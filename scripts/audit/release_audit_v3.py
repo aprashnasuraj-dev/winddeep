@@ -203,7 +203,7 @@ def run() -> tuple[bool, list[Check]]:
         threat_model_check(),
         contains("tests/test_v3_target_classes.py", "undeclared", "CIDR", "ip_url"),
         contains("tests/test_v3_manual_triage.py", "not-actionable", "every", "deterministic"),
-        contains("tests/test_v3_release_polish.py", "Last-Event-ID", "all-findings"),
+        contains("tests/test_v3_release_polish.py", "/api/v3/scans/", "report?format=markdown", "Actionable HTTPS", "Unclassified HTTP"),
     ]
     return all(check.ok for check in checks), checks
 
