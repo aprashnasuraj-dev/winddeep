@@ -4,7 +4,4 @@ httpx>=0.28,<1
 aiohttp>=3.12,<4
 cryptography>=43,<46
 playwright>=1.49,<2
-mitmproxy>=11,<13
 lancedb>=0.25,<1
-pytest>=8.4,<9
-pytest-asyncio>=1.1,<2
