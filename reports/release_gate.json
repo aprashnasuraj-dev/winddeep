@@ -1,0 +1,40 @@
+{
+  "decision": "NO-GO",
+  "version": "0.1.0",
+  "audit_date": "2026-09-15",
+  "branch": "release/qa-gate-v0.1.0",
+  "checks": {
+    "phase_A_static": false,
+    "phase_B_tool_liveness": false,
+    "phase_D_end_to_end": false,
+    "phase_E_dependency": false,
+    "phase_F_release_gate": false,
+    "coverage_85_percent": false,
+    "windows_clean_install": false
+  },
+  "blockers": [
+    "tools_config.json declares 137 tools but only 75 definitions exist",
+    "missing registry files: mobile.json, web3.json, secrets.json, network.json, utilities.json",
+    "installer/tools-manifest.json is empty; no external tools can be reproducibly downloaded and verified",
+    "full dashboard app/static/index.html is absent",
+    "160-test HunterTest packs and their API are absent",
+    "production server does not wire scheduler/event bus/tool wrappers/browser/capture/Brain operational APIs",
+    "standalone capture persistence is not wired to SecureDatabase/SecureFlowDatabase, so encryption at rest is not guaranteed",
+    "mitmproxy runtime contract is inconsistent between Python 3.11 dependency resolution and the documented 12.x standalone capture runtime",
+    "pytest coverage >=85% has not been demonstrated by GitHub Actions for this release branch",
+    "clean Windows installer audit cannot pass before the preceding release blockers are resolved"
+  ],
+  "release_infrastructure_added": [
+    "scripts/audit/release_audit.py",
+    "scripts/audit/windows_install_audit.ps1",
+    "requirements-dev.txt",
+    "installer/install_python.ps1",
+    "relocatable onedir Windeep.spec",
+    "recursive Inno Setup packaging",
+    "Playwright Chromium runtime staging",
+    "CycloneDX SBOM generation",
+    "tag-triggered G1-G21 GitHub Actions release workflow",
+    "GitHub Sigstore build provenance/SBOM attestations",
+    "capture unresolved-target fail-closed regression tests"
+  ]
+}

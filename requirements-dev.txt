@@ -1,0 +1,7 @@
+pytest>=8.4,<9
+pytest-asyncio>=1.1,<2
+pytest-cov>=6,<7
+coverage[toml]>=7.10,<8
+pip-audit>=2.7,<3
+cyclonedx-bom>=7,<8
+pyinstaller>=6.14,<7
