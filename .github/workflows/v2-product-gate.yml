@@ -85,7 +85,10 @@ jobs:
         if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
         shell: bash
         run: |
-          git add app/engine/tool_wrapper.py app/server.py app/tools/config/*.json app/static/app.js
+          # Stage only modifications/deletions to already tracked product files.
+          # app/tools is intentionally ignored for downloaded runtime payloads, so
+          # ordinary `git add app/tools/...` fails even for the tracked catalog.
+          git add -u -- app/engine/tool_wrapper.py app/server.py app/static/app.js app/tools/config
           if git diff --cached --quiet; then
             echo "No generated migration changes to commit."
             exit 0
