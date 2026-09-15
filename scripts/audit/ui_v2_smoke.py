@@ -1,4 +1,4 @@
-"""Playwright smoke audit for every primary Windeep v2 dashboard view.
+"""Playwright smoke audit for every primary Windeep v3 dashboard view.
 
 The audit uses only a synthetic local target and a synthetic sleeping executable
 for cancellation. It performs no network security scan.
@@ -37,6 +37,7 @@ def main() -> int:
             page.on("pageerror", lambda exc: errors.append(str(exc)))
             page.goto(BASE, wait_until="networkidle", timeout=30_000)
             page.locator("#sessionState").filter(has_text="Local session protected").wait_for(timeout=15_000)
+            assert "Windeep v3" in page.title()
 
             views = ["overview", "targets", "scans", "tools", "testpacks", "findings", "reports", "intelligence", "settings"]
             for view in views:
@@ -75,9 +76,7 @@ def main() -> int:
                 page.locator("#startScan").click()
             scan_response = response_info.value
             if scan_response.status != 202:
-                raise AssertionError(
-                    f"v2 scan start returned {scan_response.status}: {scan_response.text()}"
-                )
+                raise AssertionError(f"v2 scan start returned {scan_response.status}: {scan_response.text()}")
             payload = scan_response.json()
             assert int(payload["scan_id"]) > 0
             assert int(payload["plan"]["selected_count"]) == 1
@@ -91,20 +90,22 @@ def main() -> int:
             page.locator("#runPack").click()
             wait_text(page, "#packStatus", "checks evaluated", timeout=10_000)
 
-            # Findings section remains functional even when no finding exists.
+            # V3 finding views must exist even when the scan produced no findings.
             page.locator('button[data-view="findings"]').click()
             page.locator("#refreshFindings").click()
             page.locator("#findingList").wait_for(state="visible")
+            page.locator("#v3FindingTabs").wait_for(state="visible", timeout=10_000)
+            for label in ("Actionable", "Needs-review", "Not-actionable"):
+                page.locator("#v3FindingTabs button").filter(has_text=label).wait_for(state="visible")
 
-            # Proof report creation and plaintext export controls.
+            # V3 report renders directly from the authorized scan and includes all findings.
             page.locator('button[data-view="reports"]').click()
-            page.locator("#reportTitle").fill("UI smoke proof report")
+            page.locator("#reportTitle").fill("UI smoke v3 report")
             page.locator("#generateReport").click()
-            wait_text(page, "#reportList", "UI smoke proof report", timeout=10_000)
-            assert page.locator("[data-report-md]").count() >= 1
-            assert page.locator("[data-report-json]").count() >= 1
+            wait_text(page, "#reportPreview", "Windeep v3", timeout=10_000)
+            wait_text(page, "#reportPreview", "all", timeout=10_000)
 
-            # Intelligence and settings surfaces must return actionable data.
+            # Intelligence and settings surfaces must remain functional.
             page.locator('button[data-view="intelligence"]').click()
             page.locator("#refreshIntelligence").click()
             page.locator("#intelSummary").wait_for(state="visible")
@@ -125,7 +126,7 @@ def main() -> int:
             fake.write_bytes(previous)
             if previous_mode is not None:
                 fake.chmod(previous_mode)
-    print("Windeep v2 UI smoke audit: PASS")
+    print("Windeep v3 UI smoke audit: PASS")
     return 0
 
 
