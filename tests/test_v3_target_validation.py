@@ -134,7 +134,7 @@ def test_probe_and_replay_fail_closed_on_wrong_target_or_mismatched_ip(tmp_path:
     probe = IPLiteralHTTPSProbe(store=store, forensic=None, guard=Guard(), audit=audit, connector=connector)
     with pytest.raises(TargetClassError, match="requires an ip_url"):
         asyncio.run(probe.probe_ip_url(declaration_id))
-    with pytest.raises(TargetClassError, match="https target"):
+    with pytest.raises(TargetClassError, match="forensic store"):
         asyncio.run(probe.probe_once(declaration_id, port=443, sni=None, host_header=None, verification_attempt="ip-san"))
     with pytest.raises(TargetClassError, match="no authority"):
         build_ip_pinned_replay({"id": 1, "url": ""})
