@@ -10,11 +10,14 @@ datas = [
     (str(ROOT / "LICENSE"), "."),
     (str(ROOT / "README.md"), "."),
     (str(ROOT / "tools_config.json"), "."),
+    (str(ROOT / "requirements-capture.txt"), "."),
 ]
+# The dedicated Python 3.12 capture process executes app/capture/standalone.py
+# outside the PyInstaller interpreter. Ship the reviewed production app source
+# tree as data so that process imports the exact same crypto/database/capture
+# modules as the desktop executable, rather than resolving anything ambient.
 for source, target in [
-    (ROOT / "app" / "tools" / "config", "app/tools/config"),
-    (ROOT / "app" / "data" / "migrations", "app/data/migrations"),
-    (ROOT / "app" / "static", "app/static"),
+    (ROOT / "app", "app"),
     (ROOT / "tools", "tools"),
     (ROOT / "runtime", "runtime"),
 ]:
@@ -30,7 +33,7 @@ analysis = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=["mitmproxy"],
     noarchive=False,
 )
 pyz = PYZ(analysis.pure)
