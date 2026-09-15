@@ -50,21 +50,21 @@ async def test_start_wires_local_proxy_and_route(tmp_path, monkeypatch) -> None:
             calls["headless"] = headless
             return browser
 
-    class Playwright:
+    class PlaywrightSession:
         chromium = Chromium()
 
         async def stop(self):
             calls["playwright_stopped"] = True
 
-    playwright = Playwright()
+    playwright_session = PlaywrightSession()
 
     class Starter:
         async def start(self):
-            return playwright
+            return playwright_session
 
-    import playwright.async_api
+    from playwright import async_api as playwright_async_api
 
-    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: Starter())
+    monkeypatch.setattr(playwright_async_api, "async_playwright", lambda: Starter())
     await engine.start()
     assert calls["proxy"] == {"server": "http://127.0.0.1:8080"}
     assert calls["pattern"] == "**/*"
