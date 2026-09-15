@@ -62,6 +62,7 @@ desktop.ini
 
 # Runtime state / generated outputs
 runtime/
+state/
 tools/
 results/
 data/windeep.db
