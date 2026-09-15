@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -24,6 +25,11 @@ class FakePreflight:
 
     async def acquire_rate(self, key: str, *, cost: float = 1.0) -> None:
         self.rate_keys.append(key)
+        await asyncio.sleep(0)
+
+    async def acquire_host_rate(self, target: str, *, cost: float = 1.0) -> None:
+        parsed = urlsplit(target if "://" in target else f"https://{target}")
+        self.rate_keys.append(f"host:{parsed.hostname or target}")
         await asyncio.sleep(0)
 
 
