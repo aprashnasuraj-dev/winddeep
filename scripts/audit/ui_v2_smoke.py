@@ -95,8 +95,8 @@ def main() -> int:
             page.locator("#refreshFindings").click()
             page.locator("#findingList").wait_for(state="visible")
             page.locator("#v3FindingTabs").wait_for(state="visible", timeout=10_000)
-            for label in ("Actionable", "Needs-review", "Not-actionable"):
-                page.locator("#v3FindingTabs button").filter(has_text=label).wait_for(state="visible")
+            for tab in ("actionable", "needs-review", "not-actionable"):
+                page.locator(f'#v3FindingTabs button[data-v3-tab="{tab}"]').wait_for(state="visible")
 
             # V3 report renders directly from the authorized scan and includes all findings.
             page.locator('button[data-view="reports"]').click()
