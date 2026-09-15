@@ -4,7 +4,51 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-15
+
 ### Added
+- P3 deterministic evidence-only finding and chain reports generated exclusively from normalized findings plus closed, hash-valid P2 evidence bundles.
+- Canonical Markdown and self-contained inline-CSS HTML with stable ordering, evidence-derived timestamps, explicit CVSS v3.1 vectors/scores, captured-flow replay handles, detector provenance, duplicate context, impact, remediation, and observation-only reproduction.
+- Deterministic redaction views for captured request/response headers, bodies, URLs, and raw detector-output slices without mutating encrypted source evidence.
+- Redacted HAR export, redacted screenshot-only export, SHA-256 attachment manifests, and platform payloads for HackerOne, Jira, and GitHub without performing remote side effects.
+- Strict encrypted P3 report-submission lifecycle `draft → queued → submitted → acknowledged → closed`, with every state transition hash-chained through the audit log and persisted in append-only history.
+- P3 acceptance tests covering CVSS metric options, byte-identical renders, secret-free exports with real captured-flow references, chain narratives/severity, bundle-integrity refusal, and non-regressing audited submission state.
+
+### Changed
+- P3 report generation fails closed when a P2 evidence bundle is missing, incomplete, or fails flow/artifact integrity revalidation; it does not fall back to model-authored claims.
+- Browser-observed evidence is exportable only when an explicit redacted screenshot artifact exists. Raw encrypted screenshots remain non-exportable.
+- Existing legacy bounty `SubmissionTracker` remains compatible; the narrower P3 delivery lifecycle is implemented separately rather than rewriting historical submission semantics.
+
+### Security
+- P3 report/HTML/export surfaces contain only deterministic redacted views. Authorization headers, cookies, tokens, passwords, API keys, credentials, and secret-shaped fields are removed from exported evidence views.
+- HTML reports make no external network fetches, and P3 output contains no render-time wall clock, avoiding nondeterministic content and external asset leakage.
+- Because P1 was skipped, P3 inherits P2's fail-closed prerequisite boundary: only evidence that actually exists and validates can appear in a P3 report.
+
+## [2.2.0] - 2026-09-15
+
+### Added
+- P2 deterministic `windeep.evidence-bundle.v1` records binding findings to persisted flow IDs plus content hashes, raw artifact SHA-256 plus validated line ranges, detector provenance graphs, calibrated confidence, exploitability state, and observation-only reproduction handles.
+- Encrypted content-addressed `evidence_blobs` storage as the minimum immutable artifact primitive required for P2 integrity checks without importing the rest of the deferred P1 HAR/replay/custody scope.
+- Append-only evidence-bundle history with stable canonical JSON, SHA-256 bundle identity, explicit supersession, completeness scoring, and corruption revalidation on bundle resolution.
+- Reflection/browser-specific evidence slots for inert reflected-marker observations, screenshot artifact hashes, final URL/status, and viewport metadata.
+- P2 acceptance tests for byte-stable bundle generation, flow/artifact corruption failure, High/Critical completeness closure, closed exploitability values, and append-only supersession.
+
+### Changed
+- Evidence-bundle closure is fail-closed: missing captured flow, raw tool slice, provenance, replay handle, or required specialized evidence leaves the bundle incomplete instead of fabricating proof.
+- Exploitability is intentionally limited to `observed` and `needs-human-review`; evidence that would require exploit execution cannot be promoted to a synthetic `confirmed` state.
+
+### Security
+- P2 performs no network activity or subprocess execution. It only binds and validates already-persisted evidence, and bundle/artifact payloads remain encrypted at rest with context-specific AAD.
+- Because the requested work skips the roadmap's P1 phase, full raw-capture/HAR/replay/custody is not claimed here. P2 exposes missing prerequisites through completeness failures rather than weakening the evidence contract.
+
+## [2.1.0] - 2026-09-15
+
+### Added
+- P0 scheduler-driven v2 scan pipeline with explicit passive-recon dependencies, bounded task retries, per-tool concurrency caps, per-host rate governance, and one asyncio event loop per registered scan runtime.
+- Encrypted, versioned, monotonic scan event log supporting replayable `finding`, `progress`, `log`, `evidence`, `chain`, and `ranked` SSE events.
+- Additive `scan_events`, `scan_findings`, and `scan_authorizations` migration for gap-free event replay and idempotent `(scan_id, tool_run_id, finding_fingerprint)` persistence.
+- Deterministic post-processing order: fingerprint deduplication, chain correlation, finding ranking, then evidence-grounded heuristic hypotheses.
+- Tests for concurrency, preflight non-execution on denial, batch idempotency, stable serialization, SSE replay/redaction, and persisted finding IDs in attack-chain correlation.
 - Repository bootstrap, Windows CI/release pipeline, issue templates, security policy, and contribution guide.
 - Event-driven engine primitives: async event bus, DAG scheduler, dynamic tool wrapper factory, and scan context.
 - Fail-closed release audits for module completeness, registry/installer coverage, dependency health, local guardrails, coverage, tag/version consistency, and clean Windows packaging.
@@ -13,8 +57,17 @@ All notable changes to Windeep are documented here. This project follows Semanti
 - CycloneDX SBOM generation plus GitHub build-provenance/SBOM attestations for release artifacts.
 
 ### Changed
+- V2 scan execution no longer calls `asyncio.run()` once per integration; scans are registered and executed through the existing `TaskScheduler` on a single loop.
+- Independent task failures no longer abort unrelated branches; dependent tasks fail closed and the scan finishes as `completed_with_errors` when independent work can still be retained.
+- Preflight denials are first-class audit events; a denial that cannot be written to the audit sink fails closed.
+- V2 report generation, report export, scan-event replay, scan cancellation, and intelligence reads now require live preflight authorization derived from the encrypted scan authorization reference.
+- Existing global finding deduplication remains intact for compatibility; P0 adds encrypted per-tool-run `scan_findings` records rather than rewriting the evidence-bearing `findings` table.
 - Refreshed release workflow action majors while preserving the G1-G21 tag-release sequence.
 - Release tooling now rejects an empty tool manifest instead of silently producing an incomplete installer.
+
+### Security
+- SSE export payloads receive a deterministic P0 secret-safety pass before persistence/broadcast. The deeper reproducible redaction-map design remains scoped to P1.
+- Post-execution chain/hypothesis stages use rule-based fallback only in P0 (`LLMClient([])`), so captured target content is not sent to an external model during this phase.
 
 ## [0.1.0] - 2026-09-15
 
