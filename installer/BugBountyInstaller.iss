@@ -10,30 +10,35 @@ AppId={{731AB6B1-AD67-4D6F-B6AB-0B4D45336C91}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\Windeep
+DefaultDirName={localappdata}\Programs\Windeep
 DefaultGroupName=Windeep
 OutputDir=..\dist
 OutputBaseFilename=Windeep-Setup
-Compression=lzma2
+Compression=lzma2/ultra64
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+MinVersion=10.0
 PrivilegesRequired=lowest
 WizardStyle=modern
+SetupLogging=yes
+CloseApplications=yes
+RestartApplications=no
 UninstallDisplayIcon={app}\{#MyAppExeName}
+VersionInfoVersion={#MyAppVersion}
+VersionInfoProductName={#MyAppName}
+VersionInfoProductVersion={#MyAppVersion}
+VersionInfoCompany={#MyAppPublisher}
 
 [Files]
-Source: "..\dist\Windeep.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\VERSION"; DestDir: "{app}"; Flags: ignoreversion
-
-[Icons]
-Name: "{group}\Windeep"; Filename: "{app}\{#MyAppExeName}"
-Name: "{autodesktop}\Windeep"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Source: "..\dist\Windeep\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
+[Icons]
+Name: "{group}\Windeep"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
+Name: "{autodesktop}\Windeep"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch Windeep"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Description: "Launch Windeep"; Flags: nowait postinstall skipifsilent
