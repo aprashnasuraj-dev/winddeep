@@ -24,6 +24,13 @@ function Test-SafeRelativePath([string]$Value) {
     return -not ($parts -contains '..')
 }
 
+function Get-OptionalProperty([object]$Object, [string]$Name, $DefaultValue = $null) {
+    if ($null -ne $Object -and $Object.PSObject.Properties.Name -contains $Name) {
+        return $Object.$Name
+    }
+    return $DefaultValue
+}
+
 function Assert-Hash([string]$Path, [string]$Expected, [string]$Name) {
     if ($Expected -notmatch '^[0-9a-fA-F]{64}$') {
         throw "Invalid SHA256 for $Name"
@@ -56,7 +63,7 @@ function Invoke-SafeProbe([string]$Executable, [object[]]$Arguments, [int[]]$Exp
         $stdout = $process.StandardOutput.ReadToEnd()
         $stderr = $process.StandardError.ReadToEnd()
         if ($ExpectedExitCodes -notcontains $process.ExitCode) {
-            $detail = (($stdout + "`n" + $stderr).Trim() -replace "`r?`n", ' ') 
+            $detail = (($stdout + "`n" + $stderr).Trim() -replace "`r?`n", ' ')
             if ($detail.Length -gt 500) { $detail = $detail.Substring(0, 500) }
             throw "Probe failed for $Name with exit $($process.ExitCode): $detail"
         }
@@ -69,6 +76,9 @@ if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
     throw "Tool manifest not found: $ManifestPath"
 }
 $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+if (-not ($manifest.PSObject.Properties.Name -contains 'tools')) {
+    throw 'Tool manifest is missing the tools array.'
+}
 $tools = @($manifest.tools)
 if ($tools.Count -eq 0) {
     throw 'Tool manifest is empty. A production release must explicitly package every registered external tool.'
@@ -86,16 +96,18 @@ foreach ($tool in $tools) {
     $url = [string]$tool.url
     $sha256 = [string]$tool.sha256
     $destinationRel = [string]$tool.destination
-    $packageType = if ($null -ne $tool.package_type -and -not [string]::IsNullOrWhiteSpace([string]$tool.package_type)) { ([string]$tool.package_type).ToLowerInvariant() } else { 'file' }
+    $packageTypeRaw = [string](Get-OptionalProperty -Object $tool -Name 'package_type' -DefaultValue 'file')
+    $packageType = if ([string]::IsNullOrWhiteSpace($packageTypeRaw)) { 'file' } else { $packageTypeRaw.ToLowerInvariant() }
     $license = [string]$tool.license
     $provides = @($tool.provides)
     $probe = @($tool.probe)
-    $expectedExitCodes = if ($null -ne $tool.expected_exit_codes) { @($tool.expected_exit_codes | ForEach-Object { [int]$_ }) } else { @(0) }
+    $expectedRaw = Get-OptionalProperty -Object $tool -Name 'expected_exit_codes' -DefaultValue @(0)
+    $expectedExitCodes = @($expectedRaw | ForEach-Object { [int]$_ })
 
     if ([string]::IsNullOrWhiteSpace($name) -or [string]::IsNullOrWhiteSpace($version) -or
         [string]::IsNullOrWhiteSpace($license) -or $url -notmatch '^https://' -or
         $sha256 -notmatch '^[0-9a-fA-F]{64}$' -or -not (Test-SafeRelativePath $destinationRel) -or
-        $provides.Count -eq 0 -or $probe.Count -eq 0) {
+        $provides.Count -eq 0 -or $probe.Count -eq 0 -or $expectedExitCodes.Count -eq 0) {
         throw "Invalid manifest entry: $name"
     }
     if ($packageType -notin @('file', 'zip')) { throw "Unsupported package_type '$packageType' for $name" }
@@ -112,7 +124,8 @@ foreach ($tool in $tools) {
     New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
 
     $safeName = ($name -replace '[^A-Za-z0-9_.-]', '_')
-    $cacheFile = Join-Path $cacheRoot "$safeName-$version.download"
+    $cacheExtension = if ($packageType -eq 'zip') { '.zip' } else { '.bin' }
+    $cacheFile = Join-Path $cacheRoot "$safeName-$version$cacheExtension"
     $cacheValid = $false
     if (Test-Path -LiteralPath $cacheFile -PathType Leaf) {
         try { Assert-Hash $cacheFile $sha256 $name; $cacheValid = $true }
@@ -130,7 +143,7 @@ foreach ($tool in $tools) {
     if ($packageType -eq 'file') {
         Copy-Item -LiteralPath $cacheFile -Destination $destination -Force
     } else {
-        $archivePath = [string]$tool.archive_path
+        $archivePath = [string](Get-OptionalProperty -Object $tool -Name 'archive_path' -DefaultValue '')
         if (-not (Test-SafeRelativePath $archivePath)) { throw "Invalid archive_path for $name" }
         $extractRoot = Join-Path $env:TEMP ("WindeepToolExtract-" + [guid]::NewGuid().ToString('N'))
         try {
