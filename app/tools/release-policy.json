@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "default": {
+    "release_support": "unsupported",
+    "unsupported_reason": "Integration is catalogued but is not certified for the self-contained Windows release. It is blocked from production execution until a reviewed Windows artifact/runtime, license decision, checksum pin, and safe liveness probe are committed."
+  },
+  "tools": {
+    "subfinder": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/subfinder"},
+    "dnsx": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/dnsx"},
+    "httpx": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/httpx"},
+    "naabu": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/naabu"},
+    "katana": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/katana"},
+    "nuclei": {"release_support":"bundled","license":"MIT","homepage":"https://github.com/projectdiscovery/nuclei"},
+    "custom_regex": {"release_support":"internal","license":"Windeep project license","homepage":"internal"},
+    "aquatone": {"release_support":"deprecated","unsupported_reason":"Upstream project is archived. Retained for historical catalog compatibility only.","replacement":"gowitness"},
+    "jsparser": {"release_support":"deprecated","unsupported_reason":"Registered upstream JSParser depends on Python 2.7 and is not compatible with the production Python runtime.","replacement":"linkfinder"},
+    "waffw00f": {"release_support":"deprecated","unsupported_reason":"Duplicate/suspect spelling. Windeep canonicalizes the maintained integration as wafw00f.","replacement":"wafw00f"},
+    "sublist3r": {"release_support":"legacy","unsupported_reason":"Legacy Python dependency stack is not certified for the packaged Windows runtime.","replacement":"subfinder"},
+    "remix": {"release_support":"unsupported","unsupported_reason":"Remix is a browser IDE/link rather than a deterministic portable Windows CLI artifact.","replacement":"hardhat"},
+    "mobsf": {"release_support":"unsupported","unsupported_reason":"MobSF is an external service/container with separate deployment and authorization requirements."},
+    "corellium": {"release_support":"unsupported","unsupported_reason":"External commercial service requiring a separately authorized tenant and credentials."},
+    "class_dump": {"release_support":"unsupported","unsupported_reason":"macOS/iOS host tooling; no native Windows execution contract."},
+    "ios_deploy": {"release_support":"unsupported","unsupported_reason":"Requires macOS/iOS host tooling; not Windows-compatible."},
+    "checkra1n": {"release_support":"unsupported","unsupported_reason":"Host/device workflow is not compatible with the Windows desktop release."},
+    "frida_server": {"release_support":"unsupported","unsupported_reason":"Device-side binary is target OS/CPU specific and must be deployed explicitly to an authorized test device."},
+    "etherscan": {"release_support":"unsupported","unsupported_reason":"API integration requires a dedicated authenticated HTTP adapter; no fake external binary is accepted."},
+    "shodan": {"release_support":"unsupported","unsupported_reason":"API integration requires explicit user credentials and a dedicated HTTP adapter; no ambient shodan binary is bundled."},
+    "censys": {"release_support":"unsupported","unsupported_reason":"API integration requires explicit user credentials and a dedicated HTTP adapter; no ambient censys binary is bundled."},
+    "crtsh": {"release_support":"unsupported","unsupported_reason":"HTTP data source is retained in the catalog but not represented as a bundled binary."},
+    "burpsuite": {"release_support":"unsupported","unsupported_reason":"Commercial/independent application; Windeep does not redistribute or silently install it."},
+    "owasp_zap": {"release_support":"unsupported","unsupported_reason":"Independent Java desktop/runtime dependency is not part of the self-contained v0.1.0 package."},
+    "nmap": {"release_support":"unsupported","unsupported_reason":"Nmap/Npcap redistribution and driver installation require separate license/admin review before bundling."},
+    "tshark": {"release_support":"unsupported","unsupported_reason":"Wireshark/Npcap driver installation requires separate consent, license, and elevation handling."},
+    "metasploit": {"release_support":"unsupported","unsupported_reason":"Large independent runtime is not certified for the self-contained Windows release."}
+  }
+}
