@@ -4,9 +4,9 @@ This document is the release-blocking threat model for Windeep v3. Every attack 
 
 ## Trust boundaries and security invariants
 
-Windeep is a loopback-only authorized-security-testing application. Targets, HTTP flows, JavaScript, smart-contract source, deployed bytecode, third-party tool output, LLM-visible text, imported program scope, target-class declarations, handling policies, and report fields are untrusted input. The authenticated local operator may select targets and tools but cannot bypass scope, consent, rate, crypto, audit, evidence integrity, verification, or scheduler controls.
+Windeep is a loopback-only authorized-security-testing application. Targets, HTTP flows, JavaScript, smart-contract source, deployed bytecode, third-party tool output, LLM-visible text, imported program scope, target-class declarations, tester handling classifications, and report fields are untrusted input. The authenticated local operator may select targets and tools but cannot bypass scope, consent, rate, crypto, audit, evidence integrity, verification, or scheduler controls.
 
-P0 owns scheduler/preflight/event ordering. **P1 forensic capture** owns encrypted raw artifacts, custody metadata, hashes, redaction maps, replay inputs, and raw HTTP evidence. P2 binds findings to immutable evidence. P3 renders deterministic evidence-only reports. P4 handles guarded hard-middle/LLM assistance. P5 adds static/read-only web3 analysis. P6 adds restart recovery, budgets, observability, backpressure, and cleanup. P7 makes this model release-blocking. P8 governs compatibility and evidence-preserving schema change. V3-A broadens target classes without broadening authority.
+P0 owns scheduler/preflight/event ordering. **P1 forensic capture** owns encrypted raw artifacts, custody metadata, hashes, redaction maps, replay inputs, and raw HTTP evidence. P2 binds findings to immutable evidence. P3 renders deterministic evidence-only reports. P4 handles guarded hard-middle/LLM assistance. P5 adds static/read-only web3 analysis. P6 adds restart recovery, budgets, observability, backpressure, and cleanup. P7 makes this model release-blocking. P8 governs compatibility and evidence-preserving schema change. V3-A broadens target classes without broadening authority. V3-B adds tester-first classification/ranking without suppressing findings.
 
 Tool subprocesses remain inside the guarded wrapper/scheduler boundary. Target HTTP remains inside the capture/interceptor boundary. Web3 access is read-only. Exploitation-required conclusions remain `needs-human-review`; Windeep does not autonomously exploit, transact, fork, deploy, sign, or mutate a target.
 
@@ -164,11 +164,33 @@ Tool subprocesses remain inside the guarded wrapper/scheduler boundary. Target H
 
 **Residual risk.** Link-local addresses that legitimately require a zone cannot be tested by this portable v3 target class; operators must use a routable explicitly authorized address instead.
 
+## V3-B tester handling and ranking
+
+### Tester triage prominence mistaken for suppression
+
+**Threat.** A tester can make a serious finding less prominent by marking it `not-actionable` or `informational`, or an operator may mistake a filtered UI tab for deletion. A policy-style implementation could also accidentally suppress unclassified findings or require an external rule before reporting them.
+
+**Mitigation.** V3-B stores one audited tester classification per finding and uses deterministic scoring. `ManualTriage.rank_scan()` begins from the complete scan finding set, gives unclassified findings a `needs-review` default, and never deletes a finding. The v3 report iterates that complete ranked set and renders every finding whether classified, unclassified, verification-backed, or `not-recorded`. The Actionable / Needs-review / Not-actionable UI surfaces are views only. V3.0.0 has no `handling_policy`, `handling_rule`, or `policy: unspecified` report gate.
+
+**Tests.** `tests/test_v3_manual_triage.py` asserts invalid classifications fail closed, actionable High can outrank a tester-marked non-actionable Critical, every disposition leaves the finding stored, unclassified findings remain visible, two runs are deterministic, and every scan finding appears in the report. `tests/test_v3_release_polish.py` verifies the v3 API returns the complete finding set and the report contains both classified and unclassified findings.
+
+**Residual risk.** Tester judgment can still be wrong, and a default UI tab can influence attention. Reviewers should use the report's full finding index or inspect all three tabs when completeness matters; Windeep cannot replace human judgment with ranking math.
+
+### Verification state mistaken for report eligibility
+
+**Threat.** A missing R5 verification record could be interpreted as permission to drop a finding, especially after earlier designs treated verification as a report gate.
+
+**Mitigation.** In v3.0.0 verification is evidence annotation only. A present record displays `verified`, `partially_verified`, or `needs-review`; absence displays `not-recorded`. The report generator does not condition inclusion on verification and falls back to the normalized finding when a detailed P3 evidence section cannot render.
+
+**Tests.** `tests/test_v3_manual_triage.py` covers both present and absent verification records in all-findings reports. `tests/test_v3_release_polish.py` asserts policy/verification absence does not remove findings from the API/report surface.
+
+**Residual risk.** A `not-recorded` finding may be less defensible than one with a closed evidence bundle. The report makes that evidence gap visible; the operator remains responsible for deciding whether more collection is needed before external submission.
+
 ## Cross-phase evidence and reporting integrity
 
-P1 forensic capture records immutable raw evidence. P2 validates hashes/provenance/completeness. P3 refuses corrupt or missing bundles and redacts before export. P4 adds guarded analysis but not proof. P5 extends provenance to chain/block/resolver/engine/detector/SWC. P6 makes completion and budgets durable. V3-A extends the frozen HAR `_winddeep` block additively and preserves literal-IP identity in replay.
+P1 forensic capture records immutable raw evidence. P2 validates hashes/provenance/completeness. P3 renders redacted evidence-backed detail when a closed bundle is available. P4 adds guarded analysis but not proof. P5 extends provenance to chain/block/resolver/engine/detector/SWC. P6 makes completion and budgets durable. V3-A extends the frozen HAR `_winddeep` block additively and preserves literal-IP identity in replay. V3-B keeps the full normalized finding set visible while adding tester-driven rank/disposition and optional verification display.
 
-Corrections append/supersede evidence; they do not rewrite historical evidence. `observed` and `needs-human-review` remain the only exploitability states. High/Critical closure requires the evidence depth defined by its producing phase.
+Corrections append/supersede evidence; they do not rewrite historical evidence. `observed` and `needs-human-review` remain the only exploitability states. Evidence gaps are surfaced explicitly rather than converted into hidden deletion.
 
 ## P7/v3 closure rule
 
