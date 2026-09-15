@@ -9,6 +9,7 @@ import pytest
 from app.server import create_app
 
 CERTIFIED = {"subfinder", "dnsx", "httpx", "naabu", "katana", "nuclei"}
+CATALOG_COUNT = 137
 
 
 @pytest.fixture
@@ -66,7 +67,8 @@ def test_health_local_auth_and_static_surface(release_client) -> None:
     health_json = health.get_json()
     assert health_json["status"] == "ok"
     assert health_json["localhost_only"] is True
-    assert health_json["release_certified_tools"] == len(CERTIFIED)
+    assert health_json["integrations_total"] == CATALOG_COUNT
+    assert health_json["windows_certified_tools"] == len(CERTIFIED)
     assert health_json["test_count"] == 160
 
     assert client.get("/api/targets").status_code == 401
@@ -83,11 +85,14 @@ def test_health_local_auth_and_static_surface(release_client) -> None:
     integrations = client.get("/api/integrations").get_json()
     assert integrations["database"]["encrypted"] is True
     assert integrations["tools"]["all_scope_bound"] is True
-    assert integrations["tools"]["active"] == len(CERTIFIED)
+    assert integrations["tools"]["active"] == CATALOG_COUNT
+    assert integrations["tools"]["catalog"] == CATALOG_COUNT
+    assert integrations["tools"]["windows_certified"] == len(CERTIFIED)
     assert integrations["test_packs"]["network_actions"] == 0
 
     tools = client.get("/api/tools").get_json()
-    assert {entry["name"] for entry in tools} == CERTIFIED
+    assert len(tools) == CATALOG_COUNT
+    assert CERTIFIED.issubset({entry["name"] for entry in tools})
 
     packs = client.get("/api/test-packs").get_json()
     assert packs["total"] == 160

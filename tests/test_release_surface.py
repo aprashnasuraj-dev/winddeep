@@ -28,11 +28,12 @@ def test_release_test_catalog_is_exactly_160() -> None:
 
 def test_release_registry_is_scope_bound_and_manifest_complete() -> None:
     classes = ToolWrapperFactory(ROOT / "tools_config.json").load()
-    assert set(classes) == CERTIFIED
+    assert len(classes) == 137
+    assert CERTIFIED.issubset(classes)
     assert all(cls.requires_scope for cls in classes.values())
     manifest = json.loads((ROOT / "installer" / "tools-manifest.json").read_text(encoding="utf-8"))
     provided = {alias for entry in manifest["tools"] for alias in entry["provides"]}
-    assert provided == set(classes)
+    assert provided == CERTIFIED
     assert all(len(entry["sha256"]) == 64 for entry in manifest["tools"])
     assert all(entry["url"].startswith("https://") for entry in manifest["tools"])
 

@@ -18,6 +18,7 @@ from flask import Flask, Response, jsonify, make_response, request, send_from_di
 
 from app.engine.tool_wrapper import ToolExecutionError, ToolWrapperFactory
 from app.modules.test_packs import PACK_COUNTS, TOTAL_TESTS, list_tests, run_selected
+from app.tools.release_metadata import apply_release_metadata
 from app.security.audit import AuditLog
 from app.security.auth import AuthenticationError, LocalAuthManager, SessionClaims, is_loopback_remote
 from app.security.consent import ConsentAuthority, ConsentError
@@ -76,6 +77,7 @@ def create_app() -> Flask:
     flow_database = SecureFlowDatabase(database)
     factory = ToolWrapperFactory(registry_path)
     wrapper_classes = factory.load()
+    effective_tools = apply_release_metadata(wrapper_classes, registry_path)
     scan_cancel: set[int] = set()
     sse_lock = threading.Lock()
     sse_global: set[queue.Queue[str]] = set()
@@ -176,7 +178,7 @@ def create_app() -> Flask:
         result: list[dict[str, Any]] = []
         for name, cls in sorted(wrapper_classes.items()):
             wrapper = cls(tools_dir=tools_dir, scope_validator=lambda _value: False)
-            result.append({"name": name, "category": cls.category, "description": cls.description, "installed": wrapper.validate_installed(), "configured": not bool(wrapper.missing_environment()), "required_env": list(cls.required_env), "timeout": cls.timeout, "retries": cls.retries, "rate_limit": cls.rate_limit, "requires_scope": cls.requires_scope})
+            result.append({"name": name, "category": cls.category, "description": cls.description, "adapter": getattr(cls, "adapter_kind", "process"), "installed": wrapper.validate_installed(), "configured": not bool(wrapper.missing_environment()), "required_env": sorted(set((*cls.required_env, *wrapper.missing_environment()))), "timeout": cls.timeout, "retries": cls.retries, "rate_limit": cls.rate_limit, "requires_scope": cls.requires_scope, "release_support": getattr(cls, "release_support", "unsupported"), "windows_certified": getattr(cls, "release_support", "") == "bundled"})
         return result
 
     def select_tools(scan_type: str, modules: list[str]) -> list[str]:
@@ -187,7 +189,7 @@ def create_app() -> Flask:
 
     async def execute_one_tool(tool_name: str, target_row: dict[str, Any], *, scan_id: int | None = None) -> list[dict[str, Any]]:
         if tool_name not in wrapper_classes:
-            raise KeyError(f"unknown release-certified tool: {tool_name}")
+            raise KeyError(f"unknown tool integration: {tool_name}")
         scope = target_scope(target_row)
         cls = wrapper_classes[tool_name]
         wrapper = cls(tools_dir=tools_dir, scope_validator=scope.is_allowed)
@@ -217,7 +219,7 @@ def create_app() -> Flask:
         try:
             preflight_for(target_row, consent_id)
             if not tool_names:
-                raise ValueError("no release-certified tools matched the requested scan selection")
+                raise ValueError("no tool integrations matched the requested scan selection")
             for index, tool_name in enumerate(tool_names, start=1):
                 if scan_id in scan_cancel:
                     database.update_scan(scan_id, status="cancelled", finished_at=time.time())
@@ -267,7 +269,7 @@ def create_app() -> Flask:
         crypto_health, audit_health, auth_health = crypto.healthcheck(), audit.healthcheck(), auth.healthcheck()
         ok = bool(crypto_health["ok"] and audit_health["ok"] and auth_health["ok"])
         version = (root / "VERSION").read_text(encoding="utf-8").strip() if (root / "VERSION").exists() else "dev"
-        return jsonify({"status": "ok" if ok else "blocked", "service": "windeep", "version": version, "localhost_only": True, "release_certified_tools": len(wrapper_classes), "test_count": TOTAL_TESTS, "controls": {"crypto": crypto_health, "audit": audit_health, "dashboard_auth": auth_health, "encrypted_database": {"ok": True}}}), 200 if ok else 503
+        return jsonify({"status": "ok" if ok else "blocked", "service": "windeep", "version": version, "localhost_only": True, "integrations_total": len(wrapper_classes), "windows_certified_tools": sum(1 for cls in wrapper_classes.values() if getattr(cls, "release_support", "") == "bundled"), "test_count": TOTAL_TESTS, "controls": {"crypto": crypto_health, "audit": audit_health, "dashboard_auth": auth_health, "encrypted_database": {"ok": True}}}), 200 if ok else 503
 
     @app.post("/api/handshake")
     def handshake() -> Response:
@@ -577,7 +579,7 @@ def create_app() -> Flask:
     @app.get("/api/integrations")
     @authenticated
     def integrations() -> Response:
-        return jsonify({"database": {"encrypted": True, "implementation": type(database).__name__}, "flows": {"encrypted": True, "implementation": type(flow_database).__name__}, "tools": {"active": len(wrapper_classes), "all_scope_bound": all(cls.requires_scope for cls in wrapper_classes.values())}, "test_packs": {"count": TOTAL_TESTS, "network_actions": 0}, "browser": {"module": "app.browser.automation", "runtime": "playwright"}, "capture": {"module": "app.capture", "persistence": type(flow_database).__name__}, "brain": {"module": "app.brain", "status": "available"}})
+        return jsonify({"database": {"encrypted": True, "implementation": type(database).__name__}, "flows": {"encrypted": True, "implementation": type(flow_database).__name__}, "tools": {"active": len(wrapper_classes), "catalog": len(effective_tools), "windows_certified": sum(1 for cls in wrapper_classes.values() if getattr(cls, "release_support", "") == "bundled"), "all_scope_bound": all(cls.requires_scope for cls in wrapper_classes.values())}, "test_packs": {"count": TOTAL_TESTS, "network_actions": 0}, "browser": {"module": "app.browser.automation", "runtime": "playwright"}, "capture": {"module": "app.capture", "persistence": type(flow_database).__name__}, "brain": {"module": "app.brain", "status": "available"}})
 
     @app.get("/")
     def index() -> Response:
