@@ -20,7 +20,16 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory(prefix="windeep-sbom-") as tmp:
         base = Path(tmp) / "python-sbom.json"
-        cmd = [sys.executable, "-m", "cyclonedx_py", "environment", "--output-format", "JSON", "--outfile", str(base)]
+        cmd = [
+            sys.executable,
+            "-m",
+            "cyclonedx_py",
+            "environment",
+            "--output-format",
+            "JSON",
+            "--output-file",
+            str(base),
+        ]
         completed = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True)
         if completed.returncode != 0:
             print(completed.stdout, file=sys.stderr)
