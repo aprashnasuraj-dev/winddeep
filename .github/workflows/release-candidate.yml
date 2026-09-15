@@ -12,6 +12,8 @@ jobs:
   windows-release-candidate:
     runs-on: windows-latest
     timeout-minutes: 75
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
