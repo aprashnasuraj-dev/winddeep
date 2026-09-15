@@ -10,6 +10,7 @@ import pytest
 
 from app.database import Database
 from app.engine.event_bus import EventBus
+from app.engine.pipeline_store import PipelineStore
 from app.engine.scheduler import PipelineExecutionError, RetryPolicy, TaskScheduler, TaskSpec
 from app.security.preflight import PreFlightError
 
@@ -155,19 +156,21 @@ async def test_retry_is_bounded_and_guardrail_denial_is_never_retried() -> None:
 
 def test_scan_event_log_is_monotonic_and_gap_free(tmp_path: Path) -> None:
     db = Database(tmp_path / "windeep.db")
+    store = PipelineStore(db)
     target_id = db.create_target("Example", "web", "https://example.com")
     scan_id = db.create_scan(target_id, "v3:p0", ["fixture"])
-    first = db.append_scan_event(scan_id, "progress", {"progress": 10}, schema_version="windeep.sse.v1")
-    second = db.append_scan_event(scan_id, "evidence", {"artifact": "sha256:fixture"}, schema_version="windeep.sse.v1")
-    third = db.append_scan_event(scan_id, "ranked", {"finding_id": 7, "score": 81.0}, schema_version="windeep.sse.v1")
+    first = store.append_scan_event(scan_id, "progress", {"progress": 10}, schema_version="windeep.sse.v1")
+    second = store.append_scan_event(scan_id, "evidence", {"artifact": "sha256:fixture"}, schema_version="windeep.sse.v1")
+    third = store.append_scan_event(scan_id, "ranked", {"finding_id": 7, "score": 81.0}, schema_version="windeep.sse.v1")
     assert [first["seq"], second["seq"], third["seq"]] == [1, 2, 3]
-    replay = db.list_scan_events(scan_id, after_seq=1)
+    replay = store.list_scan_events(scan_id, after_seq=1)
     assert [row["seq"] for row in replay] == [2, 3]
     assert [row["event_type"] for row in replay] == ["evidence", "ranked"]
 
 
 def test_tool_finding_batch_upsert_is_idempotent_per_tool_run(tmp_path: Path) -> None:
     db = Database(tmp_path / "windeep.db")
+    store = PipelineStore(db)
     target_id = db.create_target("Example", "web", "https://example.com")
     scan_id = db.create_scan(target_id, "v3:p0", ["fixture"])
     run_id = db.create_tool_run(tool_name="fixture", status="running", scan_id=scan_id, target_id=target_id)
@@ -180,12 +183,12 @@ def test_tool_finding_batch_upsert_is_idempotent_per_tool_run(tmp_path: Path) ->
         "evidence": {"marker": "inert"},
         "confidence": 0.8,
     }
-    first = db.upsert_tool_findings(target_id=target_id, scan_id=scan_id, tool_run_id=run_id, tool_name="fixture", findings=[finding])
+    first = store.upsert_tool_findings(target_id=target_id, scan_id=scan_id, tool_run_id=run_id, tool_name="fixture", findings=[finding])
     finding["description"] = "same logical issue, refreshed evidence"
-    second = db.upsert_tool_findings(target_id=target_id, scan_id=scan_id, tool_run_id=run_id, tool_name="fixture", findings=[finding])
+    second = store.upsert_tool_findings(target_id=target_id, scan_id=scan_id, tool_run_id=run_id, tool_name="fixture", findings=[finding])
     assert first[0]["id"] == second[0]["id"]
     assert first[0]["created"] is True
     assert second[0]["created"] is False
     with db._connect() as conn:
-        count = conn.execute("SELECT COUNT(*) FROM findings WHERE scan_id = ? AND tool_run_id = ?", (scan_id, run_id)).fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM tool_finding_refs WHERE scan_id = ? AND tool_run_id = ?", (scan_id, run_id)).fetchone()[0]
     assert count == 1
