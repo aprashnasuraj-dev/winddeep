@@ -1,4 +1,15 @@
 {
   "schema_version": 1,
+  "tool_count": 137,
+  "includes": [
+    "app/tools/config/recon_passive.json",
+    "app/tools/config/recon_active.json",
+    "app/tools/config/web_vulns.json",
+    "app/tools/config/mobile.json",
+    "app/tools/config/web3.json",
+    "app/tools/config/secrets.json",
+    "app/tools/config/network.json",
+    "app/tools/config/utilities.json"
+  ],
   "tools": {}
 }
