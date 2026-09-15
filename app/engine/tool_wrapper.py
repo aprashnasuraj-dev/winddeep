@@ -1,8 +1,8 @@
 """Dynamic external-tool wrapper factory for Windeep.
 
 Wrappers execute binaries without a shell, validate structured inputs with
-Pydantic, enforce bounded retries/timeouts, and normalize parser output into a
-single Finding model.
+Pydantic, support argv and stdin-oriented CLIs, enforce bounded retries/timeouts,
+and normalize parser output into a single Finding model.
 """
 
 from __future__ import annotations
@@ -56,22 +56,42 @@ def _line_parser(raw: str, tool: str, target: str) -> list[Finding]:
 
 def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
     findings: list[Finding] = []
-    for line in raw.splitlines():
+    for line_number, line in enumerate(raw.splitlines(), start=1):
         if not line.strip():
             continue
-        item = json.loads(line)
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            findings.append(
+                Finding(
+                    title=line.strip(),
+                    severity="info",
+                    vuln_type="tool_output",
+                    tool=tool,
+                    endpoint=target,
+                    description="Non-JSON diagnostic line emitted alongside structured output.",
+                    evidence={"raw": line, "line_number": line_number},
+                    confidence=0.2,
+                )
+            )
+            continue
+        if not isinstance(item, dict):
+            item = {"value": item}
+        try:
+            confidence = float(item.get("confidence", 0.5))
+        except (TypeError, ValueError):
+            confidence = 0.5
+        confidence = max(0.0, min(1.0, confidence))
         findings.append(
             Finding(
-                title=str(item.get("title") or item.get("name") or "Tool finding"),
+                title=str(item.get("title") or item.get("name") or item.get("host") or item.get("url") or "Tool finding"),
                 severity=str(item.get("severity") or "info").lower(),
-                vuln_type=str(
-                    item.get("vuln_type") or item.get("type") or "tool_output"
-                ),
+                vuln_type=str(item.get("vuln_type") or item.get("type") or "tool_output"),
                 tool=tool,
-                endpoint=str(item.get("endpoint") or item.get("url") or target),
+                endpoint=str(item.get("endpoint") or item.get("url") or item.get("host") or target),
                 description=str(item.get("description") or ""),
-                evidence=item if isinstance(item, dict) else {"value": item},
-                confidence=float(item.get("confidence", 0.5)),
+                evidence=item,
+                confidence=confidence,
             )
         )
     return findings
@@ -101,11 +121,16 @@ class ToolWrapperBase:
     tool_name: ClassVar[str]
     binary: ClassVar[str]
     args_template: ClassVar[tuple[str, ...]]
+    stdin_template: ClassVar[str | None] = None
     input_schema: ClassVar[type[BaseModel]]
     output_parser: ClassVar[Parser]
     timeout: ClassVar[float]
     retries: ClassVar[int]
     rate_limit: ClassVar[float]
+    category: ClassVar[str] = "uncategorized"
+    description: ClassVar[str] = ""
+    requires_scope: ClassVar[bool] = False
+    required_env: ClassVar[tuple[str, ...]] = ()
 
     def __init__(
         self,
@@ -133,6 +158,10 @@ class ToolWrapperBase:
         """Return whether the wrapper's executable can be resolved."""
         return self.resolve_binary() is not None
 
+    def missing_environment(self) -> tuple[str, ...]:
+        """Return names of required environment variables that are not configured."""
+        return tuple(name for name in self.required_env if not os.getenv(name))
+
     def parse_output(self, raw: str, target: str) -> list[Finding]:
         """Normalize raw standard output through the configured parser."""
         return self.output_parser(raw, self.tool_name, target)
@@ -143,83 +172,107 @@ class ToolWrapperBase:
         options: Mapping[str, Any] | None = None,
     ) -> list[Finding]:
         """Validate inputs, execute the tool, and return normalized findings."""
-        if self.scope_validator is not None and not self.scope_validator(target):
-            raise PermissionError(
-                f"target is outside configured scope: {target}"
-            )
-        binary = self.resolve_binary()
-        if binary is None:
-            raise FileNotFoundError(f"tool binary not installed: {self.binary}")
-
-        values = {"target": target, **dict(options or {})}
         try:
-            validated = self.input_schema.model_validate(values).model_dump()
-        except ValidationError:
-            raise
-        argv = [str(binary), *self._render_args(validated)]
+            if self.requires_scope and self.scope_validator is None:
+                raise PermissionError(
+                    f"{self.tool_name} requires an explicit scope validator before execution"
+                )
+            if self.scope_validator is not None and not self.scope_validator(target):
+                raise PermissionError(f"target is outside configured scope: {target}")
+            missing_env = self.missing_environment()
+            if missing_env:
+                raise ToolExecutionError(
+                    f"{self.tool_name} requires environment variable(s): {', '.join(missing_env)}"
+                )
+            binary = self.resolve_binary()
+            if binary is None:
+                raise FileNotFoundError(f"tool binary not installed: {self.binary}")
 
-        last_error: BaseException | None = None
-        for attempt in range(self.retries + 1):
-            try:
-                await self._respect_rate_limit()
-                stdout, stderr, returncode = await self._run_process(argv)
-                if returncode != 0:
-                    raise ToolExecutionError(
-                        f"{self.tool_name} exited with code {returncode}: "
-                        f"{stderr.strip()[:2000]}"
-                    )
-                return self.parse_output(stdout, target)
-            except asyncio.CancelledError:
-                raise
-            except (ToolExecutionError, asyncio.TimeoutError, OSError) as exc:
-                last_error = exc
-                if attempt >= self.retries:
-                    break
-                await asyncio.sleep(min(8.0, 0.5 * (2**attempt)))
-        raise ToolExecutionError(
-            f"{self.tool_name} failed after {self.retries + 1} attempt(s): "
-            f"{last_error}"
-        )
+            values = {"target": target, **dict(options or {})}
+            validated = self.input_schema.model_validate(values).model_dump()
+            argv = [str(binary), *self._render_args(validated)]
+            stdin_data = self._render_stdin(validated)
+
+            last_error: BaseException | None = None
+            for attempt in range(self.retries + 1):
+                try:
+                    await self._respect_rate_limit()
+                    if stdin_data is None:
+                        stdout, stderr, returncode = await self._run_process(argv)
+                    else:
+                        stdout, stderr, returncode = await self._run_process(argv, stdin_data)
+                    if returncode != 0:
+                        raise ToolExecutionError(
+                            f"{self.tool_name} exited with code {returncode}: {stderr.strip()[:2000]}"
+                        )
+                    return self.parse_output(stdout, target)
+                except asyncio.CancelledError:
+                    raise
+                except (ToolExecutionError, asyncio.TimeoutError, OSError) as exc:
+                    last_error = exc
+                    if attempt >= self.retries:
+                        break
+                    await asyncio.sleep(min(8.0, 0.5 * (2**attempt)))
+            raise ToolExecutionError(
+                f"{self.tool_name} failed after {self.retries + 1} attempt(s): {last_error}"
+            )
+        except asyncio.CancelledError:
+            raise
 
     def _render_args(self, values: Mapping[str, Any]) -> list[str]:
         rendered: list[str] = []
-        string_values = {
+        string_values = self._string_values(values)
+        for token in self.args_template:
+            rendered.append(token.format_map(string_values))
+        return rendered
+
+    def _render_stdin(self, values: Mapping[str, Any]) -> bytes | None:
+        if self.stdin_template is None:
+            return None
+        rendered = self.stdin_template.format_map(self._string_values(values))
+        return rendered.encode("utf-8")
+
+    @staticmethod
+    def _string_values(values: Mapping[str, Any]) -> dict[str, str]:
+        return {
             key: json.dumps(value, separators=(",", ":"))
             if isinstance(value, (dict, list))
             else str(value)
             for key, value in values.items()
         }
-        for token in self.args_template:
-            rendered.append(token.format_map(string_values))
-        return rendered
 
     async def _respect_rate_limit(self) -> None:
-        if self.rate_limit <= 0:
-            return
-        interval = 1.0 / self.rate_limit
-        async with self._rate_lock:
-            now = time.monotonic()
-            delay = interval - (now - self._last_started)
-            if delay > 0:
-                await asyncio.sleep(delay)
-            self._last_started = time.monotonic()
+        try:
+            if self.rate_limit <= 0:
+                return
+            interval = 1.0 / self.rate_limit
+            async with self._rate_lock:
+                now = time.monotonic()
+                delay = interval - (now - self._last_started)
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                self._last_started = time.monotonic()
+        except asyncio.CancelledError:
+            raise
 
     async def _run_process(
         self,
         argv: Sequence[str],
+        stdin_data: bytes | None = None,
     ) -> tuple[str, str, int]:
         creationflags = 0
         if os.name == "nt":
             creationflags = getattr(__import__("subprocess"), "CREATE_NO_WINDOW", 0)
         process = await asyncio.create_subprocess_exec(
             *argv,
+            stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             creationflags=creationflags,
         )
         try:
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=self.timeout
+                process.communicate(stdin_data), timeout=self.timeout
             )
         except asyncio.CancelledError:
             process.kill()
@@ -254,9 +307,7 @@ class ToolWrapperFactory:
         config = json.loads(self.config_path.read_text(encoding="utf-8"))
         tools = config.get("tools")
         if not isinstance(tools, dict):
-            raise ValueError(
-                "tools_config.json must contain an object named 'tools'"
-            )
+            raise ValueError("tools_config.json must contain an object named 'tools'")
         generated: dict[str, type[ToolWrapperBase]] = {}
         for name, definition in tools.items():
             if not isinstance(definition, dict):
@@ -281,25 +332,19 @@ class ToolWrapperFactory:
     ) -> type[ToolWrapperBase]:
         binary = str(definition.get("binary") or name)
         args = definition.get("args", ["{target}"])
-        if not isinstance(args, list) or not all(
-            isinstance(value, str) for value in args
-        ):
+        if not isinstance(args, list) or not all(isinstance(value, str) for value in args):
             raise ValueError(f"tool args must be a list of strings: {name}")
+        stdin_template_raw = definition.get("stdin")
+        if stdin_template_raw is not None and not isinstance(stdin_template_raw, str):
+            raise ValueError(f"tool stdin must be a string template: {name}")
         parser_name = str(definition.get("parser", "lines"))
         if parser_name not in self.parsers:
-            raise ValueError(
-                f"unknown parser '{parser_name}' for tool '{name}'"
-            )
-        input_model = self._build_input_model(
-            name, definition.get("input_schema", {})
-        )
-        class_name = (
-            "".join(
-                part.capitalize()
-                for part in name.replace("-", "_").split("_")
-            )
-            + "Wrapper"
-        )
+            raise ValueError(f"unknown parser '{parser_name}' for tool '{name}'")
+        required_env = definition.get("required_env", [])
+        if not isinstance(required_env, list) or not all(isinstance(item, str) for item in required_env):
+            raise ValueError(f"required_env must be a list of strings: {name}")
+        input_model = self._build_input_model(name, definition.get("input_schema", {}))
+        class_name = "".join(part.capitalize() for part in name.replace("-", "_").split("_")) + "Wrapper"
         return type(
             class_name,
             (ToolWrapperBase,),
@@ -307,11 +352,16 @@ class ToolWrapperFactory:
                 "tool_name": name,
                 "binary": binary,
                 "args_template": tuple(args),
+                "stdin_template": stdin_template_raw,
                 "input_schema": input_model,
                 "output_parser": staticmethod(self.parsers[parser_name]),
                 "timeout": float(definition.get("timeout", 120.0)),
                 "retries": int(definition.get("retries", 1)),
                 "rate_limit": float(definition.get("rate_limit", 0.0)),
+                "category": str(definition.get("category") or "uncategorized"),
+                "description": str(definition.get("description") or ""),
+                "requires_scope": bool(definition.get("requires_scope", False)),
+                "required_env": tuple(required_env),
                 "__module__": __name__,
             },
         )
@@ -323,15 +373,10 @@ class ToolWrapperFactory:
         fields: dict[str, tuple[Any, Any]] = {"target": (str, ...)}
         for field_name, definition in schema.items():
             if not isinstance(definition, dict):
-                raise ValueError(
-                    f"input field must be an object: {name}.{field_name}"
-                )
+                raise ValueError(f"input field must be an object: {name}.{field_name}")
             type_name = str(definition.get("type", "str"))
             if type_name not in _TYPE_MAP:
-                raise ValueError(
-                    f"unsupported input type '{type_name}' for "
-                    f"{name}.{field_name}"
-                )
+                raise ValueError(f"unsupported input type '{type_name}' for {name}.{field_name}")
             field_type = _TYPE_MAP[type_name]
             if definition.get("required", False):
                 default: Any = ...
