@@ -62,7 +62,7 @@ jobs:
         run: ./installer/setup_tools.ps1
 
       - name: Re-run Phase B with staged binaries
-        run: python scripts/audit/release_audit.py --phase B
+        run: python scripts/audit/release_audit.py --phase B --require-installed
 
       - name: Bundle embedded Python and Playwright
         shell: pwsh
