@@ -1,4 +1,4 @@
-"""Dependency-aware asyncio task scheduler for Windeep scan pipelines."""
+"""Dependency-aware asyncio task scheduler with mandatory Windeep guardrails."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.engine.event_bus import EventBus
+from app.security.preflight import PreFlightError, PreFlightGuard
 
 Runner = Callable[[Any, Mapping[str, Any]], Awaitable[Any] | Any]
 
@@ -38,6 +39,7 @@ class TaskSpec:
     tool_name: str | None = None
     weight: float = 1.0
     continue_on_error: bool = False
+    rate_cost: float = 1.0
 
 
 @dataclass(slots=True)
@@ -50,57 +52,40 @@ class TaskState:
     error: str | None = None
 
 
-class _RateGate:
-    def __init__(self, calls_per_second: float) -> None:
-        if calls_per_second < 0:
-            raise ValueError("rate limit must be >= 0")
-        self._interval = 0.0 if calls_per_second == 0 else 1.0 / calls_per_second
-        self._lock = asyncio.Lock()
-        self._last_started = 0.0
-
-    async def wait(self) -> None:
-        if self._interval == 0:
-            return
-        async with self._lock:
-            now = time.monotonic()
-            delay = self._interval - (now - self._last_started)
-            if delay > 0:
-                await asyncio.sleep(delay)
-            self._last_started = time.monotonic()
-
-
 class TaskScheduler:
-    """Run dependency graphs with global/per-tool concurrency and rate caps."""
+    """Run scan DAGs only after mandatory guardrails authorize the scan."""
 
     def __init__(
         self,
         event_bus: EventBus,
         *,
+        preflight: PreFlightGuard | None = None,
         global_concurrency: int = 8,
         per_tool_concurrency: Mapping[str, int] | None = None,
-        per_tool_rate: Mapping[str, float] | None = None,
     ) -> None:
         if global_concurrency < 1:
             raise ValueError("global_concurrency must be >= 1")
         self._event_bus = event_bus
+        self._preflight = preflight
         self._global_semaphore = asyncio.Semaphore(global_concurrency)
         self._tool_caps = dict(per_tool_concurrency or {})
         if any(value < 1 for value in self._tool_caps.values()):
             raise ValueError("per-tool concurrency values must be >= 1")
         self._tool_semaphores: dict[str, asyncio.Semaphore] = {}
-        self._rate_gates = {
-            name: _RateGate(rate) for name, rate in (per_tool_rate or {}).items()
-        }
         self.states: dict[str, TaskState] = {}
 
-    async def execute(
-        self,
-        tasks: Sequence[TaskSpec],
-        context: Any,
-        *,
-        scan_id: str,
-    ) -> dict[str, Any]:
-        """Execute a validated DAG and return task outputs keyed by task name."""
+    async def execute(self, tasks: Sequence[TaskSpec], context: Any, *, scan_id: str) -> dict[str, Any]:
+        """Execute a validated DAG after scope, consent, rate, crypto and audit checks."""
+        if self._preflight is None:
+            raise PreFlightError("scheduler has no PreFlightGuard; scan execution is blocked")
+        target = str(getattr(context, "target", "")).strip()
+        consent_id = str(getattr(context, "consent_id", "")).strip()
+        if not target:
+            raise PreFlightError("scan context is missing a target")
+        if not consent_id:
+            raise PreFlightError("scan context is missing a signed consent id")
+        self._preflight.authorize_scan(target=target, consent_id=consent_id)
+
         specs = self._validate(tasks)
         total_weight = sum(spec.weight for spec in specs.values()) or 1.0
         completed_weight = 0.0
@@ -108,6 +93,7 @@ class TaskScheduler:
         results: dict[str, Any] = {}
         self.states = {name: TaskState() for name in specs}
         task_handles: dict[str, asyncio.Task[Any]] = {}
+        await self._event_bus.publish("scan.authorized", {"scan_id": scan_id, "target": target, "consent_id": consent_id})
 
         async def run_node(name: str) -> Any:
             nonlocal completed_weight
@@ -127,18 +113,13 @@ class TaskScheduler:
             state = self.states[name]
             state.status = "running"
             state.started_at = time.time()
-            await self._event_bus.publish(
-                "tool.started",
-                {"scan_id": scan_id, "task": name, "tool": spec.tool_name or name},
-            )
+            tool_key = spec.tool_name or name
+            await self._event_bus.publish("tool.started", {"scan_id": scan_id, "task": name, "tool": tool_key})
             try:
                 async with self._global_semaphore:
-                    tool_key = spec.tool_name or name
                     semaphore = self._tool_semaphore(tool_key)
                     async with semaphore:
-                        gate = self._rate_gates.get(tool_key)
-                        if gate is not None:
-                            await gate.wait()
+                        await self._preflight.acquire_rate(tool_key, cost=spec.rate_cost)
                         value = spec.runner(context, dependency_results)
                         if inspect.isawaitable(value):
                             value = await value
@@ -147,17 +128,12 @@ class TaskScheduler:
                 return value
             except asyncio.CancelledError:
                 state.status = "cancelled"
-                await self._event_bus.publish(
-                    "tool.cancelled", {"scan_id": scan_id, "task": name}
-                )
+                await self._event_bus.publish("tool.cancelled", {"scan_id": scan_id, "task": name})
                 raise
             except Exception as exc:
                 state.status = "failed"
                 state.error = str(exc)
-                await self._event_bus.publish(
-                    "tool.failed",
-                    {"scan_id": scan_id, "task": name, "error": str(exc)},
-                )
+                await self._event_bus.publish("tool.failed", {"scan_id": scan_id, "task": name, "error": str(exc)})
                 if spec.continue_on_error:
                     results[name] = exc
                     return exc
@@ -167,28 +143,13 @@ class TaskScheduler:
                 async with progress_lock:
                     if state.status in {"completed", "failed", "cancelled"}:
                         completed_weight += spec.weight
-                        progress = min(
-                            100.0,
-                            round((completed_weight / total_weight) * 100.0, 2),
-                        )
-                        await self._event_bus.publish(
-                            "scan.progress",
-                            {
-                                "scan_id": scan_id,
-                                "task": name,
-                                "progress": progress,
-                                "status": state.status,
-                            },
-                        )
+                        progress = min(100.0, round((completed_weight / total_weight) * 100.0, 2))
+                        await self._event_bus.publish("scan.progress", {"scan_id": scan_id, "task": name, "progress": progress, "status": state.status})
                 if state.status == "completed":
-                    await self._event_bus.publish(
-                        "tool.completed", {"scan_id": scan_id, "task": name}
-                    )
+                    await self._event_bus.publish("tool.completed", {"scan_id": scan_id, "task": name})
 
         for name in self._topological_order(specs):
-            task_handles[name] = asyncio.create_task(
-                run_node(name), name=f"windeep:{scan_id}:{name}"
-            )
+            task_handles[name] = asyncio.create_task(run_node(name), name=f"windeep:{scan_id}:{name}")
 
         try:
             await asyncio.gather(*task_handles.values())
@@ -210,17 +171,13 @@ class TaskScheduler:
             await self._event_bus.publish("scan.failed", {"scan_id": scan_id})
             raise
 
-        await self._event_bus.publish(
-            "scan.completed", {"scan_id": scan_id, "progress": 100.0}
-        )
+        await self._event_bus.publish("scan.completed", {"scan_id": scan_id, "progress": 100.0})
         return results
 
     def _tool_semaphore(self, tool_name: str) -> asyncio.Semaphore:
         semaphore = self._tool_semaphores.get(tool_name)
         if semaphore is None:
-            semaphore = asyncio.Semaphore(
-                self._tool_caps.get(tool_name, self._tool_caps.get("*", 1))
-            )
+            semaphore = asyncio.Semaphore(self._tool_caps.get(tool_name, self._tool_caps.get("*", 1)))
             self._tool_semaphores[tool_name] = semaphore
         return semaphore
 
@@ -233,20 +190,14 @@ class TaskScheduler:
             if spec.name in specs:
                 raise PipelineConfigurationError(f"duplicate task: {spec.name}")
             if spec.weight <= 0:
-                raise PipelineConfigurationError(
-                    f"task weight must be > 0: {spec.name}"
-                )
+                raise PipelineConfigurationError(f"task weight must be > 0: {spec.name}")
+            if spec.rate_cost <= 0:
+                raise PipelineConfigurationError(f"task rate_cost must be > 0: {spec.name}")
             specs[spec.name] = spec
         for spec in specs.values():
-            missing = [
-                dependency
-                for dependency in spec.dependencies
-                if dependency not in specs
-            ]
+            missing = [dependency for dependency in spec.dependencies if dependency not in specs]
             if missing:
-                raise PipelineConfigurationError(
-                    f"task '{spec.name}' has missing dependencies: {missing}"
-                )
+                raise PipelineConfigurationError(f"task '{spec.name}' has missing dependencies: {missing}")
         TaskScheduler._topological_order(specs)
         return specs
 
@@ -260,9 +211,7 @@ class TaskScheduler:
             if name in visited:
                 return
             if name in visiting:
-                raise PipelineConfigurationError(
-                    f"dependency cycle includes '{name}'"
-                )
+                raise PipelineConfigurationError(f"dependency cycle includes '{name}'")
             visiting.add(name)
             for dependency in specs[name].dependencies:
                 visit(dependency)
