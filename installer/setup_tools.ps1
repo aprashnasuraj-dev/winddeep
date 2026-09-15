@@ -1,10 +1,12 @@
 <#
 .SYNOPSIS
-Downloads pinned portable tool assets declared in tools-manifest.json.
+Stages the pinned Windows tool payload declared in tools-manifest.json.
 .DESCRIPTION
-The downloader is deterministic: each entry supplies a URL, destination path,
-and SHA-256 digest. Files are accepted only when the digest matches. An empty
-manifest is valid during bootstrap and performs no network downloads.
+Every package must have a reviewed HTTPS URL, version, license, SHA-256,
+destination, provides mapping and a non-invasive liveness probe. Downloads are
+hash verified before installation. Direct files and ZIP archives are supported.
+The script fails closed on an empty manifest, unsafe paths, hash mismatch,
+missing archive members, or failed probes.
 #>
 [CmdletBinding()]
 param(
@@ -15,42 +17,145 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
-if (-not (Test-Path -LiteralPath $ManifestPath)) {
-    throw "Tool manifest not found: $ManifestPath"
+function Test-SafeRelativePath([string]$Value) {
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    if ([IO.Path]::IsPathRooted($Value)) { return $false }
+    $parts = $Value -split '[\\/]'
+    return -not ($parts -contains '..')
 }
 
-$manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
-New-Item -ItemType Directory -Path $ToolsRoot -Force | Out-Null
+function Assert-Hash([string]$Path, [string]$Expected, [string]$Name) {
+    if ($Expected -notmatch '^[0-9a-fA-F]{64}$') {
+        throw "Invalid SHA256 for $Name"
+    }
+    $actual = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne $Expected.ToLowerInvariant()) {
+        throw "SHA256 mismatch for $Name`: expected $Expected, got $actual"
+    }
+}
 
-foreach ($tool in @($manifest.tools)) {
-    if ([string]::IsNullOrWhiteSpace($tool.name) -or
-        [string]::IsNullOrWhiteSpace($tool.url) -or
-        [string]::IsNullOrWhiteSpace($tool.sha256) -or
-        [string]::IsNullOrWhiteSpace($tool.destination)) {
-        throw 'Each tool manifest entry requires name, url, sha256, and destination.'
+function Invoke-SafeProbe([string]$Executable, [object[]]$Arguments, [int[]]$ExpectedExitCodes, [string]$Name) {
+    if (-not (Test-Path -LiteralPath $Executable -PathType Leaf)) {
+        throw "Probe target missing for $Name`: $Executable"
+    }
+    $psi = [Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName = $Executable
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    foreach ($argument in $Arguments) { $null = $psi.ArgumentList.Add([string]$argument) }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $psi
+    if (-not $process.Start()) { throw "Failed to start probe for $Name" }
+    try {
+        if (-not $process.WaitForExit(15000)) {
+            try { $process.Kill($true) } catch { }
+            throw "Probe timed out for $Name"
+        }
+        $stdout = $process.StandardOutput.ReadToEnd()
+        $stderr = $process.StandardError.ReadToEnd()
+        if ($ExpectedExitCodes -notcontains $process.ExitCode) {
+            $detail = (($stdout + "`n" + $stderr).Trim() -replace "`r?`n", ' ') 
+            if ($detail.Length -gt 500) { $detail = $detail.Substring(0, 500) }
+            throw "Probe failed for $Name with exit $($process.ExitCode): $detail"
+        }
+    } finally {
+        $process.Dispose()
+    }
+}
+
+if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
+    throw "Tool manifest not found: $ManifestPath"
+}
+$manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
+$tools = @($manifest.tools)
+if ($tools.Count -eq 0) {
+    throw 'Tool manifest is empty. A production release must explicitly package every registered external tool.'
+}
+
+$toolsRootFull = [IO.Path]::GetFullPath($ToolsRoot)
+New-Item -ItemType Directory -Path $toolsRootFull -Force | Out-Null
+$cacheRoot = Join-Path $env:TEMP 'WindeepToolCache'
+New-Item -ItemType Directory -Path $cacheRoot -Force | Out-Null
+$provided = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+
+foreach ($tool in $tools) {
+    $name = [string]$tool.name
+    $version = [string]$tool.version
+    $url = [string]$tool.url
+    $sha256 = [string]$tool.sha256
+    $destinationRel = [string]$tool.destination
+    $packageType = if ($null -ne $tool.package_type -and -not [string]::IsNullOrWhiteSpace([string]$tool.package_type)) { ([string]$tool.package_type).ToLowerInvariant() } else { 'file' }
+    $license = [string]$tool.license
+    $provides = @($tool.provides)
+    $probe = @($tool.probe)
+    $expectedExitCodes = if ($null -ne $tool.expected_exit_codes) { @($tool.expected_exit_codes | ForEach-Object { [int]$_ }) } else { @(0) }
+
+    if ([string]::IsNullOrWhiteSpace($name) -or [string]::IsNullOrWhiteSpace($version) -or
+        [string]::IsNullOrWhiteSpace($license) -or $url -notmatch '^https://' -or
+        $sha256 -notmatch '^[0-9a-fA-F]{64}$' -or -not (Test-SafeRelativePath $destinationRel) -or
+        $provides.Count -eq 0 -or $probe.Count -eq 0) {
+        throw "Invalid manifest entry: $name"
+    }
+    if ($packageType -notin @('file', 'zip')) { throw "Unsupported package_type '$packageType' for $name" }
+    foreach ($alias in $provides) {
+        if ([string]::IsNullOrWhiteSpace([string]$alias)) { throw "Empty provides alias for $name" }
+        if (-not $provided.Add([string]$alias)) { throw "Duplicate provides mapping '$alias' in manifest" }
     }
 
-    $destination = Join-Path $ToolsRoot $tool.destination
+    $destination = [IO.Path]::GetFullPath((Join-Path $toolsRootFull $destinationRel))
+    if (-not $destination.StartsWith($toolsRootFull, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Destination escapes tools root for $name`: $destinationRel"
+    }
     $destinationDir = Split-Path $destination -Parent
     New-Item -ItemType Directory -Path $destinationDir -Force | Out-Null
 
-    if (Test-Path -LiteralPath $destination) {
-        $existing = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($existing -eq $tool.sha256.ToLowerInvariant()) {
-            Write-Host "[cached] $($tool.name)"
-            continue
-        }
-        Remove-Item -LiteralPath $destination -Force
+    $safeName = ($name -replace '[^A-Za-z0-9_.-]', '_')
+    $cacheFile = Join-Path $cacheRoot "$safeName-$version.download"
+    $cacheValid = $false
+    if (Test-Path -LiteralPath $cacheFile -PathType Leaf) {
+        try { Assert-Hash $cacheFile $sha256 $name; $cacheValid = $true }
+        catch { Remove-Item -LiteralPath $cacheFile -Force -ErrorAction SilentlyContinue }
+    }
+    if (-not $cacheValid) {
+        Write-Host "[download] $name $version"
+        $partial = "$cacheFile.partial"
+        Remove-Item -LiteralPath $partial -Force -ErrorAction SilentlyContinue
+        Invoke-WebRequest -Uri $url -OutFile $partial -UseBasicParsing
+        Assert-Hash $partial $sha256 $name
+        Move-Item -LiteralPath $partial -Destination $cacheFile -Force
     }
 
-    $temporary = "$destination.download"
-    Invoke-WebRequest -Uri $tool.url -OutFile $temporary -UseBasicParsing
-    $actual = (Get-FileHash -LiteralPath $temporary -Algorithm SHA256).Hash.ToLowerInvariant()
-    $expected = $tool.sha256.ToLowerInvariant()
-    if ($actual -ne $expected) {
-        Remove-Item -LiteralPath $temporary -Force -ErrorAction SilentlyContinue
-        throw "SHA256 mismatch for $($tool.name): expected $expected, got $actual"
+    if ($packageType -eq 'file') {
+        Copy-Item -LiteralPath $cacheFile -Destination $destination -Force
+    } else {
+        $archivePath = [string]$tool.archive_path
+        if (-not (Test-SafeRelativePath $archivePath)) { throw "Invalid archive_path for $name" }
+        $extractRoot = Join-Path $env:TEMP ("WindeepToolExtract-" + [guid]::NewGuid().ToString('N'))
+        try {
+            New-Item -ItemType Directory -Path $extractRoot -Force | Out-Null
+            Expand-Archive -LiteralPath $cacheFile -DestinationPath $extractRoot -Force
+            $source = [IO.Path]::GetFullPath((Join-Path $extractRoot $archivePath))
+            $extractRootFull = [IO.Path]::GetFullPath($extractRoot)
+            if (-not $source.StartsWith($extractRootFull, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "archive_path escapes extraction root for $name"
+            }
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+                throw "Archive member missing for $name`: $archivePath"
+            }
+            Copy-Item -LiteralPath $source -Destination $destination -Force
+        } finally {
+            Remove-Item -LiteralPath $extractRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
-    Move-Item -LiteralPath $temporary -Destination $destination -Force
-    Write-Host "[installed] $($tool.name) -> $destination"
+
+    if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) {
+        throw "Installed tool missing after staging: $destination"
+    }
+    Write-Host "[installed] $name $version -> $destination"
+    Invoke-SafeProbe -Executable $destination -Arguments $probe -ExpectedExitCodes $expectedExitCodes -Name $name
+    Write-Host "[probe PASS] $name"
 }
+
+Write-Host "Staged and verified $($tools.Count) portable tool package(s)."
