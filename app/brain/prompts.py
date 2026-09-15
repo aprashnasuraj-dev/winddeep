@@ -111,8 +111,8 @@ INPUT:
 """.strip()
 
 REJECTION_LEARNER_PROMPT = r"""
-You are Windeep's rejection learner. Extract reusable lessons from a rejected report without
-storing secrets or personal data. Return JSON only:
+You are Windeep's rejection learner. Extract reusable lessons from a rejected report without storing secrets or personal data.
+Return JSON only:
 {
   "lessons": [
     {
