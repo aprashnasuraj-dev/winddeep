@@ -1,0 +1,4 @@
+pyinstaller>=6.11,<7
+pytest-cov>=6,<8
+pip-audit>=2.7,<3
+cyclonedx-bom>=7,<8
