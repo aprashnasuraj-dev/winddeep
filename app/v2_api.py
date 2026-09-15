@@ -381,6 +381,7 @@ def register_v2_api(
             if not isinstance(tool_options, dict):
                 raise ValueError("tool_options must be an object")
             scan_id = database.create_scan(target_id, f"v2:{plan['mode']}", plan["selected"])
+            database.update_scan(scan_id, status="queued", progress=0.0)
             save_scan_authorization(scan_id, target_id, consent_id)
             environment = runtime_environment()
 
@@ -490,15 +491,21 @@ def register_v2_api(
     @app.get("/api/v2/reports/<int:report_id>/download")
     @authenticated
     def v2_reports_download(report_id: int) -> tuple[Response, int] | Response:
+        # Read authorization metadata first. The evidence-bearing report row is
+        # not fetched until the target has passed live preflight.
+        with database._connect() as conn:
+            auth_row = conn.execute("SELECT target_id FROM reports WHERE id = ?", (report_id,)).fetchone()
+        if auth_row is None:
+            return jsonify({"error": "report not found"}), 404
+        try:
+            require_target_access(int(auth_row["target_id"]))
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
         with database._connect() as conn:
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
         if row is None:
             return jsonify({"error": "report not found"}), 404
         item = dict(row)
-        try:
-            require_target_access(int(item["target_id"]))
-        except PermissionError as exc:
-            return jsonify({"error": str(exc)}), 403
         title = str(item.get("title") or f"windeep-report-{report_id}")
         fmt = str(request.args.get("format") or "markdown").lower()
         try:
