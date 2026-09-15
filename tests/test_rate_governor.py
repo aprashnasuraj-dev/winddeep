@@ -49,3 +49,17 @@ async def test_wait_is_cancellable() -> None:
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.asyncio
+async def test_layered_tool_and_host_rate_charges_global_bucket_once() -> None:
+    governor = RateGovernor(
+        global_policy=RatePolicy(rate_per_second=1, burst=10),
+        default_key_policy=RatePolicy(rate_per_second=1, burst=5),
+    )
+    await governor.acquire_many(("tool:fixture", "host:example.com"), cost=1.0)
+    # A layered acquisition represents one invocation. The old two-call
+    # implementation consumed two global tokens and this assertion catches it.
+    assert governor._global.tokens == pytest.approx(9.0, abs=0.02)
+    assert governor._buckets["tool:fixture"].tokens == pytest.approx(4.0, abs=0.02)
+    assert governor._buckets["host:example.com"].tokens == pytest.approx(4.0, abs=0.02)
