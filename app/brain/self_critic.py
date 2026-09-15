@@ -47,17 +47,16 @@ class SelfCritic:
                 await self._publish(deterministic, finding, scan_id)
                 return deterministic
 
-            prompt = SELF_CRITIC_PROMPT.format(
-                context_json=json.dumps(
-                    {
-                        "finding": self._safe_finding(finding),
-                        "scope": context.scope or [context.target],
-                        "out_of_scope": context.out_of_scope,
-                    },
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
+            context_json = json.dumps(
+                {
+                    "finding": self._safe_finding(finding),
+                    "scope": context.scope or [context.target],
+                    "out_of_scope": context.out_of_scope,
+                },
+                ensure_ascii=False,
+                separators=(",", ":"),
             )
+            prompt = SELF_CRITIC_PROMPT.replace("{context_json}", context_json)
             raw = await self.llm_client.complete_json(
                 prompt,
                 heuristic=lambda: deterministic.model_dump(),
