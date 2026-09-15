@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Windeep — Windows Bug-Audit Center</title>
+  <meta name="color-scheme" content="dark light">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div id="boot-overlay" class="boot-overlay"><div class="spinner"></div><strong>Starting secure local session…</strong></div>
+<div class="app-shell">
+  <aside class="sidebar" aria-label="Windeep navigation">
+    <div class="brand"><div class="brand-mark">W</div><div><strong>Windeep</strong><span>Bug-Audit Center</span></div></div>
+    <nav id="nav">
+      <button class="nav-item active" data-section="targets"><span>🎯</span> Targets</button>
+      <button class="nav-item" data-section="scan-center"><span>📡</span> Scan Center</button>
+      <button class="nav-item" data-section="recon"><span>🔍</span> Recon</button>
+      <button class="nav-item" data-section="web-scanner"><span>🌐</span> Web Scanner</button>
+      <button class="nav-item" data-section="mobile-lab"><span>📱</span> Mobile Lab</button>
+      <button class="nav-item" data-section="web3-audit"><span>⛓</span> Web3 Audit</button>
+      <button class="nav-item" data-section="secrets"><span>🔑</span> Secrets & Keys</button>
+      <button class="nav-item" data-section="findings"><span>📊</span> Findings</button>
+      <button class="nav-item" data-section="report-builder"><span>📝</span> Reports</button>
+      <button class="nav-item" data-section="toolkit"><span>🧰</span> Toolkit</button>
+      <button class="nav-item" data-section="tools-status"><span>🛠</span> Tools Status</button>
+      <button class="nav-item" data-section="live-traffic"><span>↔</span> Live Traffic</button>
+      <button class="nav-item" data-section="brain-console"><span>🧠</span> Brain Console</button>
+      <button class="nav-item" data-section="chain-builder"><span>🔗</span> Chain Builder</button>
+      <button class="nav-item" data-section="memory-vault"><span>🗃</span> Memory Vault</button>
+      <button class="nav-item" data-section="settings"><span>⚙</span> Settings</button>
+    </nav>
+    <div class="guardrail-card">
+      <div class="status-dot" id="guard-dot"></div>
+      <div><strong>Guardrails</strong><span id="guard-status">Checking…</span></div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div><h1 id="section-title">Targets</h1><p id="section-subtitle">Authorized assets and explicit scope boundaries.</p></div>
+      <div class="top-actions"><button id="command-btn" class="ghost">⌘ Commands</button><button id="theme-btn" class="ghost" aria-label="Toggle theme">◐</button><span class="pill" id="sse-pill">offline</span></div>
+    </header>
+
+    <div id="alert" class="alert hidden" role="alert"></div>
+
+    <section id="targets" class="section active">
+      <div class="metrics" id="summary-metrics"></div>
+      <div class="grid two">
+        <article class="panel">
+          <div class="panel-head"><div><h2>Add authorized target</h2><p>Create the scope record before consent or scanning.</p></div></div>
+          <form id="target-form" class="form-grid">
+            <label>Name<input name="name" required placeholder="Example program"></label>
+            <label>Type<select name="type"><option value="web">Web</option><option value="mobile">Mobile</option><option value="web3">Web3</option></select></label>
+            <label class="wide">Target<input name="target" required placeholder="https://example.com"></label>
+            <label class="wide">In scope (one per line)<textarea name="scope" rows="3" placeholder="https://*.example.com"></textarea></label>
+            <label class="wide">Out of scope (one per line)<textarea name="out_of_scope" rows="3" placeholder="https://status.example.com"></textarea></label>
+            <label class="wide">Tags<input name="tags" placeholder="program,prod"></label>
+            <label class="wide">Notes<textarea name="notes" rows="2"></textarea></label>
+            <button class="primary wide" type="submit">Save target</button>
+          </form>
+        </article>
+        <article class="panel"><div class="panel-head"><div><h2>Targets</h2><p>Everything active in the local encrypted workspace.</p></div><button class="ghost" data-refresh="targets">Refresh</button></div><div id="targets-table" class="table-wrap"></div></article>
+      </div>
+    </section>
+
+    <section id="scan-center" class="section">
+      <div class="grid two">
+        <article class="panel">
+          <div class="panel-head"><div><h2>Consent & preflight</h2><p>Every active operation requires a live signed consent record.</p></div></div>
+          <form id="consent-form" class="form-grid">
+            <label class="wide">Target<select id="consent-target" name="target_id" required></select></label>
+            <label>Authorized by<input name="authorized_by" required placeholder="Your name / approval ref"></label>
+            <label>TTL hours<input name="ttl_hours" type="number" min="1" max="24" value="8"></label>
+            <label class="wide">Purpose<input name="purpose" required value="Authorized bug-audit validation"></label>
+            <button class="primary wide" type="submit">Issue signed consent</button>
+          </form>
+          <div id="consent-result" class="result-card muted">No consent issued in this session.</div>
+        </article>
+        <article class="panel">
+          <div class="panel-head"><div><h2>Run guarded scan</h2><p>Select only release-supported tools; global rate is capped at 25 req/s.</p></div></div>
+          <form id="scan-form" class="form-grid">
+            <label>Target<select id="scan-target" name="target_id" required></select></label>
+            <label>Global RPS<input name="global_rps" type="number" min="0.1" max="25" step="0.1" value="5"></label>
+            <label class="wide">Consent ID<input id="scan-consent" name="consent_id" required placeholder="Issue consent first"></label>
+            <div class="wide"><span class="label-text">Tools</span><div id="scan-tool-list" class="check-grid"></div></div>
+            <button class="primary wide" type="submit">Start scan</button>
+          </form>
+        </article>
+      </div>
+      <article class="panel"><div class="panel-head"><div><h2>Scan activity</h2><p>Scheduler state, results, cancellation and live events.</p></div><button class="ghost" data-refresh="scans">Refresh</button></div><div id="scans-table" class="table-wrap"></div></article>
+    </section>
+
+    <section id="recon" class="section"><article class="panel"><div class="panel-head"><div><h2>Recon integrations</h2><p>Passive and active discovery wrappers classified for this Windows release.</p></div></div><div id="recon-tools" class="card-grid"></div></article></section>
+    <section id="web-scanner" class="section">
+      <div class="grid two"><article class="panel"><h2>Web scanner</h2><p>Web-vulnerability adapters run only through the guarded scheduler.</p><div id="web-tools" class="card-grid"></div></article><article class="panel"><h2>Browser fidelity marker</h2><p>Uses an inert marker in Chromium through the encrypted local capture proxy; it does not execute script payloads.</p><form id="marker-form" class="form-grid"><label class="wide">Target<select id="marker-target" name="target_id" required></select></label><label class="wide">Consent ID<input name="consent_id" required></label><label>Parameter<input name="parameter" required placeholder="q"></label><label>Marker<input name="marker" placeholder="auto-generated"></label><label class="wide">URL override<input name="url" placeholder="optional in-scope URL"></label><button class="primary wide" type="submit">Run inert marker check</button></form><pre id="marker-result" class="terminal">No marker check yet.</pre></article></div>
+    </section>
+    <section id="mobile-lab" class="section"><article class="panel"><div class="panel-head"><div><h2>Mobile Lab</h2><p>Android/iOS integrations are explicitly labeled bundled, runtime, or unsupported.</p></div></div><div id="mobile-tools" class="card-grid"></div></article></section>
+    <section id="web3-audit" class="section"><article class="panel"><div class="panel-head"><div><h2>Web3 Audit</h2><p>Contract-analysis adapters and Windows release status.</p></div></div><div id="web3-tools" class="card-grid"></div></article></section>
+    <section id="secrets" class="section"><article class="panel"><div class="panel-head"><div><h2>Secrets & Keys</h2><p>Repository and artifact scanners; sensitive evidence stays encrypted locally.</p></div></div><div id="secrets-tools" class="card-grid"></div></article></section>
+
+    <section id="findings" class="section">
+      <div class="metrics" id="finding-metrics"></div>
+      <article class="panel"><div class="panel-head"><div><h2>Findings</h2><p>Normalized, deduplicated evidence with confidence and status.</p></div><div class="inline"><select id="findings-target"><option value="">All targets</option></select><select id="findings-severity"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option><option>info</option></select><button class="ghost" data-refresh="findings">Refresh</button></div></div><div id="findings-table" class="table-wrap virtual-table"></div></article>
+    </section>
+
+    <section id="report-builder" class="section">
+      <div class="grid two"><article class="panel"><h2>Report Builder</h2><form id="report-form" class="form-grid"><label class="wide">Target<select id="report-target" name="target_id" required></select></label><label class="wide">Title<input name="title" value="Windeep Audit Report"></label><label>Template<select name="template"><option>generic</option><option>hackerone</option></select></label><button class="primary wide" type="submit">Generate encrypted local report</button></form><pre id="report-preview" class="terminal tall">No report generated.</pre></article><article class="panel"><div class="panel-head"><div><h2>Submission Tracker</h2><p>Draft → submitted → triaged → accepted → resolved → paid.</p></div></div><div id="submissions-board" class="kanban"></div></article></div>
+    </section>
+
+    <section id="toolkit" class="section"><div class="toolkit-grid">
+      <article class="panel"><h2>Encoder / Decoder</h2><textarea id="codec-input" rows="5" placeholder="Text"></textarea><div class="inline"><button class="ghost codec" data-codec="b64e">Base64 encode</button><button class="ghost codec" data-codec="b64d">Base64 decode</button><button class="ghost codec" data-codec="url">URL encode</button></div><pre id="codec-output" class="terminal"></pre></article>
+      <article class="panel"><h2>Hash Generator</h2><textarea id="hash-input" rows="5" placeholder="Text"></textarea><button id="hash-btn" class="ghost">SHA-256</button><pre id="hash-output" class="terminal"></pre></article>
+      <article class="panel"><h2>JWT Decoder</h2><textarea id="jwt-input" rows="5" placeholder="header.payload.signature"></textarea><button id="jwt-btn" class="ghost">Decode locally</button><pre id="jwt-output" class="terminal"></pre></article>
+      <article class="panel"><h2>Timestamp</h2><input id="time-input" placeholder="Unix seconds or ISO time"><button id="time-btn" class="ghost">Convert</button><pre id="time-output" class="terminal"></pre></article>
+    </div></section>
+
+    <section id="tools-status" class="section"><article class="panel"><div class="panel-head"><div><h2>137-tool registry</h2><p>Release support, installation state, environment requirements and deprecation classification.</p></div><div class="inline"><input id="tool-filter" placeholder="Filter tools"><button class="ghost" data-refresh="tools">Refresh</button></div></div><div id="tools-table" class="table-wrap"></div></article></section>
+
+    <section id="live-traffic" class="section">
+      <div class="grid two"><article class="panel"><div class="panel-head"><div><h2>Capture proxy</h2><p>Isolated Python 3.12 + mitmproxy runtime; persistence requires an active authorized scan mapping.</p></div><div class="inline"><button id="capture-start" class="primary">Start</button><button id="capture-stop" class="danger">Stop</button></div></div><div id="capture-status" class="result-card"></div></article><article class="panel"><h2>Flow search</h2><div class="inline"><select id="flows-target"></select><input id="flow-query" placeholder="URL / path / header text"><button id="flow-search" class="ghost">Search</button></div></article></div><article class="panel"><div class="panel-head"><div><h2>Encrypted captured flows</h2><p>Bodies and headers are decrypted only after local authenticated access.</p></div></div><div id="flows-table" class="table-wrap"></div></article>
+    </section>
+
+    <section id="brain-console" class="section"><div class="grid two"><article class="panel"><h2>Brain hypotheses</h2><p>Evidence-grounded and scope-filtered; rule-based fallback works offline.</p><form id="brain-form" class="form-grid"><label class="wide">Target<select id="brain-target" name="target_id" required></select></label><label class="wide">Consent ID<input name="consent_id" required></label><button class="primary wide" type="submit">Generate hypotheses</button></form></article><article class="panel"><h2>160 Test Packs</h2><p>Evidence-driven checks skip closed when auth, two-account, or mobile prerequisites are absent.</p><form id="testpack-form" class="form-grid"><label>Target<select id="testpack-target" name="target_id" required></select></label><label>Consent ID<input name="consent_id" required></label><div id="testpack-list" class="wide check-grid"></div><button class="primary wide" type="submit">Run selected evidence tests</button></form></article></div><article class="panel"><h2>Brain output</h2><pre id="brain-output" class="terminal tall"></pre></article></section>
+
+    <section id="chain-builder" class="section"><article class="panel"><div class="panel-head"><div><h2>Finding Chain Builder</h2><p>Builds weighted evidence relationships; it does not expand scope or execute exploit chains.</p></div><div class="inline"><select id="chain-target"></select><input id="chain-consent" placeholder="Consent ID"><button id="chain-build" class="primary">Rebuild</button></div></div><div id="chains-table" class="table-wrap"></div></article></section>
+
+    <section id="memory-vault" class="section"><article class="panel"><div class="panel-head"><div><h2>Memory Vault</h2><p>Local LanceDB similarity memory with secret redaction before embedding.</p></div><div class="inline"><input id="memory-query" placeholder="Search learned patterns"><button id="memory-search" class="ghost">Search</button></div></div><div id="memory-results" class="card-grid"></div></article></section>
+
+    <section id="settings" class="section"><div class="grid two"><article class="panel"><h2>Security posture</h2><div id="settings-card" class="settings-list"></div></article><article class="panel"><h2>Live events</h2><pre id="event-log" class="terminal tall"></pre></article></div></section>
+  </main>
+</div>
+
+<dialog id="command-palette"><form method="dialog"><div class="palette-head"><input id="command-search" autofocus placeholder="Jump to a section…"><button value="close" class="ghost">Esc</button></div><div id="command-list"></div></form></dialog>
+<script src="/static/app.js" defer></script>
+</body>
+</html>
