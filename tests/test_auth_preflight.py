@@ -61,7 +61,7 @@ def test_preflight_rejects_out_of_scope_even_with_consent_and_audits_denial(tmp_
     assert count == 1
     event = json.loads(audit.path.read_text(encoding="utf-8").strip())
     assert event["event"] == "scan.denied"
-    assert event["payload"]["reason"] == "ScopeViolation"
+    assert event["data"]["reason"] == "ScopeViolation"
 
 
 def test_unhealthy_audit_blocks_preflight(tmp_path) -> None:
