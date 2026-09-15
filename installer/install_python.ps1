@@ -1,10 +1,11 @@
 <#
 .SYNOPSIS
-Stages the pinned CPython 3.11 Windows embeddable runtime for Windeep releases.
+Stages the pinned CPython 3.11 runtime and Playwright Chromium for Windeep.
 .DESCRIPTION
 Downloads the official python.org x64 embeddable archive, verifies its SHA-256,
-and expands it under runtime/python. This runtime is for bundled Python-based
-external tools; the Windeep application itself is packaged by PyInstaller.
+expands it under runtime/python, and stages the Playwright-managed Chromium
+revision under runtime/playwright-browsers. The application itself is packaged
+by PyInstaller; the embedded Python runtime is for bundled Python-based tools.
 #>
 [CmdletBinding()]
 param(
@@ -15,6 +16,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+$repoRoot = Split-Path $PSScriptRoot -Parent
 $known = @{
     '3.11.9' = @{
         Url = 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-embeddable-amd64.zip'
@@ -68,3 +70,24 @@ if ($LASTEXITCODE -ne 0 -or $reported -notmatch [regex]::Escape($Version)) {
     throw "Embedded runtime self-check failed: $reported"
 }
 Write-Host "Embedded runtime ready: $reported -> $Destination"
+
+# Playwright browser binaries are a separate runtime dependency. G3 installs
+# the Python Playwright package; stage the exact Chromium revision it expects so
+# the installed and portable applications never require a post-install download.
+$browsers = Join-Path $repoRoot 'runtime\playwright-browsers'
+if (Test-Path -LiteralPath $browsers) { Remove-Item -LiteralPath $browsers -Recurse -Force }
+New-Item -ItemType Directory -Path $browsers -Force | Out-Null
+$oldBrowsers = $env:PLAYWRIGHT_BROWSERS_PATH
+$oldGc = $env:PLAYWRIGHT_SKIP_BROWSER_GC
+try {
+    $env:PLAYWRIGHT_BROWSERS_PATH = $browsers
+    $env:PLAYWRIGHT_SKIP_BROWSER_GC = '1'
+    & python -m playwright install chromium
+    if ($LASTEXITCODE -ne 0) { throw "Playwright Chromium install failed with exit code $LASTEXITCODE" }
+    $browserFiles = @(Get-ChildItem -LiteralPath $browsers -Recurse -File -ErrorAction Stop)
+    if ($browserFiles.Count -eq 0) { throw "Playwright Chromium staging produced no files in $browsers" }
+    Write-Host "Playwright Chromium staged -> $browsers"
+} finally {
+    if ($null -eq $oldBrowsers) { Remove-Item Env:PLAYWRIGHT_BROWSERS_PATH -ErrorAction SilentlyContinue } else { $env:PLAYWRIGHT_BROWSERS_PATH = $oldBrowsers }
+    if ($null -eq $oldGc) { Remove-Item Env:PLAYWRIGHT_SKIP_BROWSER_GC -ErrorAction SilentlyContinue } else { $env:PLAYWRIGHT_SKIP_BROWSER_GC = $oldGc }
+}
