@@ -1,0 +1,4 @@
+# Dedicated capture runtime. This file is intentionally separate from requirements.txt
+# because mitmproxy 12.x requires Python >=3.12 while the Windeep application is
+# released and tested on Python 3.11.
+mitmproxy==12.2.3
