@@ -13,7 +13,7 @@ import os
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from app.capture.mitm_addon import CaptureAddon
 from app.security.crypto import CryptoManager
@@ -25,10 +25,10 @@ def _state_dir() -> Path:
     return Path(os.environ.get("WINDEEP_STATE_DIR") or (Path.home() / ".windeep")).resolve()
 
 
-def _post_json(url: str, payload: dict[str, Any], token: str, *, timeout: float = 2.0) -> dict[str, Any]:
+def _post_json(url: str, payload: Mapping[str, Any], token: str, *, timeout: float = 2.0) -> dict[str, Any]:
     request = urllib.request.Request(
         url,
-        data=json.dumps(payload).encode("utf-8"),
+        data=json.dumps(dict(payload), ensure_ascii=False).encode("utf-8"),
         headers={
             "content-type": "application/json",
             "x-windeep-capture-token": token,
@@ -40,10 +40,31 @@ def _post_json(url: str, payload: dict[str, Any], token: str, *, timeout: float 
         with urllib.request.urlopen(request, timeout=timeout) as response:
             if int(response.status) != 200:
                 return {}
-            value = json.loads(response.read().decode("utf-8"))
+            raw = response.read()
+            if not raw:
+                return {}
+            value = json.loads(raw.decode("utf-8"))
             return value if isinstance(value, dict) else {}
     except (OSError, ValueError, urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
         return {}
+
+
+class SecureCaptureAddon(CaptureAddon):
+    """Capture addon that authenticates callback events to the local app."""
+
+    def __init__(self, *args: Any, callback_token: str, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.callback_token = callback_token
+
+    def _post_event(self, topic: str, payload: Mapping[str, Any]) -> None:
+        if not self.event_endpoint or not self.callback_token:
+            return
+        _post_json(
+            self.event_endpoint,
+            {"topic": topic, "payload": dict(payload)},
+            self.callback_token,
+            timeout=1.5,
+        )
 
 
 def build_addon() -> CaptureAddon:
@@ -70,10 +91,11 @@ def build_addon() -> CaptureAddon:
         except (TypeError, ValueError):
             return None, None
 
-    return CaptureAddon(
+    return SecureCaptureAddon(
         flows,
         event_endpoint=event_url,
         target_resolver=resolve,
+        callback_token=token,
     )
 
 
