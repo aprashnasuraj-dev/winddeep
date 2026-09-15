@@ -155,3 +155,45 @@ Windeep is a loopback-only authorized-security-testing application. Targets, cap
 **Tests.** P2 fixtures verify that reflection/browser findings remain incomplete until the specialized evidence is present, and that supplying the content-addressed screenshot plus marker observation produces a complete bundle.
 
 **Residual risk.** The screenshot metadata is only as trustworthy as the capture subsystem that produced it. P2 binds what exists; P1/P5 must establish deeper browser-capture custody and origin/redirect enforcement.
+
+## P3 deterministic reporting
+
+### Secret leakage through reports, HAR, or screenshots
+
+**Threat.** Evidence-bearing HTTP headers, bodies, URLs, detector output, or screenshots may contain authorization tokens, cookies, API keys, passwords, session identifiers, or target-controlled secret-shaped fields that must not leave encrypted evidence storage in plaintext exports.
+
+**Mitigation.** P3 builds report surfaces from redacted views only. Sensitive header/key names are masked deterministically; bearer and assignment-shaped secrets are replaced before Markdown/HTML/HAR construction. Raw screenshots are never exportable: browser-observed findings require an explicit content-addressed redacted screenshot artifact for image export. Source evidence remains unchanged and encrypted.
+
+**Tests.** `tests/test_p3_reporting.py` injects secrets into request headers, response cookies, response JSON, and raw detector output, then asserts that none occur in Markdown, HTML, HAR, manifest, or platform export files while `[REDACTED]` remains visible.
+
+**Residual risk.** Fixed P3 redaction semantics intentionally avoid user-supplied regex execution. Novel secret formats that do not match key or token semantics may require the deferred P1 versioned redaction-map engine before generalized arbitrary exports are considered complete.
+
+### Evidence invention, stale evidence, or report drift
+
+**Threat.** A renderer could describe a vulnerability without stored proof, silently use stale/tampered evidence, add model-authored speculation, or emit different bytes from the same finding on repeated renders.
+
+**Mitigation.** `ReportGenerator` requires a closed P2 bundle and invokes bundle resolution before every render, revalidating persisted flow and artifact hashes. CVSS is recomputed from an explicit `CVSS:3.1` vector; missing vectors fail closed rather than being guessed. Report timestamps come from captured evidence, ordering is total and stable, line endings are fixed, and no render-time wall clock enters canonical Markdown. Observed reports contain deterministic evidence-derived claims; hedging is permitted only for the explicit `needs-human-review` state.
+
+**Tests.** P3 renders the same finding twice and requires byte-identical Markdown, HTML, and report SHA-256; it tampers with a bound flow and requires a reporting integrity failure; it also rejects a finding without a P2 bundle.
+
+**Residual risk.** P3 can validate only evidence captured by earlier phases. Because P1 remains skipped, findings without the required raw/captured prerequisites cannot become P3 reports until those prerequisites exist.
+
+### External asset loading or HTML exfiltration
+
+**Threat.** A report viewed in a browser could load remote CSS, images, scripts, or hyperlinks that reveal viewer network metadata or make report rendering nondeterministic.
+
+**Mitigation.** P3 HTML is self-contained with inline CSS and escaped canonical Markdown. Optional images are embedded as data URIs from redacted evidence artifacts. The renderer emits no remote stylesheet/image/script references and no external fetch is performed to construct HTML.
+
+**Tests.** P3 snapshot assertions require inline `<style>` while rejecting external `<link>`, `src="http`, and `href="http` constructs.
+
+**Residual risk.** Markdown itself may contain captured URL text for triage context; it is rendered as escaped text, not an auto-fetched HTML resource. Downstream third-party Markdown viewers may choose to auto-link text, which is outside Windeep's renderer boundary.
+
+### Submission-state regression or unaudited delivery
+
+**Threat.** A report could be marked submitted/closed out of order, rolled backward after acknowledgement, or have its delivery history changed without an audit-chain record.
+
+**Mitigation.** P3 uses a separate forward-only five-state lifecycle: `draft → queued → submitted → acknowledged → closed`. Creation and every transition append a hash-chained audit event and an append-only `report_submission_events` record. Payloads are encrypted at rest. Legacy bounty workflow state is not rewritten.
+
+**Tests.** P3 transitions a fixture through every state, verifies the exact append-only history, rejects a closed-to-submitted regression, and verifies the audit hash chain contains one event per lifecycle state.
+
+**Residual risk.** The P3 tracker records delivery intent/state and platform payloads; this phase does not perform remote HackerOne/Jira/GitHub network submission itself, so acknowledgement must be supplied by a later authorized connector/integration layer.

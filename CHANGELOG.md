@@ -4,6 +4,26 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-15
+
+### Added
+- P3 deterministic evidence-only finding and chain reports generated exclusively from normalized findings plus closed, hash-valid P2 evidence bundles.
+- Canonical Markdown and self-contained inline-CSS HTML with stable ordering, evidence-derived timestamps, explicit CVSS v3.1 vectors/scores, captured-flow replay handles, detector provenance, duplicate context, impact, remediation, and observation-only reproduction.
+- Deterministic redaction views for captured request/response headers, bodies, URLs, and raw detector-output slices without mutating encrypted source evidence.
+- Redacted HAR export, redacted screenshot-only export, SHA-256 attachment manifests, and platform payloads for HackerOne, Jira, and GitHub without performing remote side effects.
+- Strict encrypted P3 report-submission lifecycle `draft → queued → submitted → acknowledged → closed`, with every state transition hash-chained through the audit log and persisted in append-only history.
+- P3 acceptance tests covering CVSS metric options, byte-identical renders, secret-free exports with real captured-flow references, chain narratives/severity, bundle-integrity refusal, and non-regressing audited submission state.
+
+### Changed
+- P3 report generation fails closed when a P2 evidence bundle is missing, incomplete, or fails flow/artifact integrity revalidation; it does not fall back to model-authored claims.
+- Browser-observed evidence is exportable only when an explicit redacted screenshot artifact exists. Raw encrypted screenshots remain non-exportable.
+- Existing legacy bounty `SubmissionTracker` remains compatible; the narrower P3 delivery lifecycle is implemented separately rather than rewriting historical submission semantics.
+
+### Security
+- P3 report/HTML/export surfaces contain only deterministic redacted views. Authorization headers, cookies, tokens, passwords, API keys, credentials, and secret-shaped fields are removed from exported evidence views.
+- HTML reports make no external network fetches, and P3 output contains no render-time wall clock, avoiding nondeterministic content and external asset leakage.
+- Because P1 was skipped, P3 inherits P2's fail-closed prerequisite boundary: only evidence that actually exists and validates can appear in a P3 report.
+
 ## [2.2.0] - 2026-09-15
 
 ### Added
