@@ -2,13 +2,22 @@
 from __future__ import annotations
 
 import argparse
-import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
 def normalize(name: str) -> str:
     return name.replace("\\", "/").lstrip("./")
+
+
+def candidates(name: str) -> tuple[str, ...]:
+    normalized = normalize(name)
+    values = [normalized]
+    # pytest-cov may emit paths relative to the measured source root. With
+    # ``--cov=app`` that means ``v3/api.py`` instead of ``app/v3/api.py``.
+    if normalized.startswith("app/"):
+        values.append(normalized[len("app/"):])
+    return tuple(dict.fromkeys(values))
 
 
 def main() -> int:
@@ -31,12 +40,17 @@ def main() -> int:
     failed = False
     for raw in args.modules:
         wanted = normalize(raw)
-        matches = [(name, rate) for name, rate in by_name.items() if name == wanted or name.endswith("/" + wanted)]
+        acceptable = candidates(wanted)
+        matches = [
+            (name, rate)
+            for name, rate in by_name.items()
+            if any(name == value or name.endswith("/" + value) for value in acceptable)
+        ]
         if not matches:
             print(f"[FAIL] {wanted}: absent from coverage XML")
             failed = True
             continue
-        name, rate = max(matches, key=lambda item: item[1])
+        _name, rate = max(matches, key=lambda item: item[1])
         ok = rate + 1e-9 >= args.minimum
         print(f"[{'PASS' if ok else 'FAIL'}] {wanted}: {rate:.2f}% (minimum {args.minimum:.2f}%)")
         failed = failed or not ok
