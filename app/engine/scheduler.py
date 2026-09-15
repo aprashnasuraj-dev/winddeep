@@ -292,10 +292,14 @@ class TaskScheduler:
                 async with self._global_semaphore:
                     semaphore = self._tool_semaphore(tool_key)
                     async with semaphore:
-                        await self._preflight.acquire_rate(tool_key, cost=spec.rate_cost)
-                        acquire_host_rate = getattr(self._preflight, "acquire_host_rate", None)
-                        if callable(acquire_host_rate):
-                            await acquire_host_rate(target, cost=spec.rate_cost)
+                        acquire_layered_rate = getattr(self._preflight, "acquire_tool_and_host_rate", None)
+                        if callable(acquire_layered_rate):
+                            await acquire_layered_rate(tool_key, target, cost=spec.rate_cost)
+                        else:
+                            await self._preflight.acquire_rate(tool_key, cost=spec.rate_cost)
+                            acquire_host_rate = getattr(self._preflight, "acquire_host_rate", None)
+                            if callable(acquire_host_rate):
+                                await acquire_host_rate(target, cost=spec.rate_cost)
                         value = spec.runner(context, dependency_results)
                         if inspect.isawaitable(value):
                             value = await asyncio.wait_for(value, timeout=spec.timeout)
