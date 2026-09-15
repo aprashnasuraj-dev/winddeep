@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import os
 import stat
-import sys
-import time
 from pathlib import Path
 
 from playwright.sync_api import Page, sync_playwright
@@ -70,7 +68,19 @@ def main() -> int:
             page.locator("#scanToolSelect").select_option(["assetfinder"])
             page.locator("#previewPlan").click()
             wait_text(page, "#scanPlan", "1 selected")
-            page.locator("#startScan").click()
+            with page.expect_response(
+                lambda response: response.url.endswith("/api/v2/scans") and response.request.method == "POST",
+                timeout=10_000,
+            ) as response_info:
+                page.locator("#startScan").click()
+            scan_response = response_info.value
+            if scan_response.status != 202:
+                raise AssertionError(
+                    f"v2 scan start returned {scan_response.status}: {scan_response.text()}"
+                )
+            payload = scan_response.json()
+            assert int(payload["scan_id"]) > 0
+            assert int(payload["plan"]["selected_count"]) == 1
             page.locator("[data-scan-stop]").first.wait_for(state="visible", timeout=10_000)
             page.locator("[data-scan-stop]").first.click()
             wait_text(page, "#scanList", "cancelled", timeout=10_000)
