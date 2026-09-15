@@ -1,0 +1,85 @@
+name: Promote verified v0.1.0 tag
+
+on:
+  push:
+    branches:
+      - 'release/promote-v0.1.0'
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  promote:
+    name: promote-exact-candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout promotion branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact successful candidate and unchanged main
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: 8425c53ea8699e1d3fd2d5cc5c46a67b3bfd0ca0
+          CANDIDATE_RUN_ID: '34930736906'
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git fetch origin main --tags --force
+          current_main="$(git rev-parse origin/main)"
+          if [ "$current_main" != "$RELEASE_SHA" ]; then
+            echo "main moved: expected $RELEASE_SHA got $current_main" >&2
+            exit 1
+          fi
+          python - <<'PY'
+          import json, os, urllib.request
+          repo = os.environ['REPOSITORY']
+          run_id = os.environ['CANDIDATE_RUN_ID']
+          release_sha = os.environ['RELEASE_SHA']
+          request = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/actions/runs/{run_id}",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              run = json.load(response)
+          expected = {
+              "status": "completed",
+              "conclusion": "success",
+              "head_sha": release_sha,
+              "event": "push",
+              "path": ".github/workflows/release-candidate.yml",
+          }
+          for key, value in expected.items():
+              if run.get(key) != value:
+                  raise SystemExit(f"candidate proof mismatch for {key}: expected {value!r}, got {run.get(key)!r}")
+          print(f"candidate run {run_id} PASS for {release_sha}")
+          PY
+          if git show-ref --verify --quiet refs/tags/v0.1.0; then
+            existing="$(git rev-list -n 1 refs/tags/v0.1.0)"
+            if [ "$existing" != "$RELEASE_SHA" ]; then
+              echo "v0.1.0 already exists at $existing, expected $RELEASE_SHA" >&2
+              exit 1
+            fi
+            echo "v0.1.0 already points to verified candidate"
+          fi
+
+      - name: Create and push v0.1.0 from verified candidate
+        shell: bash
+        env:
+          RELEASE_SHA: 8425c53ea8699e1d3fd2d5cc5c46a67b3bfd0ca0
+        run: |
+          set -euo pipefail
+          if git show-ref --verify --quiet refs/tags/v0.1.0; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a v0.1.0 "$RELEASE_SHA" -m 'Windeep v0.1.0 verified release candidate'
+          git push origin refs/tags/v0.1.0
