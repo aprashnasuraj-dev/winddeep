@@ -1,9 +1,9 @@
-"""Release-support metadata overlay for generated tool-wrapper classes.
+"""Release-support metadata for the complete Windeep tool catalog.
 
-Execution behavior remains in ToolWrapperFactory. This module only carries the
-Windows-release classification used by the UI, installer audit, and runtime
-gate so unsupported/deprecated integrations cannot be mistaken for bundled
-working tools.
+The root registry deliberately separates ``catalog_includes`` (all documented
+integrations) from ``includes`` (the small, executable Windows release set).
+This module evaluates the complete catalog for release auditing while allowing
+runtime classes to be a certified subset of that catalog.
 """
 from __future__ import annotations
 
@@ -36,11 +36,15 @@ def load_definitions(config_path: str | Path) -> dict[str, dict[str, Any]]:
             if not isinstance(definition, Mapping):
                 raise ValueError(f"tool definition must be an object: {name}")
             output[str(name)] = dict(definition)
-        includes = raw.get("includes", [])
-        if not isinstance(includes, list):
-            raise ValueError(f"includes must be a list: {path}")
+
+        # Only the root has a catalog/runtime split. Child registries retain the
+        # ordinary includes key so nested modular registries remain supported.
+        includes_key = "catalog_includes" if path == root_config and "catalog_includes" in raw else "includes"
+        includes = raw.get(includes_key, [])
+        if not isinstance(includes, list) or not all(isinstance(item, str) for item in includes):
+            raise ValueError(f"{includes_key} must be a list of paths: {path}")
         for include in includes:
-            child = (include_root / str(include)).resolve()
+            child = (include_root / include).resolve()
             for name, definition in load(child).items():
                 if name in output:
                     raise ValueError(f"duplicate tool definition: {name}")
@@ -61,10 +65,14 @@ def load_release_policy(config_path: str | Path) -> dict[str, Any]:
     tools = raw.get("tools")
     if not isinstance(default, Mapping) or not isinstance(tools, Mapping):
         raise ValueError("release policy requires default and tools objects")
-    return {"default": dict(default), "tools": {str(k): dict(v) for k, v in tools.items() if isinstance(v, Mapping)}}
+    return {
+        "default": dict(default),
+        "tools": {str(k): dict(v) for k, v in tools.items() if isinstance(v, Mapping)},
+    }
 
 
 def effective_definitions(config_path: str | Path) -> dict[str, dict[str, Any]]:
+    """Return all catalog definitions with the authoritative release policy overlaid."""
     definitions = load_definitions(config_path)
     policy = load_release_policy(config_path)
     default = policy["default"]
@@ -82,12 +90,16 @@ def effective_definitions(config_path: str | Path) -> dict[str, dict[str, Any]]:
 
 
 def apply_release_metadata(classes: Mapping[str, type], config_path: str | Path) -> dict[str, dict[str, Any]]:
-    """Overlay reviewed release fields onto dynamic wrapper classes and return effective definitions."""
+    """Annotate executable wrapper classes from the complete catalog policy.
+
+    Runtime classes are intentionally a subset of the 137-entry catalog. A
+    class unknown to the catalog is an error; catalog-only integrations remain
+    disabled because they never receive a runtime wrapper class.
+    """
     definitions = effective_definitions(config_path)
-    if set(classes) != set(definitions):
-        missing = sorted(set(definitions) - set(classes))
-        extra = sorted(set(classes) - set(definitions))
-        raise ValueError(f"wrapper/definition mismatch missing={missing} extra={extra}")
+    unknown_classes = sorted(set(classes).difference(definitions))
+    if unknown_classes:
+        raise ValueError(f"runtime wrapper(s) missing from catalog: {unknown_classes}")
     for name, cls in classes.items():
         definition = definitions[name]
         setattr(cls, "release_support", str(definition.get("release_support") or "unsupported"))
