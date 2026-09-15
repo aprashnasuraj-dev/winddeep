@@ -24,7 +24,7 @@ jobs:
     steps:
       # G1
       - name: G1 Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -38,7 +38,7 @@ jobs:
 
       # G2
       - name: G2 Setup Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -195,7 +195,7 @@ jobs:
 
       # G19
       - name: G19 Upload initial assets to draft GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           prerelease: false
@@ -237,7 +237,7 @@ jobs:
           $lines | Set-Content -LiteralPath dist\SHA256SUMS.txt -Encoding ascii
 
       - name: G20 Attach SBOM and finalized SHA256SUMS
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: true
           overwrite_files: true
@@ -269,7 +269,7 @@ jobs:
           sbom-path: dist/SBOM.json
 
       - name: Publish verified GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           draft: false
           prerelease: false
@@ -290,7 +290,7 @@ jobs:
 
       - name: Preserve release evidence as workflow artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Windeep-${{ github.ref_name }}-release-evidence
           path: |
