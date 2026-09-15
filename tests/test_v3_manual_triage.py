@@ -1,6 +1,7 @@
 """V3-B simplified tester triage and report acceptance contract."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -110,6 +111,26 @@ def test_manual_triage_validation_is_fail_closed_but_never_deletes_findings(tmp_
     assert {item["finding_id"] for item in ranked} == {first, second}
 
 
+def test_manual_triage_edge_paths_and_literal_ip_inference(tmp_path: Path) -> None:
+    _crypto, database, audit, target_id, scan_id = _fixture(tmp_path)
+    triage = ManualTriage(database, audit)
+    with pytest.raises(TriageError, match="finding not found"):
+        triage.classify(999999, disposition="actionable", tester_priority=50, duplicate_risk="low", rationale="x")
+    with pytest.raises(KeyError, match="not found"):
+        triage.get(999999)
+
+    ipv4 = _finding(database, target_id, scan_id, "Bare IPv4", "medium", "198.51.100.7")
+    ipv6 = _finding(database, target_id, scan_id, "Bare IPv6", "medium", "2001:db8::7")
+    assert triage.classify(ipv4, disposition="actionable", tester_priority=55, duplicate_risk="low", rationale="IPv4 fixture")["asset_class"] == "ipv4"
+    assert triage.classify(ipv6, disposition="needs-review", tester_priority=45, duplicate_risk="medium", rationale="IPv6 fixture")["asset_class"] == "ipv6"
+    with pytest.raises(TriageError, match="numeric"):
+        triage.classify(ipv4, disposition="actionable", tester_priority="not-a-number", duplicate_risk="low", rationale="x")
+
+    orphan, _ = database.create_finding(target_id, "No scan", "low", vuln_type="fixture", endpoint="https://example.test/no-scan")
+    with pytest.raises(TriageError, match="belong to a scan"):
+        triage.classify(orphan, disposition="needs-review", tester_priority=10, duplicate_risk="low", rationale="orphan")
+
+
 class _Renderer:
     def __init__(self, missing: set[int] | None = None) -> None:
         self.missing = missing or set()
@@ -146,3 +167,44 @@ def test_v3_report_contains_every_finding_without_policy_gate_and_is_determinist
     assert "excluded" not in lowered
     assert "bundle unavailable in fixture" in first.markdown
     assert "Tester has not classified this finding yet" in first.markdown
+
+
+def test_v3_report_reads_encrypted_verification_rows_when_present(tmp_path: Path) -> None:
+    crypto, database, audit, target_id, scan_id = _fixture(tmp_path)
+    finding_id = _finding(database, target_id, scan_id, "Verified HTTPS", "high", "https://example.test/verified")
+    triage = ManualTriage(database, audit)
+    triage.classify(finding_id, disposition="actionable", tester_priority=95, duplicate_risk="low", rationale="Captured and reviewed.")
+    enc = database._enc
+    with database._connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO verification_record(finding_id, scan_id, bundle_sha256, artifact_sha256, schema_version, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (finding_id, scan_id, "b" * 64, "a" * 64, "windeep.verification.v1", 1.0),
+        )
+        record_id = int(cursor.lastrowid)
+        conn.execute(
+            "INSERT INTO verification_claim(record_id, claim_key, state, evidence_refs, plan, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                record_id,
+                "technical_detail",
+                "verified",
+                enc(json.dumps([{"kind": "flow", "ref": "flow:1:hash"}]), field="verification_claim.evidence_refs"),
+                enc("[]", field="verification_claim.plan"),
+                1.0,
+            ),
+        )
+        conn.execute(
+            "INSERT INTO verification_claim(record_id, claim_key, state, evidence_refs, plan, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                record_id,
+                "impact",
+                "partially_verified",
+                enc(json.dumps([{"kind": "flow", "ref": "flow:1:hash"}]), field="verification_claim.evidence_refs"),
+                enc("[]", field="verification_claim.plan"),
+                1.0,
+            ),
+        )
+    artifact = V3ReportGenerator(database, crypto, triage=triage, finding_renderer=_Renderer()).render_scan(scan_id)
+    assert "Overall: `partially_verified`" in artifact.markdown
+    assert f"Verification artifact: `{'a' * 64}`" in artifact.markdown
+    assert "`technical_detail`: `verified`" in artifact.markdown
+    assert "`impact`: `partially_verified`" in artifact.markdown
