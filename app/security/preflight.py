@@ -1,9 +1,10 @@
-"""Fail-closed pre-flight guardrail layer for every Windeep scan."""
+"""Fail-closed pre-flight guardrail layer for every Windeep scan and tool action."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 from app.security.audit import AuditLog
 from app.security.consent import ConsentAuthority, ConsentRecord
@@ -46,15 +47,72 @@ class PreFlightGuard:
 
     def authorize_scan(self, *, target: str, consent_id: str) -> ConsentRecord:
         """Verify all controls and authorize a target against signed live consent."""
-        self.require_healthy()
-        self.scope.assert_allowed(target)
-        record = self.consent.verify(consent_id, self.scope)
-        self.audit.append(
-            "scan.authorized",
-            {"target": target, "consent_id": record.id, "authorized_by": record.authorized_by, "scope_sha256": record.scope_sha256},
-        )
-        return record
+        try:
+            self.require_healthy()
+            self.scope.assert_allowed(target)
+            record = self.consent.verify(consent_id, self.scope)
+            self.audit.append(
+                "scan.authorized",
+                {"target": target, "consent_id": record.id, "authorized_by": record.authorized_by, "scope_sha256": record.scope_sha256},
+            )
+            return record
+        except Exception as exc:
+            self._record_denial("scan.denied", target=target, consent_id=consent_id, reason=str(exc))
+            raise
+
+    def authorize_tool(self, *, target: str, consent_id: str, tool_name: str) -> ConsentRecord:
+        """Re-check mandatory controls immediately before a tool invocation."""
+        try:
+            self.require_healthy()
+            self.scope.assert_allowed(target)
+            record = self.consent.verify(consent_id, self.scope)
+            self.audit.append(
+                "tool.authorized",
+                {
+                    "target": target,
+                    "tool": tool_name,
+                    "consent_id": record.id,
+                    "authorized_by": record.authorized_by,
+                    "scope_sha256": record.scope_sha256,
+                },
+            )
+            return record
+        except Exception as exc:
+            self._record_denial(
+                "tool.denied",
+                target=target,
+                tool=tool_name,
+                consent_id=consent_id,
+                reason=str(exc),
+            )
+            raise
 
     async def acquire_rate(self, key: str, *, cost: float = 1.0) -> None:
-        """Acquire governed scan capacity while propagating cancellation."""
-        await self.rate_governor.acquire(key, cost=cost)
+        """Acquire governed tool capacity while propagating cancellation."""
+        try:
+            await self.rate_governor.acquire(key, cost=cost)
+        except Exception as exc:
+            self._record_denial("rate.denied", key=key, cost=cost, reason=str(exc))
+            raise
+
+    async def acquire_host_rate(self, target: str, *, cost: float = 1.0) -> None:
+        """Layer a host-specific bucket on top of the global/tool budget."""
+        parsed = urlsplit(target if "://" in target else f"https://{target}")
+        host = (parsed.hostname or target).strip().casefold()
+        if not host:
+            raise PreFlightError("cannot derive host rate key from target")
+        key = f"host:{host}"
+        try:
+            await self.rate_governor.acquire(key, cost=cost)
+        except Exception as exc:
+            self._record_denial("rate.denied", key=key, cost=cost, reason=str(exc))
+            raise
+
+    def _record_denial(self, event: str, **payload: Any) -> None:
+        """Best-effort denial event without ever turning a denial into authorization."""
+        try:
+            self.audit.append(event, payload)
+        except Exception:
+            # Audit health is itself part of preflight.  If the sink is unavailable,
+            # the caller still fails closed; there is intentionally no bypass path.
+            pass
