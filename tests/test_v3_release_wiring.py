@@ -59,7 +59,7 @@ def test_public_contracts_are_frozen_for_v3() -> None:
 
 
 def test_0030_python_migration_up_down_preserves_evidence(tmp_path: Path) -> None:
-    _crypto, database, _audit, artifacts, target_id, scan_id, result = _db(tmp_path)
+    _crypto, database, _audit, artifacts, _target_id, scan_id, result = _db(tmp_path)
     assert result.version == 30
     assert result.direction == "up"
     with database._connect() as conn:
@@ -102,11 +102,11 @@ def test_0030_python_migration_up_down_preserves_evidence(tmp_path: Path) -> Non
 
 def test_v3_pipeline_emits_every_transition_and_resumes_committed_stage(tmp_path: Path) -> None:
     _crypto, database, audit, _artifacts, _target_id, scan_id, _result = _db(tmp_path)
-    events: list[tuple[str, str]] = []
+    events: list[tuple[str, str, str]] = []
     calls: list[str] = []
 
     def event_sink(event_type: str, payload: dict) -> None:
-        events.append((event_type, payload["stage"]))
+        events.append((event_type, payload["stage"], payload["status"]))
 
     coordinator = V3PipelineCoordinator(database=database, audit=audit, event_sink=event_sink)
     callbacks = {}
@@ -119,16 +119,51 @@ def test_v3_pipeline_emits_every_transition_and_resumes_committed_stage(tmp_path
     result = coordinator.run(scan_id=scan_id, stages=callbacks, cancel_check=lambda: False)
     assert result["status"] == "completed"
     assert calls == list(V3_STAGE_ORDER)
-    assert [stage for event, stage in events if event == "progress"] == list(V3_STAGE_ORDER)
+    expected = [("progress", stage, status) for stage in V3_STAGE_ORDER for status in ("started", "completed")]
+    assert events == expected
 
     calls.clear()
+    events.clear()
     resumed = coordinator.run(scan_id=scan_id, stages=callbacks, cancel_check=lambda: False)
     assert resumed["status"] == "completed"
     assert calls == []
+    assert events == [("progress", stage, "resumed") for stage in V3_STAGE_ORDER]
     with database._connect() as conn:
         transitions = conn.execute("SELECT stage, status FROM v3_scan_transitions WHERE scan_id = ? ORDER BY id", (scan_id,)).fetchall()
     assert transitions
     assert {row["status"] for row in transitions}.issubset({"started", "completed", "resumed"})
+
+
+def test_v3_pipeline_refuses_missing_callbacks_and_supports_cancellation_and_budget(tmp_path: Path) -> None:
+    _crypto, database, audit, _artifacts, _target_id, scan_id, _result = _db(tmp_path)
+    events: list[tuple[str, str]] = []
+    coordinator = V3PipelineCoordinator(
+        database=database,
+        audit=audit,
+        event_sink=lambda _kind, payload: events.append((payload["stage"], payload["status"])),
+    )
+    with pytest.raises(ValueError, match="missing v3 pipeline stage"):
+        coordinator.run(scan_id=scan_id, stages={}, cancel_check=lambda: False)
+
+    callbacks = {stage: (lambda stage=stage: {"stage": stage}) for stage in V3_STAGE_ORDER}
+    cancelled = coordinator.run(scan_id=scan_id, stages=callbacks, cancel_check=lambda: True)
+    assert cancelled["status"] == "cancelled"
+    assert events[-1] == ("scope_consent", "cancelled")
+
+    class Budget:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def check_wall_clock(self) -> None:
+            self.calls += 1
+
+    with database._connect() as conn:
+        target_id = int(conn.execute("SELECT target_id FROM scans WHERE id = ?", (scan_id,)).fetchone()["target_id"])
+    scan2 = database.create_scan(target_id, "v3:fixture", ["fixture"])
+    budget = Budget()
+    completed = coordinator.run(scan_id=scan2, stages=callbacks, cancel_check=lambda: False, budget=budget)
+    assert completed["status"] == "completed"
+    assert budget.calls == len(V3_STAGE_ORDER)
 
 
 def test_verification_pass_writes_hash_addressed_record_for_every_claim(tmp_path: Path) -> None:
