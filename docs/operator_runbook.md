@@ -28,7 +28,7 @@ A finding can show `verified`, `partially_verified`, `needs-review`, or `not-rec
 
 ## 5. Generate the v3 report
 
-The Reports view generates the v3 all-findings report from the latest authorized scan for the selected target. The report includes every normalized finding whether classified or unclassified and whether verification is present or absent.
+The Reports view generates the v3 all-findings report from the latest authorized scan for the selected target. **The final v3 report includes all findings**: every normalized finding is included whether classified or unclassified and whether verification is present or absent.
 
 Where a closed P3 evidence bundle is available, the v3 report embeds its redacted evidence, reproduction, impact, remediation and provenance detail. If detailed evidence cannot be rendered, the normalized finding still appears with an explicit evidence-detail availability message. Raw evidence remains encrypted in the store.
 
