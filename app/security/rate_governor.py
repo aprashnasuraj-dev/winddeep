@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from collections.abc import Sequence
 
 
 @dataclass(slots=True)
@@ -54,7 +55,7 @@ class _TokenBucket:
 
 
 class RateGovernor:
-    """Enforce a global budget plus optional per-tool/per-host token buckets."""
+    """Enforce one global budget plus keyed tool/host token buckets."""
 
     def __init__(
         self,
@@ -78,14 +79,31 @@ class RateGovernor:
         self._buckets.pop(normalized, None)
 
     async def acquire(self, key: str, *, cost: float = 1.0) -> None:
-        """Acquire global and keyed capacity, propagating cancellation cleanly."""
-        normalized = key.strip().casefold()
+        """Acquire the global bucket once and one keyed bucket."""
+        await self.acquire_many((key,), cost=cost)
+
+    async def acquire_many(self, keys: Sequence[str], *, cost: float = 1.0) -> None:
+        """Acquire one global token and every unique keyed bucket.
+
+        This is used for layered tool+host governance without charging the
+        global bucket twice for a single invocation attempt.
+        """
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for key in keys:
+            value = str(key).strip().casefold()
+            if not value:
+                raise ValueError("rate key must not be empty")
+            if value not in seen:
+                seen.add(value)
+                normalized.append(value)
         if not normalized:
-            raise ValueError("rate key must not be empty")
+            raise ValueError("at least one rate key is required")
         try:
             await self._global.acquire(cost)
-            bucket = await self._bucket(normalized)
-            await bucket.acquire(cost)
+            for key in normalized:
+                bucket = await self._bucket(key)
+                await bucket.acquire(cost)
         except asyncio.CancelledError:
             raise
 
