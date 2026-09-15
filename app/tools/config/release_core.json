@@ -11,6 +11,17 @@
       "requires_scope": true,
       "description": "Release-certified passive subdomain enumeration."
     },
+    "dnsx": {
+      "category": "recon_passive",
+      "binary": "dnsx",
+      "args": ["-silent", "-d", "{target}", "-rl", "5"],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Release-certified DNS resolution with an explicit bounded request rate."
+    },
     "httpx": {
       "category": "recon_active",
       "binary": "httpx",
@@ -21,6 +32,28 @@
       "rate_limit": 1.0,
       "requires_scope": true,
       "description": "Release-certified HTTP reachability and metadata probe."
+    },
+    "naabu": {
+      "category": "recon_active",
+      "binary": "naabu",
+      "args": ["-host", "{target}", "-json", "-silent", "-rate", "100"],
+      "parser": "jsonl",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 0.5,
+      "requires_scope": true,
+      "description": "Release-certified scope-bound port discovery with an explicit bounded packet rate."
+    },
+    "katana": {
+      "category": "recon_active",
+      "binary": "katana",
+      "args": ["-u", "{target}", "-jsonl", "-silent", "-rl", "5"],
+      "parser": "jsonl",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 0.5,
+      "requires_scope": true,
+      "description": "Release-certified scope-bound crawler with an explicit bounded request rate."
     },
     "nuclei": {
       "category": "web_vulns",
