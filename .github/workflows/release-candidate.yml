@@ -40,13 +40,22 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Phase A static audit
-        run: python scripts/audit/release_audit.py --phase A
+        shell: pwsh
+        run: |
+          python scripts/audit/release_audit.py --phase A
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/static_audit.md; exit $LASTEXITCODE }
 
       - name: Phase B packaging contract audit
-        run: python scripts/audit/release_audit.py --phase B
+        shell: pwsh
+        run: |
+          python scripts/audit/release_audit.py --phase B
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/tool_liveness.md; exit $LASTEXITCODE }
 
       - name: Phase E dependency audit
-        run: python scripts/audit/release_audit.py --phase E
+        shell: pwsh
+        run: |
+          python scripts/audit/release_audit.py --phase E
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/dependency_audit.md; exit $LASTEXITCODE }
 
       - name: Pytest and coverage
         shell: pwsh
@@ -55,13 +64,18 @@ jobs:
           python -m pytest -q --cov=app --cov=launcher --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-fail-under=85
 
       - name: Phase D local end-to-end audit
-        run: python scripts/audit/release_audit.py --phase D
+        shell: pwsh
+        run: |
+          python scripts/audit/release_audit.py --phase D
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/e2e_audit.md; exit $LASTEXITCODE }
 
       - name: Phase F pre-tag release gate
         shell: pwsh
         env:
           GITHUB_REF_NAME: v0.1.0
-        run: python scripts/audit/release_audit.py --phase F
+        run: |
+          python scripts/audit/release_audit.py --phase F
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/release_gate.json; exit $LASTEXITCODE }
 
       - name: Install Inno Setup
         shell: pwsh
@@ -72,6 +86,7 @@ jobs:
         run: |
           ./installer/setup_tools.ps1
           python scripts/audit/release_audit.py --phase B --require-installed
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/tool_liveness.md; exit $LASTEXITCODE }
 
       - name: Bundle embedded Python 3.11 and Playwright
         shell: pwsh
@@ -102,7 +117,9 @@ jobs:
 
       - name: Clean Windows install and portable audit
         shell: pwsh
-        run: ./scripts/audit/windows_install_audit.ps1
+        run: |
+          ./scripts/audit/windows_install_audit.ps1
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/windows_install_audit.md; exit $LASTEXITCODE }
 
       - name: Upload candidate evidence
         if: always()
