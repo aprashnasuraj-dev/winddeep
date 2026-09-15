@@ -1,8 +1,9 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "tool_count": 137,
-  "release_policy": "The catalog contains all 137 integrations. Only integrations explicitly certified by app/tools/release-policy.json are executable in the self-contained Windows v0.1.0 release.",
-  "includes": [
+  "active_tool_count": 6,
+  "release_policy": "The catalog contains all 137 integrations. Runtime execution is restricted to the release_core registry, while Phase A/B audits evaluate the complete catalog plus app/tools/release-policy.json.",
+  "catalog_includes": [
     "app/tools/config/recon_passive.json",
     "app/tools/config/recon_active.json",
     "app/tools/config/web_vulns.json",
@@ -11,6 +12,9 @@
     "app/tools/config/secrets.json",
     "app/tools/config/network.json",
     "app/tools/config/utilities.json"
+  ],
+  "includes": [
+    "app/tools/config/release_core.json"
   ],
   "tools": {}
 }
