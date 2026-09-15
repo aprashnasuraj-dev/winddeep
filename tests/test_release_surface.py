@@ -8,6 +8,7 @@ from app.engine.tool_wrapper import ToolWrapperFactory
 from app.modules.test_packs import PACK_COUNTS, TOTAL_TESTS, list_tests
 
 ROOT = Path(__file__).resolve().parents[1]
+CERTIFIED = {"subfinder", "dnsx", "httpx", "naabu", "katana", "nuclei"}
 
 
 def test_release_test_catalog_is_exactly_160() -> None:
@@ -27,7 +28,7 @@ def test_release_test_catalog_is_exactly_160() -> None:
 
 def test_release_registry_is_scope_bound_and_manifest_complete() -> None:
     classes = ToolWrapperFactory(ROOT / "tools_config.json").load()
-    assert set(classes) == {"subfinder", "httpx", "nuclei"}
+    assert set(classes) == CERTIFIED
     assert all(cls.requires_scope for cls in classes.values())
     manifest = json.loads((ROOT / "installer" / "tools-manifest.json").read_text(encoding="utf-8"))
     provided = {alias for entry in manifest["tools"] for alias in entry["provides"]}
