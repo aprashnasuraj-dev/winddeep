@@ -51,16 +51,46 @@ def load_definitions(config_path: str | Path) -> dict[str, dict[str, Any]]:
     return load(root_config)
 
 
-def apply_release_metadata(classes: Mapping[str, type], config_path: str | Path) -> dict[str, dict[str, Any]]:
-    """Overlay reviewed release fields onto dynamic wrapper classes and return definitions."""
+def load_release_policy(config_path: str | Path) -> dict[str, Any]:
+    root = Path(config_path).resolve().parent
+    policy_path = root / "app" / "tools" / "release-policy.json"
+    raw = json.loads(policy_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, Mapping):
+        raise ValueError("release policy must be a JSON object")
+    default = raw.get("default")
+    tools = raw.get("tools")
+    if not isinstance(default, Mapping) or not isinstance(tools, Mapping):
+        raise ValueError("release policy requires default and tools objects")
+    return {"default": dict(default), "tools": {str(k): dict(v) for k, v in tools.items() if isinstance(v, Mapping)}}
+
+
+def effective_definitions(config_path: str | Path) -> dict[str, dict[str, Any]]:
     definitions = load_definitions(config_path)
+    policy = load_release_policy(config_path)
+    default = policy["default"]
+    overrides = policy["tools"]
+    unknown = sorted(set(overrides).difference(definitions))
+    if unknown:
+        raise ValueError(f"release policy references unknown tools: {unknown}")
+    effective: dict[str, dict[str, Any]] = {}
+    for name, definition in definitions.items():
+        merged = dict(definition)
+        merged.update(default)
+        merged.update(overrides.get(name, {}))
+        effective[name] = merged
+    return effective
+
+
+def apply_release_metadata(classes: Mapping[str, type], config_path: str | Path) -> dict[str, dict[str, Any]]:
+    """Overlay reviewed release fields onto dynamic wrapper classes and return effective definitions."""
+    definitions = effective_definitions(config_path)
     if set(classes) != set(definitions):
         missing = sorted(set(definitions) - set(classes))
         extra = sorted(set(classes) - set(definitions))
         raise ValueError(f"wrapper/definition mismatch missing={missing} extra={extra}")
     for name, cls in classes.items():
         definition = definitions[name]
-        setattr(cls, "release_support", str(definition.get("release_support") or "unreviewed"))
+        setattr(cls, "release_support", str(definition.get("release_support") or "unsupported"))
         setattr(cls, "unsupported_reason", str(definition.get("unsupported_reason") or ""))
         setattr(cls, "replacement", str(definition.get("replacement") or ""))
         setattr(cls, "homepage", str(definition.get("homepage") or ""))
