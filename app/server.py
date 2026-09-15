@@ -173,6 +173,37 @@ def create_app() -> Flask:
         event_id = f"id: {int(seq)}\n" if isinstance(seq, int) else ""
         return f"{event_id}event: {event_type}\ndata: {payload}\n\n"
 
+    def _sse_safe(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
+        safe = dict(data)
+        if event_type == "finding" and isinstance(safe.get("finding"), dict):
+            finding = dict(safe["finding"])
+            for key in ("evidence", "request", "response", "description", "steps", "impact", "remediation"):
+                finding.pop(key, None)
+            safe["finding"] = finding
+        for key in list(safe):
+            lowered = key.casefold()
+            if any(marker in lowered for marker in ("authorization", "cookie", "password", "secret", "token", "api_key")):
+                safe[key] = "<redacted>"
+        return safe
+
+    def _wire_replay_event(row: dict[str, Any]) -> str:
+        payload = _sse_safe(str(row["event_type"]), dict(row["payload"]))
+        envelope = {
+            "type": str(row["event_type"]),
+            "scan_id": int(row["scan_id"]),
+            "schema_version": str(row["schema_version"]),
+            "seq": int(row["seq"]),
+            **payload,
+        }
+        return json.dumps(envelope, separators=(",", ":"), sort_keys=True, default=str)
+
+    def _sse_frame(payload: str) -> str:
+        decoded = _json_value(payload, {})
+        event_type = str(decoded.get("type") or "message")
+        seq = decoded.get("seq")
+        event_id = f"id: {int(seq)}\n" if isinstance(seq, int) else ""
+        return f"{event_id}event: {event_type}\ndata: {payload}\n\n"
+
     def broadcast(event_type: str, data: dict[str, Any], scan_id: int | None = None) -> None:
         clean = dict(data)
         persisted_seq = clean.pop("_sse_seq", None)
