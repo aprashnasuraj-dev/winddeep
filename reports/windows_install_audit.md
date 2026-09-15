@@ -1,42 +1,45 @@
 # Windows Install Audit
 
 Audit date: 2026-09-15  
-QA branch: `release/qa-gate-v0.1.0`
+Audited branch: `main`
 
 Overall: **FAIL / BLOCKED BEFORE ARTIFACT BUILD**
 
-The clean-Windows audit script is implemented at `scripts/audit/windows_install_audit.ps1`, but a production installer has **not** been built or certified from the current repository because the earlier fail-closed release phases correctly stop the pipeline first.
+The clean-Windows audit implementation is complete at `scripts/audit/windows_install_audit.ps1`, but no installer is represented as release-certified from the current repository because the earlier fail-closed gates stop the release before packaging.
 
-## What the script validates when the release reaches build stage
+## What the clean-machine audit now validates
 
 | Check | Required result |
 |---|---|
 | Windows platform | Windows 10/11 |
 | Silent Inno install | exit code 0 |
 | Installed executable | `{app}\Windeep.exe` exists |
-| Installed metadata | `VERSION` exists |
-| Bundled external tools | `{app}\tools` exists |
-| Embedded runtime | `{app}\runtime\python\python.exe` exists |
-| Installed app health | random loopback port `/api/health` returns `status=ok` and `localhost_only=true` |
+| Exact release identity | installed and portable `VERSION` equal repository `VERSION` |
+| Registry payload | installed and portable `tools_config.json` exists |
+| External tools | `tools` directory exists and every manifest-declared safe probe passes |
+| Embedded Python | `runtime\python\python.exe --version` succeeds and reports Python 3.11.x |
+| Browser runtime | `runtime\playwright-browsers` contains staged browser files |
+| Installed app health | random loopback `/api/health` returns `status=ok` and `localhost_only=true` |
+| Listener binding | Windeep process listens only on `127.0.0.1` / `::1` for the audit port |
 | Silent uninstall | exit code 0 |
+| Uninstall cleanup | installed `Windeep.exe` is removed |
 | Portable executable | `dist\Windeep\Windeep.exe` exists |
-| Portable external tools | `dist\Windeep\tools` exists |
-| Portable embedded runtime | `dist\Windeep\runtime\python\python.exe` exists |
+| Portable runtime/tools | same runtime, browser and tool-probe checks pass |
 | Portable app health | random loopback `/api/health` passes |
 
-The QA branch also stages Playwright Chromium into `runtime\playwright-browsers`; the launcher points Playwright to that packaged location so a clean machine does not require an after-install browser download.
+The audit starts no target scan. Tool checks use only the non-invasive liveness probes declared in `installer/tools-manifest.json`.
 
-## Why the audit is currently blocked
+## Why execution is currently blocked
 
-1. Tool registry: 75 actual definitions vs 137 declared.
-2. Five registry include files are missing.
-3. `installer/tools-manifest.json` is empty, so the required `tools` tree cannot be produced reproducibly.
-4. Full dashboard asset is absent.
+1. Root registry declares 137 tools, but only 75 definitions exist.
+2. Five tool category registry files are missing.
+3. `installer/tools-manifest.json` is empty, and the hardened setup script now correctly rejects an empty production manifest.
+4. Full desktop dashboard asset is absent.
 5. 160 test packs are absent.
-6. Production server does not expose the operational engine/tool/browser/capture/Brain paths.
-7. Capture encrypted-at-rest persistence is not wired into the standalone capture path.
-8. Phase A/B/F must therefore return FAIL/NO-GO before packaging.
+6. The operational server/API path is incomplete.
+7. Secure persistence is not yet certified on the complete operational capture path.
+8. Phase A/B/F therefore remain NO-GO before `Windeep-Setup.exe` is built.
 
 ## Result
 
-No `Windeep-Setup.exe` is represented as release-certified by this report. This is intentional: the Windows audit must never be converted into a paper PASS when the build cannot meet the product and guardrail contract.
+No `Windeep-Setup.exe` or `Windeep-Portable.zip` is currently claimed as release-certified. This is intentional: a clean-machine audit must test the real packaged product, not convert missing product assets into a paper PASS.
