@@ -2,39 +2,39 @@
   "decision": "NO-GO",
   "version": "0.1.0",
   "audit_date": "2026-09-15",
-  "branch": "release/qa-gate-v0.1.0",
+  "branch": "main",
   "checks": {
     "phase_A_static": false,
     "phase_B_tool_liveness": false,
-    "phase_D_end_to_end": false,
-    "phase_E_dependency": false,
+    "phase_D_end_to_end": null,
+    "phase_E_dependency": null,
     "phase_F_release_gate": false,
-    "coverage_85_percent": false,
+    "coverage_85_percent": null,
     "windows_clean_install": false
   },
   "blockers": [
     "tools_config.json declares 137 tools but only 75 definitions exist",
     "missing registry files: mobile.json, web3.json, secrets.json, network.json, utilities.json",
-    "installer/tools-manifest.json is empty; no external tools can be reproducibly downloaded and verified",
-    "full dashboard app/static/index.html is absent",
-    "160-test HunterTest packs and their API are absent",
-    "production server does not wire scheduler/event bus/tool wrappers/browser/capture/Brain operational APIs",
-    "standalone capture persistence is not wired to SecureDatabase/SecureFlowDatabase, so encryption at rest is not guaranteed",
-    "mitmproxy runtime contract is inconsistent between Python 3.11 dependency resolution and the documented 12.x standalone capture runtime",
-    "pytest coverage >=85% has not been demonstrated by GitHub Actions for this release branch",
-    "clean Windows installer audit cannot pass before the preceding release blockers are resolved"
+    "installer/tools-manifest.json is empty and the production stager now rejects an empty manifest",
+    "full dashboard app/static/index.html is absent from the current tree and repository history",
+    "160-test pack implementation is absent from the current tree and repository history",
+    "production server does not expose the complete targets/scans/findings/reports/tools/settings/SSE/test-pack operational API contract",
+    "engine/browser/capture/Brain/database/submission components are not wired into a complete shipped operational path",
+    "secure persistence is not certified end-to-end for the operational capture path",
+    "pytest coverage >=85% must be demonstrated on the exact tagged commit",
+    "clean Windows installer/portable audit cannot pass until the complete tool manifest and product tree exist"
   ],
-  "release_infrastructure_added": [
-    "scripts/audit/release_audit.py",
-    "scripts/audit/windows_install_audit.ps1",
-    "requirements-dev.txt",
-    "installer/install_python.ps1",
-    "relocatable onedir Windeep.spec",
-    "recursive Inno Setup packaging",
-    "Playwright Chromium runtime staging",
-    "CycloneDX SBOM generation",
-    "tag-triggered G1-G21 GitHub Actions release workflow",
-    "GitHub Sigstore build provenance/SBOM attestations",
-    "capture unresolved-target fail-closed regression tests"
-  ]
+  "release_engineering_completed": [
+    "scripts/audit/release_audit.py hardened for module, wrapper, API, coverage and tag/version completeness",
+    "scripts/audit/windows_install_audit.ps1 hardened for exact version, embedded Python, Playwright, all manifest tool probes, loopback binding and uninstall cleanup",
+    "installer/setup_tools.ps1 hardened for non-empty manifests, pinned versions, license metadata, HTTPS, SHA-256, safe archive extraction and liveness probes",
+    ".github/workflows/release.yml retains G1-G21 and uses current supported action majors",
+    "Windeep.spec provides relocatable onedir packaging",
+    "installer/BugBountyInstaller.iss recursively packages the complete dist/Windeep tree",
+    "installer/install_python.ps1 stages CPython 3.11.9 and Playwright Chromium",
+    "CycloneDX SBOM generation is present",
+    "GitHub Sigstore provenance and SBOM attestations are configured",
+    "release reports are staged as final GitHub Release assets"
+  ],
+  "note": "This file records the repository audit decision before a tag run. Phase D, Phase E and coverage are intentionally null until the exact release commit is executed by GitHub Actions. Null is not a PASS."
 }
