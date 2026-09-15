@@ -143,9 +143,9 @@ class AuthorizationDiffer:
     ) -> dict[str, Any]:
         observations: list[dict[str, Any]] = []
         support: list[int] = []
-        for role in sorted(roles):
+        for role, session in roles.items():
             preflight()
-            result = await replay(role, dict(roles[role]))
+            result = await replay(role, dict(session))
             observations.append(self._safe_observation(role, result))
             if result.get("flow_id") is not None:
                 support.append(int(result["flow_id"]))

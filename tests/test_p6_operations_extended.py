@@ -26,7 +26,7 @@ def fixture(tmp_path: Path):
 
 def test_wall_budget_fails_closed_without_mutating_other_counters(tmp_path: Path) -> None:
     _db, audit, scan = fixture(tmp_path)
-    ticks = iter([0.0, 0.5, 2.0])
+    ticks = iter([0.5, 2.0])
     guard = ScanBudgetGuard(
         scan_id=scan,
         budgets=ScanBudgets(wall_seconds=1.0, artifact_bytes=10, llm_tokens=10),
