@@ -1,70 +1,73 @@
 # Windeep Phase A — Static Release Audit
 
 Audit date: 2026-09-15  
-Audited baseline: `main` at `7188586ea8462d440bc2278654dc9a364699ba1c`  
-QA branch: `release/qa-gate-v0.1.0`
+Audited branch: `main`  
+Audited baseline before report refresh: `8c75b4dc8a93cef21c74ca94c1c01d3f5cdc7d24`
 
 ## Decision
 
-**FAIL — release is NO-GO.**
+**FAIL — release remains NO-GO.**
 
-The core libraries contain substantial implemented code, but the repository does not yet represent the complete Windows desktop product described by the project blueprint/README. The release workflow added on the QA branch deliberately fails closed until the blockers below are resolved.
+Release engineering is now fail-closed and substantially stronger, but the repository is not yet the complete Windows desktop product described by the master blueprint. The missing items below are product-completion work, not packaging details, so the release workflow must not manufacture a production release around them.
 
 ## Module completeness matrix
 
 | Area | Files / capability reviewed | Status | Release finding |
 |---|---|---|---|
-| Local server / auth bootstrap | `app/server.py`, `app/security/auth.py` | PARTIAL | Local-only binding, protected session and CSRF are implemented. The production server currently exposes bootstrap/health/handshake/consent/preflight/session routes but not the operational dashboard/scanning APIs. |
-| Scope / consent / rate / audit / crypto | `scope.py`, `consent.py`, `rate_governor.py`, `audit.py`, `crypto.py`, `preflight.py` | IMPLEMENTED | Strong primitives exist: deny-wins scope, signed consent, bounded rates, audit logging, AES-256-GCM and Windows DPAPI. End-to-end enforcement cannot be certified because the operational scan path is not wired into the production server. |
-| Engine | `event_bus.py`, `scheduler.py`, `scan_context.py`, `tool_wrapper.py` | IMPLEMENTED-BUT-UNWIRED | Scheduler requires `PreFlightGuard`; event bus and wrapper framework are implemented. No production server route constructs/executes this pipeline. |
-| Database | `database.py`, `migrations.py`, `app/data/migrations/0001_p1_operational_tables.sql` | IMPLEMENTED | SQLite CRUD, CVSS/deduplication, forward-only checksummed migrations and backup logic exist. Operational server wiring is absent. |
-| Encrypted persistence | `secure_database.py`, `secure_flow_database.py` | IMPLEMENTED-BUT-UNWIRED | Encrypted finding/flow storage exists, but standalone capture currently constructs plaintext `Database`/`FlowDatabase`; encryption-at-rest is therefore not guaranteed on the shipped capture path. |
-| Capture / replay | `flow_database.py`, `interceptor.py`, `mitm_addon.py`, `replay_client.py` | PARTIAL | Replay and interceptor fail closed on scope. QA branch fixes unresolved-target HTTP/WS capture so it is no longer persisted. Remaining blocker: encrypted storage and production target resolver are not wired. |
-| Browser automation | `app/browser/automation.py` | IMPLEMENTED-BUT-UNWIRED | Scope/rate/audit controls exist. Clean-machine Chromium runtime was missing; QA branch now stages Playwright Chromium under `runtime/playwright-browsers`. No production server/UI path invokes it. |
-| Authentication assurance | `app/auth/protocols.py`, `session_analysis.py`, `suite.py` | IMPLEMENTED-BUT-UNWIRED | 50 guarded auth techniques exist. These are not the promised 160 test packs and are not exposed through the shipped server/UI. |
-| AI Brain | `budget.py`, `chain_builder.py`, `finding_ranker.py`, `hypothesis_engine.py`, `llm_client.py`, `memory.py`, `prompt_guard.py`, `prompts.py`, `self_critic.py` | IMPLEMENTED-BUT-UNWIRED | Public Brain API and prompt-injection defenses exist. No production server/UI integration. Historical `github_models` provider is retained only as a compatibility key and is explicitly treated as retired unless a custom endpoint is supplied. |
-| Program scope import | `app/programs/scope_importer.py` | IMPLEMENTED-BUT-UNWIRED | Parser/import subsystem exists; no production dashboard route exposes it. |
-| Duplicate/submission support | `app/duplicates.py`, `app/submissions.py` | IMPLEMENTED-BUT-UNWIRED | Local/external duplicate helpers and submission state machine exist. No shipped UI/API integration. |
-| Tool wrappers | `app/engine/tool_wrapper.py` + JSON registries | FAIL | Root registry declares 137 tools, but only 75 definitions are present because five declared registry files are missing. Wrapper scope validation is conditional on construction with a validator, so production wiring must guarantee the guarded scheduler path. |
-| Test packs | expected `app/modules/test_packs.py` / 160 tests | MISSING | No 160-test HunterTest pack implementation or API is present. |
-| Dashboard UI | expected `app/static/index.html` | MISSING | Full desktop dashboard is absent. `app/server.py` serves a minimal bootstrap page only. |
-| Windows packaging | `Windeep.spec`, Inno script, runtime installers | IMPROVED ON QA BRANCH | QA branch converts PyInstaller to relocatable onedir, recursively installs the whole tree, adds embedded Python + Playwright Chromium, and adds clean-Windows audit script. Product assets/tools remain incomplete. |
+| Windows launcher | `launcher.py` | IMPLEMENTED | Resolves packaged root, adds bundled tools/runtime to process PATH, sets packaged Playwright path and Windows state directory, and fails with an actionable startup error. |
+| Local server / dashboard auth | `app/server.py`, `app/security/auth.py` | PARTIAL | Localhost-only binding, session protection, CSRF and hardened headers are implemented. Operational target/scan/finding/tool/report/test-pack APIs are not present. |
+| Scope / consent / rate / audit / crypto | `app/security/scope.py`, `consent.py`, `rate_governor.py`, `audit.py`, `crypto.py`, `preflight.py` | IMPLEMENTED PRIMITIVES | Deny-wins scope, signed consent, bounded rates, audit logging and protected key material are present. Phase D exercises them locally. |
+| Encrypted persistence | `app/security/secure_database.py`, `secure_flow_database.py` | IMPLEMENTED-BUT-UNWIRED | Secure facades exist, but the shipped operational capture/server path does not establish encrypted-at-rest persistence end-to-end. |
+| Engine | `app/engine/event_bus.py`, `scheduler.py`, `scan_context.py`, `tool_wrapper.py` | IMPLEMENTED-BUT-UNWIRED | Event bus, guarded scheduler context and dynamic wrappers are implemented; no production server route wires the operational scan path. |
+| Database | `app/database.py`, `app/migrations.py`, `app/data/migrations/*` | IMPLEMENTED | SQLite data/migration code exists. Dashboard operational CRUD wiring is absent from the current server. |
+| Capture / replay | `app/capture/flow_database.py`, `interceptor.py`, `mitm_addon.py`, `replay_client.py` | PARTIAL | Scope-aware components exist; production target resolution and secure persistence integration are not complete. |
+| Browser automation | `app/browser/automation.py` | IMPLEMENTED-BUT-UNWIRED | Browser automation exists and release runtime staging now includes Playwright Chromium, but no production UI/API path invokes it. |
+| Authentication assurance | `app/auth/protocols.py`, `session_analysis.py`, `suite.py` | IMPLEMENTED-BUT-UNWIRED | Guarded auth analysis exists but is not the promised 160-test pack implementation and is not exposed through the shipped UI/API. |
+| AI Brain | `app/brain/*` | IMPLEMENTED-BUT-UNWIRED | Budgeting, hypothesis/chaining, memory, LLM client, prompt guard, ranking and self-critique modules exist. Production dashboard/API integration is absent. |
+| Program scope import | `app/programs/scope_importer.py` | IMPLEMENTED-BUT-UNWIRED | Import/parser subsystem exists; no current dashboard route exposes it. |
+| Duplicate/submission support | `app/duplicates.py`, `app/submissions.py` | IMPLEMENTED-BUT-UNWIRED | Local support code exists; no shipped production UI/API integration. |
+| Tool wrapper framework | `app/engine/tool_wrapper.py` | IMPLEMENTED | Subprocess execution is shell-free and bounded; wrappers require an explicit scope validator when configured with `requires_scope=true`. |
+| Tool registries | `tools_config.json`, `app/tools/config/*.json` | **FAIL** | Root registry declares 137 tools, but only 75 definitions exist. Five declared category files are missing. |
+| External tool installer | `installer/setup_tools.ps1`, `installer/tools-manifest.json` | **FAIL-CLOSED / NO DATA** | Stager now verifies versions, HTTPS source, license metadata, SHA-256, safe archive extraction and liveness probes, but the manifest is empty. |
+| Test packs | expected `app/modules/test_packs.py` or equivalent | **MISSING** | No 160-test pack registry/implementation exists anywhere in repository history. |
+| Dashboard UI | expected `app/static/index.html` | **MISSING** | Full desktop dashboard never existed in repository history; current `/` endpoint serves a minimal bootstrap page. |
+| PyInstaller package | `Windeep.spec` | READY AS INFRASTRUCTURE | Relocatable onedir build includes config/data/tools/runtime directories when present. |
+| Inno Setup | `installer/BugBountyInstaller.iss` | READY AS INFRASTRUCTURE | Recursively installs the built `dist/Windeep` tree as `Windeep-Setup.exe`. |
+| Embedded runtime | `installer/install_python.ps1` | READY AS INFRASTRUCTURE | Pinned CPython 3.11.9 embeddable runtime plus staged Playwright Chromium. |
+| Clean-Windows verification | `scripts/audit/windows_install_audit.ps1` | READY AS INFRASTRUCTURE | Verifies installer + portable tree, exact VERSION, registry, Python, Chromium, every manifest probe, loopback health/binding and uninstall cleanup. |
+| Tag release workflow | `.github/workflows/release.yml` | READY AS INFRASTRUCTURE | G1-G21 flow is present with current supported action majors, >=85% coverage gate, SBOM, SHA-256 files and Sigstore-backed attestations. |
 
 ## Hard release blockers
 
-1. **Tool registry mismatch:** `tools_config.json` declares `tool_count: 137`, but the three existing category files contain 75 definitions total (25 passive recon + 20 active recon + 30 web-vulnerability). Missing declared includes: `mobile.json`, `web3.json`, `secrets.json`, `network.json`, `utilities.json`.
-2. **Installer tool manifest is empty:** `installer/tools-manifest.json` contains no tools. `installer/setup_tools.ps1` therefore downloads nothing. A single-install Windows release cannot claim bundled tool support.
-3. **Full UI is absent:** no `app/static/index.html` exists; the production server returns bootstrap HTML.
-4. **160 test packs are absent:** no `app/modules/test_packs.py` or equivalent 160-test registry/API exists.
-5. **Operational integration is absent:** scheduler, event bus, tool-wrapper factory, browser automation, Brain, capture, findings/reporting and submissions are not wired into production server routes.
-6. **Encryption integration incomplete:** secure DB adapters exist, but standalone capture is still constructed with plaintext persistence.
-7. **Capture runtime contract is inconsistent:** the capture addon documentation targets current mitmproxy 12.x / Python 3.12+, while the main Python 3.11 dependency range can resolve an older Python-3.11-compatible mitmproxy 11.0.x. For release, current standalone Windows mitmproxy should be pinned and hash-verified in the tool manifest rather than relying on ambient pip resolution.
-8. **Coverage gate not yet executed on this branch:** the final tag workflow requires >=85% coverage; no claim of passing is made until Actions executes it.
-9. **Clean Windows installer test not yet executable:** packaging is deliberately blocked before artifact creation while the blockers above remain.
+1. `tools_config.json` declares **137** tools while only **75** definitions are present.
+2. Missing registries: `mobile.json`, `web3.json`, `secrets.json`, `network.json`, `utilities.json`.
+3. `installer/tools-manifest.json` is empty; therefore no external-tool payload can be reproducibly bundled or liveness-tested.
+4. Full dashboard `app/static/index.html` is absent and has no historical commit to recover.
+5. The promised 160 test packs are absent and have no historical commit to recover.
+6. `app/server.py` does not expose the operational targets/scans/findings/reports/tools/settings/SSE/test-pack APIs described by the product blueprint.
+7. Engine, browser, capture, Brain, database and submission components are not wired into a complete production execution path.
+8. Secure persistence is not certified end-to-end on the operational capture path.
+9. The >=85% coverage gate must be demonstrated by GitHub Actions on the exact release commit.
+10. The clean Windows installer audit cannot pass until a non-empty, complete tool manifest and complete product tree exist.
 
-## Guardrail findings
+## Guardrail assessment
 
-| Guardrail | Static result | Notes |
+| Guardrail | Current result | Release interpretation |
 |---|---|---|
-| Scope | **PARTIAL / NOT CERTIFIED E2E** | Scope engine is strong and scheduler requires preflight; wrapper can be constructed without a scope validator and the production scan path is not wired. |
-| Consent | **PASS at primitive level** | Ed25519-signed, time-bounded, exact-scope-bound consent records are implemented. |
-| Rate | **PASS at primitive level** | Global and keyed async token buckets are implemented; scheduler invokes rate acquisition. |
-| Encryption | **FAIL integration** | AES-256-GCM + DPAPI implementation exists, but capture persistence does not use secure DB facade in the standalone path. |
-| Auth | **PASS for local bootstrap** | Loopback-only access, opaque protected sessions and CSRF checks are implemented. Operational APIs are not yet present. |
+| Scope | PASS at primitive/local-preflight level | Explicit allow/deny scope and out-of-scope rejection exist; complete operational scan-path enforcement remains unverified because that path is not wired. |
+| Consent | PASS at primitive/local-preflight level | Signed, time-bounded consent is present and tied to scope. |
+| Rate | PASS at primitive level | Bounded rate controls exist; every registered wrapper is required by Phase A to declare a positive rate limit. |
+| Encryption | PARTIAL / NOT CERTIFIED E2E | Crypto and secure DB facades exist; current product wiring does not prove all captured operational data uses them. |
+| Auth | PASS for local bootstrap | Loopback-only access, session authentication and CSRF checks are implemented. |
 
-## Release-only fixes applied on QA branch
+## Release engineering completed in this audit session
 
-- Added `scripts/audit/release_audit.py` with fail-closed Phases A/B/D/E/F.
-- Added `scripts/audit/windows_install_audit.ps1` for silent install, loopback health, portable smoke test and uninstall validation.
-- Added `requirements-dev.txt` for deterministic QA tooling.
-- Converted `Windeep.spec` to a relocatable onedir package and included configs/tools/runtime assets.
-- Changed Inno Setup to recursively package `dist\Windeep\*`.
-- Added verified CPython 3.11.9 embeddable runtime staging.
-- Added Playwright Chromium staging into the release runtime.
-- Added CycloneDX SBOM generation for Python packages plus manifest-declared external tools.
-- Added final tag-triggered G1–G21 release workflow with draft-first publishing, checksums and GitHub Sigstore attestations.
-- Hardened capture to skip unresolved HTTP/WebSocket traffic instead of storing it.
+- Hardened `scripts/audit/release_audit.py` to inventory Python modules, detect stubs/placeholders, verify wrapper metadata/bounds, require UI/test-pack/API wiring, validate installer manifest integrity, enforce >=85% coverage in Phase F, and verify tag/VERSION identity.
+- Hardened `installer/setup_tools.ps1` to reject empty/incomplete manifests and verify pinned payloads and non-invasive probes.
+- Hardened `scripts/audit/windows_install_audit.ps1` to validate installed and portable runtime/tool payloads, loopback binding, exact VERSION and uninstall cleanup.
+- Refreshed `.github/workflows/release.yml` while retaining the required G1-G21 release order.
+- Confirmed the missing dashboard/test-pack assets are not recoverable from existing repository history/branches.
 
 ## Release engineering conclusion
 
-Do **not** tag `v0.1.0` as a production-complete release. The correct current decision is **NO-GO**. The release pipeline must remain fail-closed until registry/manifest/UI/test-pack/server-integration/encrypted-capture blockers are resolved and Windows CI produces passing audit evidence.
+**Do not tag `v0.1.0` as a production-complete release.** The correct release decision remains **NO-GO**. The pipeline is intentionally configured to stop before package/release publication while the product-completion blockers above exist.
