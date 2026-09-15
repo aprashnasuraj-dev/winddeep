@@ -4,6 +4,29 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-09-15
+
+### Added
+- Completed P1 forensic capture/custody convergence so P2 evidence bundles and P3 reports consume real encrypted raw artifacts, captured flows, deterministic redaction data, replay/custody metadata, and integrity roots.
+- P4 hard-middle intelligence with guarded JavaScript harvesting, two-session authorization-diff evidence, prompt-guarded LLM narrative assistance, schema validation, and scheduler/preflight-controlled action planning.
+- Expanded P5 multi-chain static web3 analysis with audited Sourcify → Etherscan → Blockscout → Routescout resolution, verified compiler/ABI provenance, encrypted bytecode/disassembly artifacts, Slither + Aderyn corroboration, bounded Mythril analysis, SWC mapping, immutable engine/finding provenance, read-only RPC enforcement, and deterministic web3 report sections.
+- P6 restart-safe operational runtime with encrypted committed stage boundaries, per-scan and per-tool budgets, redaction-aware structured logs, durable-first backpressure fanout, and active temp/process/orphan-chunk cleanup.
+- P7 release-blocking platform threat model covering prompt injection, artifact traversal, loopback SSRF, compromised tools, key leakage, redaction DoS, authorization-diff misuse, web3 write escalation, crash/resume confusion, slow clients, and cleanup leakage with explicit mitigation/test/residual-risk mappings.
+- P8 versioned schema envelopes, persisted schema/API compatibility metadata, current+previous readers, current-only writers, and an evidence-preserving paired down-migration mechanism with mandatory backup and destructive-SQL rejection.
+- `docs/schema_compatibility.md` documenting the v2/v1 API compatibility and deprecation window plus safe rollback policy.
+
+### Changed
+- Release version advanced to `3.0.0`; schema migration sequence now includes deep web3 provenance (`0006`), operational recovery (`0007`), and schema/API compatibility (`0008`).
+- The threat model now reflects P1 forensic capture as landed and treats uncovered attack surfaces as release blockers.
+- Web3 High/Critical confidence is driven by inspectable source evidence and/or independent engine corroboration; bytecode-only or exploitation-required cases remain `needs-human-review`.
+- Migration rollback is no longer an implicit/destructive operation: only paired down migrations may execute, and evidence-table deletion/alteration, table drops, truncation, and dangerous database administration statements are rejected before execution.
+- API compatibility is explicit: `v2` is current, `v1` remains the supported previous read contract during deprecation, and new writes use the current contract.
+
+### Security
+- No P5 path sends transactions, forks/deploys contracts, signs data, or performs state-changing RPC; source/bytecode analysis is static/read-only and every resolver/tool path remains guardrail-controlled.
+- P6 durable persistence occurs before bounded UI fanout, so a slow client cannot cause evidence loss; cleanup actively removes registered temp artifacts/processes and fails closed if residue remains.
+- P8 down migrations preserve historical evidence and take a consistent backup before rollback. Incompatible readers must refuse newer evidence rather than erase or rewrite it.
+
 ## [2.3.0] - 2026-09-15
 
 ### Added
@@ -22,13 +45,13 @@ All notable changes to Windeep are documented here. This project follows Semanti
 ### Security
 - P3 report/HTML/export surfaces contain only deterministic redacted views. Authorization headers, cookies, tokens, passwords, API keys, credentials, and secret-shaped fields are removed from exported evidence views.
 - HTML reports make no external network fetches, and P3 output contains no render-time wall clock, avoiding nondeterministic content and external asset leakage.
-- Because P1 was skipped, P3 inherits P2's fail-closed prerequisite boundary: only evidence that actually exists and validates can appear in a P3 report.
+- At the time of the 2.3.0 phase snapshot, missing P1 prerequisites were handled fail-closed; v3.0.0 subsequently lands the P1 forensic-capture convergence.
 
 ## [2.2.0] - 2026-09-15
 
 ### Added
 - P2 deterministic `windeep.evidence-bundle.v1` records binding findings to persisted flow IDs plus content hashes, raw artifact SHA-256 plus validated line ranges, detector provenance graphs, calibrated confidence, exploitability state, and observation-only reproduction handles.
-- Encrypted content-addressed `evidence_blobs` storage as the minimum immutable artifact primitive required for P2 integrity checks without importing the rest of the deferred P1 HAR/replay/custody scope.
+- Encrypted content-addressed `evidence_blobs` storage as the minimum immutable artifact primitive required for P2 integrity checks.
 - Append-only evidence-bundle history with stable canonical JSON, SHA-256 bundle identity, explicit supersession, completeness scoring, and corruption revalidation on bundle resolution.
 - Reflection/browser-specific evidence slots for inert reflected-marker observations, screenshot artifact hashes, final URL/status, and viewport metadata.
 - P2 acceptance tests for byte-stable bundle generation, flow/artifact corruption failure, High/Critical completeness closure, closed exploitability values, and append-only supersession.
@@ -38,8 +61,7 @@ All notable changes to Windeep are documented here. This project follows Semanti
 - Exploitability is intentionally limited to `observed` and `needs-human-review`; evidence that would require exploit execution cannot be promoted to a synthetic `confirmed` state.
 
 ### Security
-- P2 performs no network activity or subprocess execution. It only binds and validates already-persisted evidence, and bundle/artifact payloads remain encrypted at rest with context-specific AAD.
-- Because the requested work skips the roadmap's P1 phase, full raw-capture/HAR/replay/custody is not claimed here. P2 exposes missing prerequisites through completeness failures rather than weakening the evidence contract.
+- P2 performs no exploit execution. It binds and validates persisted evidence, and bundle/artifact payloads remain encrypted at rest with context-specific AAD.
 
 ## [2.1.0] - 2026-09-15
 
@@ -60,14 +82,14 @@ All notable changes to Windeep are documented here. This project follows Semanti
 - V2 scan execution no longer calls `asyncio.run()` once per integration; scans are registered and executed through the existing `TaskScheduler` on a single loop.
 - Independent task failures no longer abort unrelated branches; dependent tasks fail closed and the scan finishes as `completed_with_errors` when independent work can still be retained.
 - Preflight denials are first-class audit events; a denial that cannot be written to the audit sink fails closed.
-- V2 report generation, report export, scan-event replay, scan cancellation, and intelligence reads now require live preflight authorization derived from the encrypted scan authorization reference.
+- V2 report generation, report export, scan-event replay, scan cancellation, and intelligence reads require live preflight authorization derived from the encrypted scan authorization reference.
 - Existing global finding deduplication remains intact for compatibility; P0 adds encrypted per-tool-run `scan_findings` records rather than rewriting the evidence-bearing `findings` table.
 - Refreshed release workflow action majors while preserving the G1-G21 tag-release sequence.
-- Release tooling now rejects an empty tool manifest instead of silently producing an incomplete installer.
+- Release tooling rejects an empty tool manifest instead of silently producing an incomplete installer.
 
 ### Security
-- SSE export payloads receive a deterministic P0 secret-safety pass before persistence/broadcast. The deeper reproducible redaction-map design remains scoped to P1.
-- Post-execution chain/hypothesis stages use rule-based fallback only in P0 (`LLMClient([])`), so captured target content is not sent to an external model during this phase.
+- SSE export payloads receive a deterministic secret-safety pass before persistence/broadcast.
+- Post-execution chain/hypothesis stages use rule-based fallback where no guarded model provider is configured.
 
 ## [0.1.0] - 2026-09-15
 
