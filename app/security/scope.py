@@ -101,10 +101,20 @@ class ScopeEnforcer:
         }
 
     def fingerprint_material(self) -> str:
-        """Return deterministic scope material suitable for authorization signing."""
-        allows = sorted(self.allow or [self.target], key=str.casefold)
+        """Return deterministic authorization material for consent signing.
+
+        With an explicit allow-list, those allow rules plus the deny-list are
+        the complete authorization boundary. The current candidate/primary
+        target is deliberately excluded so one signed program scope can
+        authorize any candidate that is explicitly allowed by those rules.
+        Without an allow-list, the primary target remains the exact scope and
+        is therefore included in the fingerprint.
+        """
         denies = sorted(self.deny, key=str.casefold)
-        return "\n".join([f"target={self.target}", *[f"allow={v}" for v in allows], *[f"deny={v}" for v in denies]])
+        if self.allow:
+            allows = sorted(self.allow, key=str.casefold)
+            return "\n".join(["mode=explicit", *[f"allow={v}" for v in allows], *[f"deny={v}" for v in denies]])
+        return "\n".join(["mode=target", f"target={self.target}", *[f"deny={v}" for v in denies]])
 
     @staticmethod
     def _matches(candidate: str, rule: str) -> bool:
