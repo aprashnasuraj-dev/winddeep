@@ -72,7 +72,13 @@ def load_release_policy(config_path: str | Path) -> dict[str, Any]:
 
 
 def effective_definitions(config_path: str | Path) -> dict[str, dict[str, Any]]:
-    """Return all catalog definitions with the authoritative release policy overlaid."""
+    """Return all catalog definitions with authoritative certification metadata.
+
+    Source registries may preserve historical/catalog disposition hints such as
+    ``bundled`` or ``runtime``. Those are retained as ``catalog_release_support``
+    and ``catalog_unsupported_reason``. The central release policy is the only
+    authority for what v0.1.0 may actually execute or package.
+    """
     definitions = load_definitions(config_path)
     policy = load_release_policy(config_path)
     default = policy["default"]
@@ -83,6 +89,8 @@ def effective_definitions(config_path: str | Path) -> dict[str, dict[str, Any]]:
     effective: dict[str, dict[str, Any]] = {}
     for name, definition in definitions.items():
         merged = dict(definition)
+        merged["catalog_release_support"] = str(definition.get("release_support") or "unreviewed")
+        merged["catalog_unsupported_reason"] = str(definition.get("unsupported_reason") or "")
         merged.update(default)
         merged.update(overrides.get(name, {}))
         effective[name] = merged
@@ -103,6 +111,7 @@ def apply_release_metadata(classes: Mapping[str, type], config_path: str | Path)
     for name, cls in classes.items():
         definition = definitions[name]
         setattr(cls, "release_support", str(definition.get("release_support") or "unsupported"))
+        setattr(cls, "catalog_release_support", str(definition.get("catalog_release_support") or "unreviewed"))
         setattr(cls, "unsupported_reason", str(definition.get("unsupported_reason") or ""))
         setattr(cls, "replacement", str(definition.get("replacement") or ""))
         setattr(cls, "homepage", str(definition.get("homepage") or ""))
