@@ -19,6 +19,7 @@ from flask import Flask, Response, jsonify, make_response, request, send_from_di
 from app.engine.tool_wrapper import ToolExecutionError, ToolWrapperFactory
 from app.modules.test_packs import PACK_COUNTS, TOTAL_TESTS, list_tests, run_selected
 from app.tools.release_metadata import apply_release_metadata
+from app.v2_api import register_v2_api
 from app.security.audit import AuditLog
 from app.security.auth import AuthenticationError, LocalAuthManager, SessionClaims, is_loopback_remote
 from app.security.consent import ConsentAuthority, ConsentError
@@ -581,6 +582,22 @@ def create_app() -> Flask:
     def integrations() -> Response:
         return jsonify({"database": {"encrypted": True, "implementation": type(database).__name__}, "flows": {"encrypted": True, "implementation": type(flow_database).__name__}, "tools": {"active": len(wrapper_classes), "catalog": len(effective_tools), "windows_certified": sum(1 for cls in wrapper_classes.values() if getattr(cls, "release_support", "") == "bundled"), "all_scope_bound": all(cls.requires_scope for cls in wrapper_classes.values())}, "test_packs": {"count": TOTAL_TESTS, "network_actions": 0}, "browser": {"module": "app.browser.automation", "runtime": "playwright"}, "capture": {"module": "app.capture", "persistence": type(flow_database).__name__}, "brain": {"module": "app.brain", "status": "available"}})
 
+    register_v2_api(
+        app,
+        root=root,
+        state=state,
+        tools_dir=tools_dir,
+        crypto=crypto,
+        audit=audit,
+        consent=consent,
+        database=database,
+        wrapper_classes=wrapper_classes,
+        authenticated=authenticated,
+        broadcast=broadcast,
+        target_scope=target_scope,
+        preflight_for=preflight_for,
+    )
+
     @app.get("/")
     def index() -> Response:
         return send_from_directory(static_dir, "index.html")
@@ -597,7 +614,8 @@ def main() -> int:
     port = int(os.getenv("WINDEEP_PORT", "7331"))
     if port < 1 or port > 65535:
         raise ValueError("WINDEEP_PORT must be between 1 and 65535")
-    Timer(0.8, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
+    if os.getenv("WINDEEP_NO_BROWSER", "").strip().lower() not in {"1", "true", "yes"}:
+        Timer(0.8, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
     create_app().run(host="127.0.0.1", port=port, debug=False, use_reloader=False, threaded=True)
     return 0
 

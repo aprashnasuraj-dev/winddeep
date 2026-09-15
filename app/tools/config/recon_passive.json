@@ -1,1 +1,602 @@
-{"tools":{"subfinder":{"category":"recon_passive","binary":"subfinder","args":["-silent","-d","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Subfinder integration adapter."},"amass":{"category":"recon_passive","binary":"amass","args":["enum","-passive","-d","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Amass integration adapter."},"assetfinder":{"category":"recon_passive","binary":"assetfinder","args":["--subs-only","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Assetfinder integration adapter."},"chaos":{"category":"recon_passive","binary":"chaos","args":["-d","{target}","-silent"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Chaos integration adapter.","required_env":["CHAOS_KEY"]},"dnsx":{"category":"recon_passive","binary":"dnsx","args":["-silent","-d","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Dnsx integration adapter."},"shuffledns":{"category":"recon_passive","binary":"shuffledns","args":["-d","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Shuffledns integration adapter."},"gau":{"category":"recon_passive","binary":"gau","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Gau integration adapter."},"waybackurls":{"category":"recon_passive","binary":"waybackurls","args":[],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Waybackurls integration adapter.","stdin":"{target}\n"},"getjs":{"category":"recon_passive","binary":"getJS","args":["--url","{target}","--complete"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Getjs integration adapter."},"whois":{"category":"recon_passive","binary":"whois","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Whois integration adapter."},"dig":{"category":"recon_passive","binary":"dig","args":["{target}","ANY","+noall","+answer"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Dig integration adapter."},"crtsh":{"category":"recon_passive","binary":"curl","args":["-fsSL","https://crt.sh/?q=%25.{target}&output=json"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Crtsh integration adapter."},"shodan":{"category":"recon_passive","binary":"shodan","args":["host","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Shodan integration adapter.","required_env":["SHODAN_API_KEY"]},"censys":{"category":"recon_passive","binary":"censys","args":["search","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Censys integration adapter.","required_env":["CENSYS_API_ID","CENSYS_API_SECRET"]},"cloud_enum":{"category":"recon_passive","binary":"cloud_enum","args":["-k","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Cloud Enum integration adapter."},"theharvester":{"category":"recon_passive","binary":"theHarvester","args":["-d","{target}","-b","all"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Theharvester integration adapter."},"recon_ng":{"category":"recon_passive","binary":"recon-ng","args":["-w","windeep","-r","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Recon Ng integration adapter."},"github_subdomains":{"category":"recon_passive","binary":"github-subdomains","args":["-d","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Github Subdomains integration adapter.","required_env":["GITHUB_TOKEN"]},"gitlab_subdomains":{"category":"recon_passive","binary":"gitlab-subdomains","args":["-d","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Gitlab Subdomains integration adapter.","required_env":["GITLAB_TOKEN"]},"crobat":{"category":"recon_passive","binary":"crobat","args":["-s","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Crobat integration adapter."},"findomain":{"category":"recon_passive","binary":"findomain","args":["-t","{target}","-q"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Findomain integration adapter."},"sublist3r":{"category":"recon_passive","binary":"sublist3r","args":["-d","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Sublist3R integration adapter."},"knockpy":{"category":"recon_passive","binary":"knockpy","args":["{target}","--no-local"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Knockpy integration adapter."},"puredns":{"category":"recon_passive","binary":"puredns","args":["resolve","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Puredns integration adapter."},"dnsgen":{"category":"recon_passive","binary":"dnsgen","args":[],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Dnsgen integration adapter.","stdin":"{target}\n"}}}
+{
+  "tools": {
+    "subfinder": {
+      "category": "recon_passive",
+      "binary": "subfinder",
+      "args": [
+        "-silent",
+        "-d",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Subfinder integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "amass": {
+      "category": "recon_passive",
+      "binary": "amass",
+      "args": [
+        "enum",
+        "-passive",
+        "-d",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Amass integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "assetfinder": {
+      "category": "recon_passive",
+      "binary": "assetfinder",
+      "args": [
+        "--subs-only",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Assetfinder integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "chaos": {
+      "category": "recon_passive",
+      "binary": "chaos",
+      "args": [
+        "-d",
+        "{target}",
+        "-silent"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Chaos integration adapter.",
+      "required_env": [
+        "CHAOS_KEY"
+      ],
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "dnsx": {
+      "category": "recon_passive",
+      "binary": "dnsx",
+      "args": [
+        "-silent",
+        "-d",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Dnsx integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "shuffledns": {
+      "category": "recon_passive",
+      "binary": "shuffledns",
+      "args": [
+        "-d",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Shuffledns integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "gau": {
+      "category": "recon_passive",
+      "binary": "gau",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Gau integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "waybackurls": {
+      "category": "recon_passive",
+      "binary": "waybackurls",
+      "args": [],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Waybackurls integration adapter.",
+      "stdin": "{target}\n",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "getjs": {
+      "category": "recon_passive",
+      "binary": "getJS",
+      "args": [
+        "--url",
+        "{target}",
+        "--complete"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Getjs integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "whois": {
+      "category": "recon_passive",
+      "binary": "whois",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Whois integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "dig": {
+      "category": "recon_passive",
+      "binary": "dig",
+      "args": [
+        "{target}",
+        "ANY",
+        "+noall",
+        "+answer"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Dig integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "crtsh": {
+      "category": "recon_passive",
+      "binary": "curl",
+      "args": [
+        "-fsSL",
+        "https://crt.sh/?q=%25.{target}&output=json"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Crtsh integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "builtin",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "shodan": {
+      "category": "recon_passive",
+      "binary": "shodan",
+      "args": [
+        "host",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Shodan integration adapter.",
+      "required_env": [
+        "SHODAN_API_KEY"
+      ],
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "builtin",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "censys": {
+      "category": "recon_passive",
+      "binary": "censys",
+      "args": [
+        "search",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Censys integration adapter.",
+      "required_env": [
+        "CENSYS_API_ID",
+        "CENSYS_API_SECRET"
+      ],
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "builtin",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "cloud_enum": {
+      "category": "recon_passive",
+      "binary": "cloud_enum",
+      "args": [
+        "-k",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Cloud Enum integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "theharvester": {
+      "category": "recon_passive",
+      "binary": "theHarvester",
+      "args": [
+        "-d",
+        "{target}",
+        "-b",
+        "all"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Theharvester integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "recon_ng": {
+      "category": "recon_passive",
+      "binary": "recon-ng",
+      "args": [
+        "-w",
+        "windeep",
+        "-r",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Recon Ng integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": false
+    },
+    "github_subdomains": {
+      "category": "recon_passive",
+      "binary": "github-subdomains",
+      "args": [
+        "-d",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Github Subdomains integration adapter.",
+      "required_env": [
+        "GITHUB_TOKEN"
+      ],
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "gitlab_subdomains": {
+      "category": "recon_passive",
+      "binary": "gitlab-subdomains",
+      "args": [
+        "-d",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Gitlab Subdomains integration adapter.",
+      "required_env": [
+        "GITLAB_TOKEN"
+      ],
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "crobat": {
+      "category": "recon_passive",
+      "binary": "crobat",
+      "args": [
+        "-s",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Crobat integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "findomain": {
+      "category": "recon_passive",
+      "binary": "findomain",
+      "args": [
+        "-t",
+        "{target}",
+        "-q"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Findomain integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "sublist3r": {
+      "category": "recon_passive",
+      "binary": "sublist3r",
+      "args": [
+        "-d",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Sublist3R integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "knockpy": {
+      "category": "recon_passive",
+      "binary": "knockpy",
+      "args": [
+        "{target}",
+        "--no-local"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Knockpy integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "puredns": {
+      "category": "recon_passive",
+      "binary": "puredns",
+      "args": [
+        "resolve",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Puredns integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    },
+    "dnsgen": {
+      "category": "recon_passive",
+      "binary": "dnsgen",
+      "args": [],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Dnsgen integration adapter.",
+      "stdin": "{target}\n",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_passive",
+      "scan_default": true
+    }
+  }
+}

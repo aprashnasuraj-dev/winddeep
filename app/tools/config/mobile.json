@@ -3,79 +3,153 @@
     "jadx": {
       "category": "mobile",
       "binary": "jadx",
-      "args": ["-d", "{target}.jadx", "{target}"],
+      "args": [
+        "-d",
+        "{target}.jadx",
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
       "rate_limit": 1.0,
       "requires_scope": true,
       "description": "jadx integration adapter.",
-      "release_support": "bundled"
+      "release_support": "bundled",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": true
     },
     "jadx_gui": {
       "category": "mobile",
       "binary": "jadx-gui",
-      "args": ["{target}"],
+      "args": [
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
       "rate_limit": 1.0,
       "requires_scope": true,
       "description": "jadx-gui integration adapter.",
-      "release_support": "bundled"
+      "release_support": "bundled",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": false
     },
     "apktool": {
       "category": "mobile",
       "binary": "apktool",
-      "args": ["d", "-f", "{target}"],
+      "args": [
+        "d",
+        "-f",
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
       "rate_limit": 1.0,
       "requires_scope": true,
       "description": "apktool integration adapter.",
-      "release_support": "bundled"
+      "release_support": "bundled",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": true
     },
     "dex2jar": {
       "category": "mobile",
       "binary": "d2j-dex2jar",
-      "args": ["{target}"],
+      "args": [
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
       "rate_limit": 1.0,
       "requires_scope": true,
       "description": "dex2jar integration adapter.",
-      "release_support": "bundled"
+      "release_support": "bundled",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": true
     },
     "apkleaks": {
       "category": "mobile",
       "binary": "apkleaks",
-      "args": ["-f", "{target}"],
+      "args": [
+        "-f",
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
       "rate_limit": 1.0,
       "requires_scope": true,
       "description": "APKLeaks integration adapter.",
-      "release_support": "runtime"
+      "release_support": "runtime",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": true
     },
     "androguard": {
       "category": "mobile",
       "binary": "androguard",
-      "args": ["analyze", "{target}"],
+      "args": [
+        "analyze",
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
       "rate_limit": 1.0,
       "requires_scope": true,
       "description": "Androguard integration adapter.",
-      "release_support": "runtime"
+      "release_support": "runtime",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": true
     },
     "mobsf": {
       "category": "mobile",
       "binary": "mobsf",
-      "args": ["{target}"],
+      "args": [
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -83,36 +157,74 @@
       "requires_scope": true,
       "description": "MobSF integration adapter.",
       "release_support": "unsupported",
-      "unsupported_reason": "MobSF is supported only as an explicitly configured external service/container; it is not silently installed by the Windows desktop release."
+      "unsupported_reason": "MobSF is supported only as an explicitly configured external service/container; it is not silently installed by the Windows desktop release.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "builtin",
+      "ui_group": "mobile",
+      "scan_default": true
     },
     "frida": {
       "category": "mobile",
       "binary": "frida",
-      "args": ["-U", "-f", "{target}"],
+      "args": [
+        "-U",
+        "-f",
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
       "rate_limit": 1.0,
       "requires_scope": true,
       "description": "Frida client integration adapter.",
-      "release_support": "runtime"
+      "release_support": "runtime",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": true
     },
     "objection": {
       "category": "mobile",
       "binary": "objection",
-      "args": ["-g", "{target}", "explore"],
+      "args": [
+        "-g",
+        "{target}",
+        "explore"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
       "rate_limit": 1.0,
       "requires_scope": true,
       "description": "Objection integration adapter.",
-      "release_support": "runtime"
+      "release_support": "runtime",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": true
     },
     "drozer": {
       "category": "mobile",
       "binary": "drozer",
-      "args": ["console", "connect"],
+      "args": [
+        "console",
+        "connect"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -120,24 +232,46 @@
       "requires_scope": true,
       "description": "Drozer catalog adapter.",
       "release_support": "unsupported",
-      "unsupported_reason": "Dynamic Android instrumentation has device/runtime prerequisites that are not production-certified for the single-install Windows release."
+      "unsupported_reason": "Dynamic Android instrumentation has device/runtime prerequisites that are not production-certified for the single-install Windows release.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": false
     },
     "adb": {
       "category": "mobile",
       "binary": "adb",
-      "args": ["devices"],
+      "args": [
+        "devices"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
       "rate_limit": 1.0,
       "requires_scope": true,
       "description": "Android Debug Bridge integration adapter.",
-      "release_support": "bundled"
+      "release_support": "bundled",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": true
     },
     "frida_server": {
       "category": "mobile",
       "binary": "frida-server",
-      "args": ["--version"],
+      "args": [
+        "--version"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -145,12 +279,23 @@
       "requires_scope": true,
       "description": "Frida server catalog entry.",
       "release_support": "unsupported",
-      "unsupported_reason": "Device-side binary varies by target OS/CPU and must be deployed explicitly to an authorized test device."
+      "unsupported_reason": "Device-side binary varies by target OS/CPU and must be deployed explicitly to an authorized test device.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": false
     },
     "class_dump": {
       "category": "mobile",
       "binary": "class-dump",
-      "args": ["{target}"],
+      "args": [
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -158,12 +303,24 @@
       "requires_scope": true,
       "description": "class-dump catalog adapter.",
       "release_support": "unsupported",
-      "unsupported_reason": "macOS/iOS host tooling; no production Windows runtime is certified."
+      "unsupported_reason": "macOS/iOS host tooling; no production Windows runtime is certified.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": false
     },
     "ipatool": {
       "category": "mobile",
       "binary": "ipatool",
-      "args": ["search", "{target}"],
+      "args": [
+        "search",
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -171,12 +328,24 @@
       "requires_scope": true,
       "description": "ipatool catalog adapter.",
       "release_support": "unsupported",
-      "unsupported_reason": "iOS acquisition workflow is not certified for the Windows release."
+      "unsupported_reason": "iOS acquisition workflow is not certified for the Windows release.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": false
     },
     "ios_deploy": {
       "category": "mobile",
       "binary": "ios-deploy",
-      "args": ["--bundle", "{target}"],
+      "args": [
+        "--bundle",
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -184,12 +353,23 @@
       "requires_scope": true,
       "description": "ios-deploy catalog adapter.",
       "release_support": "unsupported",
-      "unsupported_reason": "Requires macOS/iOS host tooling and is not Windows-compatible."
+      "unsupported_reason": "Requires macOS/iOS host tooling and is not Windows-compatible.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": false
     },
     "checkra1n": {
       "category": "mobile",
       "binary": "checkra1n",
-      "args": ["--version"],
+      "args": [
+        "--version"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -197,12 +377,23 @@
       "requires_scope": true,
       "description": "checkra1n catalog adapter.",
       "release_support": "unsupported",
-      "unsupported_reason": "Host/device support is not compatible with the Windows desktop release."
+      "unsupported_reason": "Host/device support is not compatible with the Windows desktop release.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": false
     },
     "needle": {
       "category": "mobile",
       "binary": "needle",
-      "args": ["{target}"],
+      "args": [
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -210,12 +401,24 @@
       "requires_scope": true,
       "description": "Needle catalog adapter.",
       "release_support": "unsupported",
-      "unsupported_reason": "Legacy iOS framework; not release-supported on Windows."
+      "unsupported_reason": "Legacy iOS framework; not release-supported on Windows.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": false
     },
     "corellium": {
       "category": "mobile",
       "binary": "corellium-cli",
-      "args": ["projects", "list"],
+      "args": [
+        "projects",
+        "list"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -223,12 +426,23 @@
       "requires_scope": true,
       "description": "Corellium catalog adapter.",
       "release_support": "unsupported",
-      "unsupported_reason": "External commercial API/service; requires separate tenant authorization and credentials."
+      "unsupported_reason": "External commercial API/service; requires separate tenant authorization and credentials.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "builtin",
+      "ui_group": "mobile",
+      "scan_default": false
     },
     "appmon": {
       "category": "mobile",
       "binary": "appmon",
-      "args": ["{target}"],
+      "args": [
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -236,12 +450,24 @@
       "requires_scope": true,
       "description": "AppMon catalog adapter.",
       "release_support": "unsupported",
-      "unsupported_reason": "Legacy instrumentation project; no supported Windows release contract."
+      "unsupported_reason": "Legacy instrumentation project; no supported Windows release contract.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": false
     },
     "qark": {
       "category": "mobile",
       "binary": "qark",
-      "args": ["--apk", "{target}"],
+      "args": [
+        "--apk",
+        "{target}"
+      ],
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
@@ -249,7 +475,16 @@
       "requires_scope": true,
       "description": "QARK catalog adapter.",
       "release_support": "unsupported",
-      "unsupported_reason": "Legacy/deprecated Android analysis project; retained for catalog compatibility only."
+      "unsupported_reason": "Legacy/deprecated Android analysis project; retained for catalog compatibility only.",
+      "target_types": [
+        "apk",
+        "ipa",
+        "package",
+        "mobile"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "mobile",
+      "scan_default": false
     }
   }
 }

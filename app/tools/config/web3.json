@@ -1,16 +1,298 @@
 {
   "tools": {
-    "slither": {"category":"web3","binary":"slither","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Slither integration adapter.","release_support":"runtime"},
-    "mythril": {"category":"web3","binary":"myth","args":["analyze","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Mythril integration adapter.","release_support":"runtime"},
-    "manticore": {"category":"web3","binary":"manticore","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Manticore catalog adapter.","release_support":"unsupported","unsupported_reason":"Heavy symbolic-execution runtime is not certified for the single-install Windows build."},
-    "echidna": {"category":"web3","binary":"echidna","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Echidna catalog adapter.","release_support":"unsupported","unsupported_reason":"No reviewed native Windows package is pinned for this release."},
-    "forge": {"category":"web3","binary":"forge","args":["test","--root","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Foundry Forge integration adapter.","release_support":"bundled"},
-    "solc": {"category":"web3","binary":"solc","args":["--bin","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Solidity compiler integration adapter.","release_support":"bundled"},
-    "surya": {"category":"web3","binary":"surya","args":["describe","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Surya integration adapter.","release_support":"runtime"},
-    "solgraph": {"category":"web3","binary":"solgraph","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Solgraph catalog adapter.","release_support":"unsupported","unsupported_reason":"Legacy/unreviewed package; retained as a catalog entry only."},
-    "eth_abi_decoder": {"category":"web3","binary":"abi-decode","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Ethereum ABI decoder catalog adapter.","release_support":"unsupported","unsupported_reason":"No canonical reviewed Windows CLI package is pinned."},
-    "etherscan": {"category":"web3","binary":"etherscan","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Etherscan API catalog adapter.","release_support":"unsupported","unsupported_reason":"API integration requires an internal HTTP adapter rather than pretending an external binary exists.","required_env":["ETHERSCAN_API_KEY"]},
-    "remix": {"category":"web3","binary":"remix","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Remix catalog entry.","release_support":"unsupported","unsupported_reason":"Remix is a web IDE/link, not a portable command-line binary.","replacement":"hardhat"},
-    "hardhat": {"category":"web3","binary":"npx","args":["hardhat","compile","--config","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Hardhat integration adapter.","release_support":"runtime"}
+    "slither": {
+      "category": "web3",
+      "binary": "slither",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Slither integration adapter.",
+      "release_support": "runtime",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web3",
+      "scan_default": true
+    },
+    "mythril": {
+      "category": "web3",
+      "binary": "myth",
+      "args": [
+        "analyze",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Mythril integration adapter.",
+      "release_support": "runtime",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web3",
+      "scan_default": true
+    },
+    "manticore": {
+      "category": "web3",
+      "binary": "manticore",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Manticore catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "Heavy symbolic-execution runtime is not certified for the single-install Windows build.",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web3",
+      "scan_default": false
+    },
+    "echidna": {
+      "category": "web3",
+      "binary": "echidna",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Echidna catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "No reviewed native Windows package is pinned for this release.",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web3",
+      "scan_default": false
+    },
+    "forge": {
+      "category": "web3",
+      "binary": "forge",
+      "args": [
+        "test",
+        "--root",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Foundry Forge integration adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web3",
+      "scan_default": true
+    },
+    "solc": {
+      "category": "web3",
+      "binary": "solc",
+      "args": [
+        "--bin",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Solidity compiler integration adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web3",
+      "scan_default": true
+    },
+    "surya": {
+      "category": "web3",
+      "binary": "surya",
+      "args": [
+        "describe",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Surya integration adapter.",
+      "release_support": "runtime",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web3",
+      "scan_default": true
+    },
+    "solgraph": {
+      "category": "web3",
+      "binary": "solgraph",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Solgraph catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "Legacy/unreviewed package; retained as a catalog entry only.",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web3",
+      "scan_default": false
+    },
+    "eth_abi_decoder": {
+      "category": "web3",
+      "binary": "abi-decode",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Ethereum ABI decoder catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "No canonical reviewed Windows CLI package is pinned.",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web3",
+      "scan_default": false
+    },
+    "etherscan": {
+      "category": "web3",
+      "binary": "etherscan",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Etherscan API catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "API integration requires an internal HTTP adapter rather than pretending an external binary exists.",
+      "required_env": [
+        "ETHERSCAN_API_KEY"
+      ],
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "builtin",
+      "ui_group": "web3",
+      "scan_default": true
+    },
+    "remix": {
+      "category": "web3",
+      "binary": "remix",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Remix catalog entry.",
+      "release_support": "unsupported",
+      "unsupported_reason": "Remix is a web IDE/link, not a portable command-line binary.",
+      "replacement": "hardhat",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "builtin",
+      "ui_group": "web3",
+      "scan_default": false
+    },
+    "hardhat": {
+      "category": "web3",
+      "binary": "npx",
+      "args": [
+        "hardhat",
+        "compile",
+        "--config",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Hardhat integration adapter.",
+      "release_support": "runtime",
+      "target_types": [
+        "contract",
+        "repo",
+        "file",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web3",
+      "scan_default": true
+    }
   }
 }

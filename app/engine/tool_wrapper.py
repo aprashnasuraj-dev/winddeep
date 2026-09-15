@@ -120,6 +120,10 @@ class ToolExecutionError(RuntimeError):
     """Raised when an external tool cannot complete successfully."""
 
 
+class ToolCancelledError(ToolExecutionError):
+    """Raised when a user-requested scan stop terminates tool execution."""
+
+
 class ToolWrapperBase:
     """Base implementation inherited by dynamically generated wrappers."""
 
@@ -146,10 +150,12 @@ class ToolWrapperBase:
         tools_dir: str | Path = "tools",
         scope_validator: Callable[[str], bool] | None = None,
         environment: Mapping[str, str] | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> None:
         self.tools_dir = Path(tools_dir)
         self.scope_validator = scope_validator
         self.environment = {**os.environ, **dict(environment or {})}
+        self.cancel_check = cancel_check
         self._rate_lock = asyncio.Lock()
         self._last_started = 0.0
 
@@ -191,6 +197,8 @@ class ToolWrapperBase:
     ) -> list[Finding]:
         """Validate scope/input, execute without a shell, and normalize output."""
         try:
+            if self._cancel_requested():
+                raise ToolCancelledError(f"{self.tool_name} cancelled before execution")
             if self.requires_scope and self.scope_validator is None:
                 raise PermissionError(f"{self.tool_name} requires an explicit scope validator before execution")
             if self.scope_validator is not None and not self.scope_validator(target):
@@ -204,7 +212,10 @@ class ToolWrapperBase:
                 {"target": target, **dict(options or {})}
             ).model_dump()
             if builtin_integrations.supports(self.tool_name):
-                rows = await builtin_integrations.run(self.tool_name, target, environment=self.environment)
+                rows = await self._await_with_cancel(
+                    builtin_integrations.run(self.tool_name, target, environment=self.environment),
+                    timeout=self.timeout,
+                )
                 return [Finding.model_validate(row) for row in rows]
 
             rendered_args = self._render_args(validated)
@@ -223,6 +234,8 @@ class ToolWrapperBase:
             last_error: BaseException | None = None
             for attempt in range(self.retries + 1):
                 try:
+                    if self._cancel_requested():
+                        raise ToolCancelledError(f"{self.tool_name} cancelled by user")
                     await self._respect_rate_limit()
                     if stdin_data is None:
                         stdout, stderr, returncode = await self._run_process(argv)
@@ -233,7 +246,7 @@ class ToolWrapperBase:
                             f"{self.tool_name} exited with code {returncode}: {stderr.strip()[:2000]}"
                         )
                     return self.parse_output(stdout, target)
-                except asyncio.CancelledError:
+                except (ToolCancelledError, asyncio.CancelledError):
                     raise
                 except (ToolExecutionError, asyncio.TimeoutError, OSError) as exc:
                     last_error = exc
@@ -244,6 +257,36 @@ class ToolWrapperBase:
                 f"{self.tool_name} failed after {self.retries + 1} attempt(s): {last_error}"
             )
         except asyncio.CancelledError:
+            raise
+
+    def _cancel_requested(self) -> bool:
+        if self.cancel_check is None:
+            return False
+        try:
+            return bool(self.cancel_check())
+        except Exception:
+            return False
+
+    async def _await_with_cancel(self, awaitable: Any, *, timeout: float) -> Any:
+        task = asyncio.create_task(awaitable)
+        started = time.monotonic()
+        try:
+            while True:
+                if self._cancel_requested():
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                    raise ToolCancelledError(f"{self.tool_name} cancelled by user")
+                remaining = timeout - (time.monotonic() - started)
+                if remaining <= 0:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                    raise asyncio.TimeoutError
+                done, _pending = await asyncio.wait({task}, timeout=min(0.2, remaining))
+                if task in done:
+                    return await task
+        except asyncio.CancelledError:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
             raise
 
     def _render_args(self, values: Mapping[str, Any]) -> list[str]:
@@ -293,14 +336,16 @@ class ToolWrapperBase:
             env=self.environment,
         )
         try:
-            stdout, stderr = await asyncio.wait_for(process.communicate(stdin_data), timeout=self.timeout)
-        except asyncio.CancelledError:
-            process.kill()
-            await process.wait()
+            stdout, stderr = await self._await_with_cancel(process.communicate(stdin_data), timeout=self.timeout)
+        except (ToolCancelledError, asyncio.CancelledError):
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
             raise
         except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
+            if process.returncode is None:
+                process.kill()
+                await process.wait()
             raise
         return (
             stdout.decode("utf-8", errors="replace"),

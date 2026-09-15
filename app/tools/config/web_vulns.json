@@ -1,1 +1,719 @@
-{"tools":{"nuclei":{"category":"web_vulns","binary":"nuclei","args":["-u","{target}","-jsonl","-silent","-rl","5"],"parser":"jsonl","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Nuclei integration adapter."},"nikto":{"category":"web_vulns","binary":"nikto","args":["-h","{target}","-Format","json"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Nikto integration adapter."},"dalfox":{"category":"web_vulns","binary":"dalfox","args":["url","{target}","--format","json"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Dalfox integration adapter."},"xsstrike":{"category":"web_vulns","binary":"xsstrike","args":["-u","{target}","--skip-dom"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Xsstrike integration adapter."},"kxss":{"category":"web_vulns","binary":"kxss","args":[],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Kxss integration adapter.","stdin":"{target}\n"},"sqlmap":{"category":"web_vulns","binary":"sqlmap","args":["-u","{target}","--batch","--smart","--level=1","--risk=1"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Sqlmap integration adapter."},"ghauri":{"category":"web_vulns","binary":"ghauri","args":["-u","{target}","--batch"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Ghauri integration adapter."},"ssrfmap":{"category":"web_vulns","binary":"ssrfmap","args":["-r","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Ssrfmap integration adapter."},"tplmap":{"category":"web_vulns","binary":"tplmap","args":["-u","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Tplmap integration adapter."},"corscanner":{"category":"web_vulns","binary":"corscanner","args":["-u","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Corscanner integration adapter."},"graphql_cop":{"category":"web_vulns","binary":"graphql-cop","args":["-t","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Graphql Cop integration adapter."},"inql":{"category":"web_vulns","binary":"inql","args":["-t","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Inql integration adapter."},"wpscan":{"category":"web_vulns","binary":"wpscan","args":["--url","{target}","--format","json"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Wpscan integration adapter.","required_env":["WPSCAN_API_TOKEN"]},"cmsmap":{"category":"web_vulns","binary":"cmsmap","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Cmsmap integration adapter."},"jwt_tool":{"category":"web_vulns","binary":"jwt_tool","args":["{target}","-M","at"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Jwt Tool integration adapter."},"burpsuite":{"category":"web_vulns","binary":"BurpSuiteCommunity","args":["--project-file={target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Burpsuite integration adapter."},"owasp_zap":{"category":"web_vulns","binary":"zap-baseline.py","args":["-t","{target}","-J","-"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Owasp Zap integration adapter."},"linkfinder":{"category":"web_vulns","binary":"linkfinder","args":["-i","{target}","-o","cli"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Linkfinder integration adapter."},"secretfinder":{"category":"web_vulns","binary":"secretfinder","args":["-i","{target}","-o","cli"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Secretfinder integration adapter."},"jsparser":{"category":"web_vulns","binary":"JSParser","args":["-u","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Jsparser integration adapter."},"waybackrobots":{"category":"web_vulns","binary":"waybackrobots","args":["{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Waybackrobots integration adapter."},"smuggler":{"category":"web_vulns","binary":"smuggler","args":["-u","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Smuggler integration adapter."},"crlfuzz":{"category":"web_vulns","binary":"crlfuzz","args":["-u","{target}","-s"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Crlfuzz integration adapter."},"commix":{"category":"web_vulns","binary":"commix","args":["--url","{target}","--batch"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Commix integration adapter."},"nosqli":{"category":"web_vulns","binary":"nosqli","args":["-u","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Nosqli integration adapter."},"graphqlmap":{"category":"web_vulns","binary":"graphqlmap","args":["-u","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Graphqlmap integration adapter."},"jaeles":{"category":"web_vulns","binary":"jaeles","args":["scan","-u","{target}","-q"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Jaeles integration adapter."},"waffw00f":{"category":"web_vulns","binary":"waffw00f","args":["{target}","-a"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Waffw00F integration adapter."},"whatweb":{"category":"web_vulns","binary":"whatweb","args":["--color=never","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Whatweb integration adapter."},"wafw00f":{"category":"web_vulns","binary":"wafw00f","args":["{target}","-a"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Wafw00F integration adapter."}}}
+{
+  "tools": {
+    "nuclei": {
+      "category": "web_vulns",
+      "binary": "nuclei",
+      "args": [
+        "-u",
+        "{target}",
+        "-jsonl",
+        "-silent",
+        "-rl",
+        "5"
+      ],
+      "parser": "jsonl",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Nuclei integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "nikto": {
+      "category": "web_vulns",
+      "binary": "nikto",
+      "args": [
+        "-h",
+        "{target}",
+        "-Format",
+        "json"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Nikto integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "dalfox": {
+      "category": "web_vulns",
+      "binary": "dalfox",
+      "args": [
+        "url",
+        "{target}",
+        "--format",
+        "json"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Dalfox integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "xsstrike": {
+      "category": "web_vulns",
+      "binary": "xsstrike",
+      "args": [
+        "-u",
+        "{target}",
+        "--skip-dom"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Xsstrike integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "kxss": {
+      "category": "web_vulns",
+      "binary": "kxss",
+      "args": [],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Kxss integration adapter.",
+      "stdin": "{target}\n",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "sqlmap": {
+      "category": "web_vulns",
+      "binary": "sqlmap",
+      "args": [
+        "-u",
+        "{target}",
+        "--batch",
+        "--smart",
+        "--level=1",
+        "--risk=1"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Sqlmap integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "ghauri": {
+      "category": "web_vulns",
+      "binary": "ghauri",
+      "args": [
+        "-u",
+        "{target}",
+        "--batch"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Ghauri integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "ssrfmap": {
+      "category": "web_vulns",
+      "binary": "ssrfmap",
+      "args": [
+        "-r",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Ssrfmap integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "tplmap": {
+      "category": "web_vulns",
+      "binary": "tplmap",
+      "args": [
+        "-u",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Tplmap integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "corscanner": {
+      "category": "web_vulns",
+      "binary": "corscanner",
+      "args": [
+        "-u",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Corscanner integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "graphql_cop": {
+      "category": "web_vulns",
+      "binary": "graphql-cop",
+      "args": [
+        "-t",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Graphql Cop integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "inql": {
+      "category": "web_vulns",
+      "binary": "inql",
+      "args": [
+        "-t",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Inql integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "wpscan": {
+      "category": "web_vulns",
+      "binary": "wpscan",
+      "args": [
+        "--url",
+        "{target}",
+        "--format",
+        "json"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Wpscan integration adapter.",
+      "required_env": [
+        "WPSCAN_API_TOKEN"
+      ],
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "cmsmap": {
+      "category": "web_vulns",
+      "binary": "cmsmap",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Cmsmap integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "jwt_tool": {
+      "category": "web_vulns",
+      "binary": "jwt_tool",
+      "args": [
+        "{target}",
+        "-M",
+        "at"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Jwt Tool integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "burpsuite": {
+      "category": "web_vulns",
+      "binary": "BurpSuiteCommunity",
+      "args": [
+        "--project-file={target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Burpsuite integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": false
+    },
+    "owasp_zap": {
+      "category": "web_vulns",
+      "binary": "zap-baseline.py",
+      "args": [
+        "-t",
+        "{target}",
+        "-J",
+        "-"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Owasp Zap integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": false
+    },
+    "linkfinder": {
+      "category": "web_vulns",
+      "binary": "linkfinder",
+      "args": [
+        "-i",
+        "{target}",
+        "-o",
+        "cli"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Linkfinder integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "secretfinder": {
+      "category": "web_vulns",
+      "binary": "secretfinder",
+      "args": [
+        "-i",
+        "{target}",
+        "-o",
+        "cli"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Secretfinder integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "jsparser": {
+      "category": "web_vulns",
+      "binary": "JSParser",
+      "args": [
+        "-u",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Jsparser integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "waybackrobots": {
+      "category": "web_vulns",
+      "binary": "waybackrobots",
+      "args": [
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Waybackrobots integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "smuggler": {
+      "category": "web_vulns",
+      "binary": "smuggler",
+      "args": [
+        "-u",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Smuggler integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "crlfuzz": {
+      "category": "web_vulns",
+      "binary": "crlfuzz",
+      "args": [
+        "-u",
+        "{target}",
+        "-s"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Crlfuzz integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "commix": {
+      "category": "web_vulns",
+      "binary": "commix",
+      "args": [
+        "--url",
+        "{target}",
+        "--batch"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Commix integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "nosqli": {
+      "category": "web_vulns",
+      "binary": "nosqli",
+      "args": [
+        "-u",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Nosqli integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "graphqlmap": {
+      "category": "web_vulns",
+      "binary": "graphqlmap",
+      "args": [
+        "-u",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Graphqlmap integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "jaeles": {
+      "category": "web_vulns",
+      "binary": "jaeles",
+      "args": [
+        "scan",
+        "-u",
+        "{target}",
+        "-q"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Jaeles integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "waffw00f": {
+      "category": "web_vulns",
+      "binary": "waffw00f",
+      "args": [
+        "{target}",
+        "-a"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Waffw00F integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "whatweb": {
+      "category": "web_vulns",
+      "binary": "whatweb",
+      "args": [
+        "--color=never",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Whatweb integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    },
+    "wafw00f": {
+      "category": "web_vulns",
+      "binary": "wafw00f",
+      "args": [
+        "{target}",
+        "-a"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Wafw00F integration adapter.",
+      "target_types": [
+        "url",
+        "domain",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "web_vulns",
+      "scan_default": true
+    }
+  }
+}

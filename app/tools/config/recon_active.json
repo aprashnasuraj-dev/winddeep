@@ -1,1 +1,480 @@
-{"tools":{"httpx":{"category":"recon_active","binary":"httpx","args":["-u","{target}","-json","-silent"],"parser":"jsonl","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Httpx integration adapter."},"httprobe":{"category":"recon_active","binary":"httprobe","args":[],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Httprobe integration adapter.","stdin":"{target}\n"},"naabu":{"category":"recon_active","binary":"naabu","args":["-host","{target}","-json","-silent"],"parser":"jsonl","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Naabu integration adapter."},"katana":{"category":"recon_active","binary":"katana","args":["-u","{target}","-jsonl","-silent"],"parser":"jsonl","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Katana integration adapter."},"hakrawler":{"category":"recon_active","binary":"hakrawler","args":[],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Hakrawler integration adapter.","stdin":"{target}\n"},"gospider":{"category":"recon_active","binary":"gospider","args":["-s","{target}","-q"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Gospider integration adapter."},"gowitness":{"category":"recon_active","binary":"gowitness","args":["scan","single","--url","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Gowitness integration adapter."},"aquatone":{"category":"recon_active","binary":"aquatone","args":["-url","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Aquatone integration adapter."},"ffuf":{"category":"recon_active","binary":"ffuf","args":["-u","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Ffuf integration adapter."},"dirsearch":{"category":"recon_active","binary":"dirsearch","args":["-u","{target}","--format","json"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Dirsearch integration adapter."},"gobuster":{"category":"recon_active","binary":"gobuster","args":["dir","-u","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Gobuster integration adapter."},"feroxbuster":{"category":"recon_active","binary":"feroxbuster","args":["-u","{target}","--silent"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Feroxbuster integration adapter."},"arjun":{"category":"recon_active","binary":"arjun","args":["-u","{target}","--stable"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Arjun integration adapter."},"paramspider":{"category":"recon_active","binary":"paramspider","args":["-d","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Paramspider integration adapter."},"x8":{"category":"recon_active","binary":"x8","args":["-u","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"X8 integration adapter."},"waymore":{"category":"recon_active","binary":"waymore","args":["-i","{target}","-mode","U"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Waymore integration adapter."},"dnsvalidator":{"category":"recon_active","binary":"dnsvalidator","args":["-tL","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Dnsvalidator integration adapter."},"mapcidr":{"category":"recon_active","binary":"mapcidr","args":["-cidr","{target}","-silent"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Mapcidr integration adapter."},"tlsx":{"category":"recon_active","binary":"tlsx","args":["-u","{target}","-json","-silent"],"parser":"jsonl","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Tlsx integration adapter."},"asnmap":{"category":"recon_active","binary":"asnmap","args":["-d","{target}","-json"],"parser":"jsonl","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Asnmap integration adapter."}}}
+{
+  "tools": {
+    "httpx": {
+      "category": "recon_active",
+      "binary": "httpx",
+      "args": [
+        "-u",
+        "{target}",
+        "-json",
+        "-silent"
+      ],
+      "parser": "jsonl",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Httpx integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "httprobe": {
+      "category": "recon_active",
+      "binary": "httprobe",
+      "args": [],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Httprobe integration adapter.",
+      "stdin": "{target}\n",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "naabu": {
+      "category": "recon_active",
+      "binary": "naabu",
+      "args": [
+        "-host",
+        "{target}",
+        "-json",
+        "-silent"
+      ],
+      "parser": "jsonl",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Naabu integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "katana": {
+      "category": "recon_active",
+      "binary": "katana",
+      "args": [
+        "-u",
+        "{target}",
+        "-jsonl",
+        "-silent"
+      ],
+      "parser": "jsonl",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Katana integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "hakrawler": {
+      "category": "recon_active",
+      "binary": "hakrawler",
+      "args": [],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Hakrawler integration adapter.",
+      "stdin": "{target}\n",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "gospider": {
+      "category": "recon_active",
+      "binary": "gospider",
+      "args": [
+        "-s",
+        "{target}",
+        "-q"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Gospider integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "gowitness": {
+      "category": "recon_active",
+      "binary": "gowitness",
+      "args": [
+        "scan",
+        "single",
+        "--url",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Gowitness integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "aquatone": {
+      "category": "recon_active",
+      "binary": "aquatone",
+      "args": [
+        "-url",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Aquatone integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "ffuf": {
+      "category": "recon_active",
+      "binary": "ffuf",
+      "args": [
+        "-u",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Ffuf integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "dirsearch": {
+      "category": "recon_active",
+      "binary": "dirsearch",
+      "args": [
+        "-u",
+        "{target}",
+        "--format",
+        "json"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Dirsearch integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "gobuster": {
+      "category": "recon_active",
+      "binary": "gobuster",
+      "args": [
+        "dir",
+        "-u",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Gobuster integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "feroxbuster": {
+      "category": "recon_active",
+      "binary": "feroxbuster",
+      "args": [
+        "-u",
+        "{target}",
+        "--silent"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Feroxbuster integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "arjun": {
+      "category": "recon_active",
+      "binary": "arjun",
+      "args": [
+        "-u",
+        "{target}",
+        "--stable"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Arjun integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "paramspider": {
+      "category": "recon_active",
+      "binary": "paramspider",
+      "args": [
+        "-d",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Paramspider integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "x8": {
+      "category": "recon_active",
+      "binary": "x8",
+      "args": [
+        "-u",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "X8 integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "waymore": {
+      "category": "recon_active",
+      "binary": "waymore",
+      "args": [
+        "-i",
+        "{target}",
+        "-mode",
+        "U"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Waymore integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "dnsvalidator": {
+      "category": "recon_active",
+      "binary": "dnsvalidator",
+      "args": [
+        "-tL",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Dnsvalidator integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "mapcidr": {
+      "category": "recon_active",
+      "binary": "mapcidr",
+      "args": [
+        "-cidr",
+        "{target}",
+        "-silent"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Mapcidr integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "tlsx": {
+      "category": "recon_active",
+      "binary": "tlsx",
+      "args": [
+        "-u",
+        "{target}",
+        "-json",
+        "-silent"
+      ],
+      "parser": "jsonl",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Tlsx integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    },
+    "asnmap": {
+      "category": "recon_active",
+      "binary": "asnmap",
+      "args": [
+        "-d",
+        "{target}",
+        "-json"
+      ],
+      "parser": "jsonl",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Asnmap integration adapter.",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "recon_active",
+      "scan_default": true
+    }
+  }
+}

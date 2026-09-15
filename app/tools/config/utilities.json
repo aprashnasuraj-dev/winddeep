@@ -1,14 +1,304 @@
 {
   "tools": {
-    "jq": {"category":"utilities","binary":"jq","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"jq utility adapter.","release_support":"bundled"},
-    "yq": {"category":"utilities","binary":"yq","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"yq utility adapter.","release_support":"bundled"},
-    "openssl": {"category":"utilities","binary":"openssl","args":["version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"OpenSSL runtime adapter.","release_support":"runtime"},
-    "git": {"category":"utilities","binary":"git","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Git runtime adapter.","release_support":"runtime"},
-    "python_runtime": {"category":"utilities","binary":"python","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Bundled Python runtime adapter.","release_support":"runtime"},
-    "node": {"category":"utilities","binary":"node","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Node.js runtime adapter.","release_support":"runtime"},
-    "ripgrep": {"category":"utilities","binary":"rg","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"ripgrep utility adapter.","release_support":"bundled"},
-    "sevenzip": {"category":"utilities","binary":"7z","args":["i"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"7-Zip utility adapter.","release_support":"bundled"},
-    "sqlite3": {"category":"utilities","binary":"sqlite3","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"SQLite CLI utility adapter.","release_support":"bundled"},
-    "grpcurl": {"category":"utilities","binary":"grpcurl","args":["-version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"grpcurl utility adapter.","release_support":"bundled"}
+    "jq": {
+      "category": "utilities",
+      "binary": "jq",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "jq utility adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "repo",
+        "file",
+        "apk",
+        "ipa",
+        "contract",
+        "web",
+        "mobile",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "utilities",
+      "scan_default": false
+    },
+    "yq": {
+      "category": "utilities",
+      "binary": "yq",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "yq utility adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "repo",
+        "file",
+        "apk",
+        "ipa",
+        "contract",
+        "web",
+        "mobile",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "utilities",
+      "scan_default": false
+    },
+    "openssl": {
+      "category": "utilities",
+      "binary": "openssl",
+      "args": [
+        "version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "OpenSSL runtime adapter.",
+      "release_support": "runtime",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "repo",
+        "file",
+        "apk",
+        "ipa",
+        "contract",
+        "web",
+        "mobile",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "utilities",
+      "scan_default": false
+    },
+    "git": {
+      "category": "utilities",
+      "binary": "git",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Git runtime adapter.",
+      "release_support": "runtime",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "repo",
+        "file",
+        "apk",
+        "ipa",
+        "contract",
+        "web",
+        "mobile",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "utilities",
+      "scan_default": false
+    },
+    "python_runtime": {
+      "category": "utilities",
+      "binary": "python",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Bundled Python runtime adapter.",
+      "release_support": "runtime",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "repo",
+        "file",
+        "apk",
+        "ipa",
+        "contract",
+        "web",
+        "mobile",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "utilities",
+      "scan_default": false
+    },
+    "node": {
+      "category": "utilities",
+      "binary": "node",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Node.js runtime adapter.",
+      "release_support": "runtime",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "repo",
+        "file",
+        "apk",
+        "ipa",
+        "contract",
+        "web",
+        "mobile",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "utilities",
+      "scan_default": false
+    },
+    "ripgrep": {
+      "category": "utilities",
+      "binary": "rg",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "ripgrep utility adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "repo",
+        "file",
+        "apk",
+        "ipa",
+        "contract",
+        "web",
+        "mobile",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "utilities",
+      "scan_default": false
+    },
+    "sevenzip": {
+      "category": "utilities",
+      "binary": "7z",
+      "args": [
+        "i"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "7-Zip utility adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "repo",
+        "file",
+        "apk",
+        "ipa",
+        "contract",
+        "web",
+        "mobile",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "utilities",
+      "scan_default": false
+    },
+    "sqlite3": {
+      "category": "utilities",
+      "binary": "sqlite3",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "SQLite CLI utility adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "repo",
+        "file",
+        "apk",
+        "ipa",
+        "contract",
+        "web",
+        "mobile",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "utilities",
+      "scan_default": false
+    },
+    "grpcurl": {
+      "category": "utilities",
+      "binary": "grpcurl",
+      "args": [
+        "-version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "grpcurl utility adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "domain",
+        "url",
+        "host",
+        "repo",
+        "file",
+        "apk",
+        "ipa",
+        "contract",
+        "web",
+        "mobile",
+        "web3"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "utilities",
+      "scan_default": false
+    }
   }
 }

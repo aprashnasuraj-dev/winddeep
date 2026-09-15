@@ -1,14 +1,248 @@
 {
   "tools": {
-    "nmap": {"category":"network","binary":"nmap","args":["-sT","-Pn","--top-ports","100","{target}"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Nmap catalog adapter.","release_support":"unsupported","unsupported_reason":"Nmap redistribution/licensing and installer integration require separate OEM/license review; not bundled until approved."},
-    "tshark": {"category":"network","binary":"tshark","args":["-D"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"TShark catalog adapter.","release_support":"unsupported","unsupported_reason":"Wireshark/Npcap driver installation and license review require explicit admin/user consent outside the current portable contract."},
-    "metasploit": {"category":"network","binary":"msfconsole","args":["-v"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Metasploit catalog adapter.","release_support":"unsupported","unsupported_reason":"Large independent runtime; not certified for single-install desktop packaging."},
-    "masscan": {"category":"network","binary":"masscan","args":["{target}","--top-ports","100","--rate","100"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Masscan catalog adapter.","release_support":"unsupported","unsupported_reason":"No canonical reviewed Windows release artifact is pinned."},
-    "radare2": {"category":"network","binary":"radare2","args":["-v"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Radare2 integration adapter.","release_support":"bundled"},
-    "john": {"category":"network","binary":"john","args":["--test=0"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"John the Ripper integration adapter.","release_support":"bundled"},
-    "hashcat": {"category":"network","binary":"hashcat","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"Hashcat integration adapter.","release_support":"bundled"},
-    "testssl": {"category":"network","binary":"testssl","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"testssl.sh catalog adapter.","release_support":"unsupported","unsupported_reason":"Bash/OpenSSL workflow is not certified as a native self-contained Windows runtime."},
-    "sslscan": {"category":"network","binary":"sslscan","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"SSLScan catalog adapter.","release_support":"unsupported","unsupported_reason":"No reviewed upstream Windows artifact is pinned for this release."},
-    "rustscan": {"category":"network","binary":"rustscan","args":["--version"],"parser":"lines","timeout":180,"retries":1,"rate_limit":1.0,"requires_scope":true,"description":"RustScan integration adapter.","release_support":"bundled"}
+    "nmap": {
+      "category": "network",
+      "binary": "nmap",
+      "args": [
+        "-sT",
+        "-Pn",
+        "--top-ports",
+        "100",
+        "{target}"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Nmap catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "Nmap redistribution/licensing and installer integration require separate OEM/license review; not bundled until approved.",
+      "target_types": [
+        "host",
+        "domain",
+        "url",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "network",
+      "scan_default": false
+    },
+    "tshark": {
+      "category": "network",
+      "binary": "tshark",
+      "args": [
+        "-D"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "TShark catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "Wireshark/Npcap driver installation and license review require explicit admin/user consent outside the current portable contract.",
+      "target_types": [
+        "host",
+        "domain",
+        "url",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "network",
+      "scan_default": false
+    },
+    "metasploit": {
+      "category": "network",
+      "binary": "msfconsole",
+      "args": [
+        "-v"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Metasploit catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "Large independent runtime; not certified for single-install desktop packaging.",
+      "target_types": [
+        "host",
+        "domain",
+        "url",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "network",
+      "scan_default": false
+    },
+    "masscan": {
+      "category": "network",
+      "binary": "masscan",
+      "args": [
+        "{target}",
+        "--top-ports",
+        "100",
+        "--rate",
+        "100"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Masscan catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "No canonical reviewed Windows release artifact is pinned.",
+      "target_types": [
+        "host",
+        "domain",
+        "url",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "network",
+      "scan_default": false
+    },
+    "radare2": {
+      "category": "network",
+      "binary": "radare2",
+      "args": [
+        "-v"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Radare2 integration adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "host",
+        "domain",
+        "url",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "network",
+      "scan_default": true
+    },
+    "john": {
+      "category": "network",
+      "binary": "john",
+      "args": [
+        "--test=0"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "John the Ripper integration adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "host",
+        "domain",
+        "url",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "network",
+      "scan_default": true
+    },
+    "hashcat": {
+      "category": "network",
+      "binary": "hashcat",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Hashcat integration adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "host",
+        "domain",
+        "url",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "network",
+      "scan_default": true
+    },
+    "testssl": {
+      "category": "network",
+      "binary": "testssl",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "testssl.sh catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "Bash/OpenSSL workflow is not certified as a native self-contained Windows runtime.",
+      "target_types": [
+        "host",
+        "domain",
+        "url",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "network",
+      "scan_default": false
+    },
+    "sslscan": {
+      "category": "network",
+      "binary": "sslscan",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "SSLScan catalog adapter.",
+      "release_support": "unsupported",
+      "unsupported_reason": "No reviewed upstream Windows artifact is pinned for this release.",
+      "target_types": [
+        "host",
+        "domain",
+        "url",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "network",
+      "scan_default": false
+    },
+    "rustscan": {
+      "category": "network",
+      "binary": "rustscan",
+      "args": [
+        "--version"
+      ],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "RustScan integration adapter.",
+      "release_support": "bundled",
+      "target_types": [
+        "host",
+        "domain",
+        "url",
+        "web"
+      ],
+      "runtime_strategy": "process",
+      "ui_group": "network",
+      "scan_default": true
+    }
   }
 }
