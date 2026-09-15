@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.brain.chain_builder import ChainBuilder
+from app.brain.llm_client import LLMClient
 from app.engine.event_bus import EventBus
 from app.engine.scheduler import TaskScheduler
 from app.v2_pipeline import (
@@ -133,25 +135,7 @@ def test_canonical_stage_output_is_byte_stable() -> None:
     assert canonical_bytes(left) == canonical_bytes(right)
 
 
-def test_scan_event_log_replays_gap_free(tmp_path) -> None:
-    from app.security.crypto import CryptoManager
-    from app.security.secure_database import SecureDatabase
-
-    crypto = CryptoManager(wrapped_key_path=tmp_path / "crypto" / "dek.bin")
-    database = SecureDatabase(tmp_path / "windeep.db", crypto=crypto)
-    log = ScanEventLog(database, crypto)
-    log.ensure_schema()
-    first = log.append(7, "log", {"message": "one"})
-    second = log.append(7, "progress", {"progress": 50})
-    third = log.append(7, "ranked", {"finding_id": 9, "score": 88.0})
-    assert [first["seq"], second["seq"], third["seq"]] == [1, 2, 3]
-    replay = log.list_after(7, 1)
-    assert [event["seq"] for event in replay] == [2, 3]
-    assert [event["type"] for event in replay] == ["progress", "ranked"]
-    assert all(event["schema"] == "windeep.sse.v1" for event in replay)
-
-
-def test_batch_writer_is_idempotent_per_scan_tool_run(tmp_path) -> None:
+def _secure_fixture(tmp_path):
     from app.security.crypto import CryptoManager
     from app.security.secure_database import SecureDatabase
 
@@ -159,6 +143,33 @@ def test_batch_writer_is_idempotent_per_scan_tool_run(tmp_path) -> None:
     database = SecureDatabase(tmp_path / "windeep.db", crypto=crypto)
     target_id = database.create_target("fixture", "domain", "example.test", scope=["example.test"])
     scan_id = database.create_scan(target_id, "v2:selected", ["fixture"])
+    return crypto, database, target_id, scan_id
+
+
+def test_scan_event_log_replays_gap_free_and_redacts_exports(tmp_path) -> None:
+    crypto, database, _target_id, scan_id = _secure_fixture(tmp_path)
+    log = ScanEventLog(database, crypto)
+    log.ensure_schema()
+    first = log.append(scan_id, "log", {"message": "one"})
+    second = log.append(scan_id, "progress", {"progress": 50})
+    third = log.append(
+        scan_id,
+        "ranked",
+        {"finding_id": 9, "score": 88.0, "Authorization": "Bearer super-secret-token", "nested": {"api_key": "known-secret"}},
+    )
+    assert [first["seq"], second["seq"], third["seq"]] == [1, 2, 3]
+    replay = log.list_after(scan_id, 1)
+    assert [event["seq"] for event in replay] == [2, 3]
+    assert [event["type"] for event in replay] == ["progress", "ranked"]
+    assert all(event["schema"] == "windeep.sse.v1" for event in replay)
+    exported = canonical_bytes(replay).decode("utf-8")
+    assert "super-secret-token" not in exported
+    assert "known-secret" not in exported
+    assert exported.count("[REDACTED]") >= 2
+
+
+def test_batch_writer_is_idempotent_per_scan_tool_run(tmp_path) -> None:
+    _crypto, database, target_id, scan_id = _secure_fixture(tmp_path)
     run_id = database.create_tool_run(tool_name="fixture", status="running", scan_id=scan_id, target_id=target_id, command=["fixture", "<scope-bound target>"])
     writer = FindingBatchWriter(database)
     writer.ensure_schema()
@@ -178,3 +189,30 @@ def test_batch_writer_is_idempotent_per_scan_tool_run(tmp_path) -> None:
         count = conn.execute("SELECT COUNT(*) AS n FROM scan_findings WHERE scan_id = ? AND tool_run_id = ?", (scan_id, run_id)).fetchone()["n"]
     assert count == 1
     assert json.loads(second[0]["stable_json"])["title"] == "Same finding"
+
+
+@pytest.mark.asyncio
+async def test_chain_builder_accepts_scan_finding_id_and_is_deterministic() -> None:
+    findings = [
+        {
+            "finding_id": 10,
+            "title": "Sensitive information disclosure",
+            "severity": "medium",
+            "vuln_type": "information disclosure",
+            "description": "Identifiers observed in a read-only response.",
+        },
+        {
+            "finding_id": 20,
+            "title": "Object authorization inconsistency",
+            "severity": "high",
+            "vuln_type": "idor",
+            "description": "Authorization behavior differs for an object read.",
+        },
+    ]
+    bus = EventBus(heartbeat_interval=60)
+    builder = ChainBuilder(LLMClient([]), bus)
+    first = await builder.build(findings)
+    second = await builder.build(findings)
+    assert [edge.model_dump() for edge in first] == [edge.model_dump() for edge in second]
+    assert [(edge.source_finding_id, edge.target_finding_id, edge.edge_type) for edge in first] == [(10, 20, "enables")]
+    await bus.close()
