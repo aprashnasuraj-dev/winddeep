@@ -81,8 +81,9 @@ class HypothesisEngine:
                 "findings": [self._compact_finding(item) for item in findings],
                 "memory_examples": list(memory_examples)[:8],
             }
-            prompt = HYPOTHESIS_GEN_PROMPT.format(
-                context_json=json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+            prompt = HYPOTHESIS_GEN_PROMPT.replace(
+                "{context_json}",
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
             )
             raw = await self.llm_client.complete_json(
                 prompt,
