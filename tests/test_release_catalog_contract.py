@@ -31,9 +31,11 @@ def test_release_policy_certifies_only_reviewed_bundled_tools() -> None:
     )
 
 
-def test_runtime_registry_is_exact_certified_subset() -> None:
+def test_runtime_registry_exposes_complete_catalog() -> None:
     classes = ToolWrapperFactory(ROOT / "tools_config.json").load()
-    assert set(classes) == CERTIFIED
+    effective = effective_definitions(ROOT / "tools_config.json")
+    assert len(classes) == 137
+    assert set(classes) == set(effective)
     assert all(wrapper.requires_scope is True for wrapper in classes.values())
 
 
@@ -41,9 +43,10 @@ def test_release_metadata_annotates_only_the_runtime_subset() -> None:
     classes = ToolWrapperFactory(ROOT / "tools_config.json").load()
     effective = apply_release_metadata(classes, ROOT / "tools_config.json")
     assert len(effective) == 137
-    assert set(classes) == CERTIFIED
-    for name, wrapper in classes.items():
-        assert wrapper.release_support == "bundled"
+    assert set(classes) == set(effective)
+    assert {name for name, wrapper in classes.items() if wrapper.release_support == "bundled"} == CERTIFIED
+    for name in CERTIFIED:
+        wrapper = classes[name]
         assert wrapper.license == "MIT"
         assert wrapper.homepage.startswith("https://github.com/projectdiscovery/")
         assert effective[name]["release_support"] == "bundled"

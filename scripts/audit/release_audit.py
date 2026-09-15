@@ -27,7 +27,8 @@ STATUS_FILE = REPORTS / "phase_status.json"
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 PLACEHOLDER_RE = re.compile(r"\b(TODO|FIXME|TBD|PLACEHOLDER)\b", re.IGNORECASE)
 EXPECTED_TOOL_COUNT = 137
-EXPECTED_ACTIVE_TOOL_COUNT = 6
+EXPECTED_ACTIVE_TOOL_COUNT = 137
+EXPECTED_CERTIFIED_TOOL_COUNT = 6
 EXPECTED_CATALOG_FILES = 8
 EXPECTED_TEST_COUNT = 160
 ALLOWED_RELEASE_SUPPORT = {
@@ -258,7 +259,8 @@ def phase_a() -> bool:
     bundled = {name for name, value in effective.items() if value.get("release_support") == "bundled"}
     unlicensed = sorted(name for name in bundled if not effective[name].get("license") or not effective[name].get("homepage"))
     checks.append(Check("bundled license metadata", "PASS" if not unlicensed else "FAIL", f"{len(bundled)} bundled integrations have license/homepage metadata" if not unlicensed else ", ".join(unlicensed)))
-    checks.append(Check("runtime allowlist equals certified bundled set", "PASS" if set(active) == bundled else "FAIL", f"active={sorted(active)}, bundled={sorted(bundled)}"))
+    checks.append(Check("operational runtime exposes complete catalog", "PASS" if set(active) == set(catalog) and len(active) == EXPECTED_ACTIVE_TOOL_COUNT else "FAIL", f"active={len(active)}, catalog={len(catalog)}, required={EXPECTED_ACTIVE_TOOL_COUNT}"))
+    checks.append(Check("Windows-certified bundled subset", "PASS" if len(bundled) == EXPECTED_CERTIFIED_TOOL_COUNT else "FAIL", f"bundled={sorted(bundled)}, required_count={EXPECTED_CERTIFIED_TOOL_COUNT}"))
 
     try:
         if str(ROOT) not in sys.path:
@@ -347,7 +349,8 @@ def phase_b(*, require_installed: bool = False) -> bool:
     checks.extend(manifest_checks)
     checks.append(Check("portable tool manifest non-empty", "PASS" if manifest else "FAIL", f"{len(manifest)} package entries" if manifest else "manifest contains no bundled tools"))
     bundled = {name for name, value in effective.items() if value.get("release_support") == "bundled"}
-    checks.append(Check("certified runtime allowlist", "PASS" if set(active) == bundled else "FAIL", f"active={sorted(active)}, bundled={sorted(bundled)}"))
+    checks.append(Check("operational runtime catalog", "PASS" if set(active) == set(catalog) and len(active) == EXPECTED_ACTIVE_TOOL_COUNT else "FAIL", f"active={len(active)}, catalog={len(catalog)}"))
+    checks.append(Check("Windows-certified manifest subset count", "PASS" if len(bundled) == EXPECTED_CERTIFIED_TOOL_COUNT else "FAIL", f"bundled={sorted(bundled)}, required_count={EXPECTED_CERTIFIED_TOOL_COUNT}"))
 
     provided: set[str] = set()
     duplicate_provides: set[str] = set()
@@ -452,7 +455,8 @@ def phase_d() -> bool:
                 health.status_code == 200
                 and body.get("status") == "ok"
                 and body.get("localhost_only") is True
-                and body.get("release_certified_tools") == EXPECTED_ACTIVE_TOOL_COUNT
+                and body.get("integrations_total") == EXPECTED_ACTIVE_TOOL_COUNT
+                and body.get("windows_certified_tools") == EXPECTED_CERTIFIED_TOOL_COUNT
                 and body.get("test_count") == EXPECTED_TEST_COUNT
             )
             checks.append(Check("local health and release identity", "PASS" if health_ok else "FAIL", f"HTTP {health.status_code}: {body}"))

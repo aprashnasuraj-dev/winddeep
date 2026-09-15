@@ -19,6 +19,8 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
+from app.tools import builtin_integrations
+
 
 class Finding(BaseModel):
     """Normalized external-tool result consumed by database, UI, and Brain."""
@@ -134,21 +136,27 @@ class ToolWrapperBase:
     description: ClassVar[str] = ""
     requires_scope: ClassVar[bool] = False
     required_env: ClassVar[tuple[str, ...]] = ()
+    adapter_kind: ClassVar[str] = "process"
+    target_types: ClassVar[tuple[str, ...]] = ()
+    scan_default: ClassVar[bool] = True
 
     def __init__(
         self,
         *,
         tools_dir: str | Path = "tools",
         scope_validator: Callable[[str], bool] | None = None,
+        environment: Mapping[str, str] | None = None,
     ) -> None:
         self.tools_dir = Path(tools_dir)
         self.scope_validator = scope_validator
+        self.environment = {**os.environ, **dict(environment or {})}
         self._rate_lock = asyncio.Lock()
         self._last_started = 0.0
 
     def resolve_binary(self) -> Path | None:
         """Resolve a configured executable from ``tools/`` first, then ``PATH``."""
-        configured = Path(self.binary)
+        env_key = "WINDEEP_TOOL_" + "".join(ch if ch.isalnum() else "_" for ch in self.tool_name.upper()) + "_BINARY"
+        configured = Path(self.environment.get(env_key) or self.binary)
         if configured.is_absolute() and configured.is_file():
             return configured
         local = self.tools_dir / configured
@@ -162,12 +170,15 @@ class ToolWrapperBase:
         return Path(found).resolve() if found else None
 
     def validate_installed(self) -> bool:
-        """Return whether the wrapper executable can be resolved."""
+        """Return whether this integration has a runnable local/built-in path."""
+        if builtin_integrations.supports(self.tool_name):
+            return not self.missing_environment()
         return self.resolve_binary() is not None
 
     def missing_environment(self) -> tuple[str, ...]:
         """Return required environment-variable names that are not configured."""
-        return tuple(name for name in self.required_env if not os.getenv(name))
+        required = (*self.required_env, *builtin_integrations.required_env(self.tool_name))
+        return tuple(sorted({name for name in required if not self.environment.get(name)}))
 
     def parse_output(self, raw: str, target: str) -> list[Finding]:
         """Normalize raw standard output through the configured parser."""
@@ -189,14 +200,25 @@ class ToolWrapperBase:
                 raise ToolExecutionError(
                     f"{self.tool_name} requires environment variable(s): {', '.join(missing_env)}"
                 )
-            binary = self.resolve_binary()
-            if binary is None:
-                raise FileNotFoundError(f"tool binary not installed: {self.binary}")
-
             validated = self.input_schema.model_validate(
                 {"target": target, **dict(options or {})}
             ).model_dump()
-            argv = [str(binary), *self._render_args(validated)]
+            if builtin_integrations.supports(self.tool_name):
+                rows = await builtin_integrations.run(self.tool_name, target, environment=self.environment)
+                return [Finding.model_validate(row) for row in rows]
+
+            rendered_args = self._render_args(validated)
+            binary = self.resolve_binary()
+            if binary is None:
+                wsl = shutil.which("wsl.exe") if os.name == "nt" else None
+                if wsl:
+                    argv = [wsl, "--", self.binary, *rendered_args]
+                else:
+                    raise FileNotFoundError(
+                        f"tool binary not installed: {self.binary}; install it on PATH/tools, set WINDEEP_TOOL_{self.tool_name.upper().replace('-', '_')}_BINARY, or install it in WSL"
+                    )
+            else:
+                argv = [str(binary), *rendered_args]
             stdin_data = self._render_stdin(validated)
             last_error: BaseException | None = None
             for attempt in range(self.retries + 1):
@@ -268,6 +290,7 @@ class ToolWrapperBase:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             creationflags=creationflags,
+            env=self.environment,
         )
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(stdin_data), timeout=self.timeout)
@@ -374,6 +397,9 @@ class ToolWrapperFactory:
         if not isinstance(required_env, list) or not all(isinstance(item, str) for item in required_env):
             raise ValueError(f"required_env must be a list of strings: {name}")
         input_model = self._build_input_model(name, definition.get("input_schema", {}))
+        target_types_raw = definition.get("target_types", [])
+        if not isinstance(target_types_raw, list) or not all(isinstance(item, str) for item in target_types_raw):
+            raise ValueError(f"target_types must be a list of strings: {name}")
         class_name = "".join(part.capitalize() for part in name.replace("-", "_").split("_")) + "Wrapper"
         return type(
             class_name,
@@ -392,6 +418,9 @@ class ToolWrapperFactory:
                 "description": str(definition.get("description") or ""),
                 "requires_scope": bool(definition.get("requires_scope", False)),
                 "required_env": tuple(required_env),
+                "adapter_kind": "builtin" if builtin_integrations.supports(name) else "process",
+                "target_types": tuple(target_types_raw),
+                "scan_default": bool(definition.get("scan_default", True)),
                 "__module__": __name__,
             },
         )
