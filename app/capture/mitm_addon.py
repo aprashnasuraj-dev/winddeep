@@ -50,7 +50,12 @@ class CaptureAddon:
 
     @classmethod
     def from_environment(cls) -> "CaptureAddon":
-        """Build an addon from environment values used by the portable runtime."""
+        """Build an addon from environment values used by the portable runtime.
+
+        The standalone addon intentionally has no resolver and therefore stores
+        no traffic until the host application supplies an explicit in-scope
+        target mapping. This is a fail-closed privacy/scope boundary.
+        """
         db_path = Path(os.getenv("WINDEEP_DB", "app/data/windeep.db"))
         endpoint = os.getenv("WINDEEP_EVENT_ENDPOINT") or None
         return cls(FlowDatabase(Database(db_path)), event_endpoint=endpoint)
@@ -99,9 +104,12 @@ class CaptureAddon:
             await self._publish("log.capture_error", {"phase": "request", "error": str(exc)})
 
     async def response(self, flow: Any) -> None:
-        """Persist a completed HTTP/HTTPS flow and publish ``flow.captured``."""
+        """Persist a completed HTTP/HTTPS flow only for a resolved in-scope target."""
         try:
             record = self._completed_record(flow)
+            if record.get("target_id") is None:
+                await self._publish("log.capture_skipped", {"reason": "unresolved_target", "url": record["url"]})
+                return
             flow_id = self.flows.insert_flow(record)
             await self._publish(
                 "flow.captured",
@@ -124,7 +132,7 @@ class CaptureAddon:
             await self._publish("log.capture_error", {"phase": "response", "error": str(exc)})
 
     async def websocket_message(self, flow: Any) -> None:
-        """Persist the newest WebSocket message as a directional pseudo-flow."""
+        """Persist the newest WebSocket message only for a resolved in-scope target."""
         try:
             websocket = getattr(flow, "websocket", None)
             messages = getattr(websocket, "messages", None)
@@ -134,6 +142,9 @@ class CaptureAddon:
             request = getattr(flow, "request")
             url = self._request_url(request)
             target_id, scan_id = self._resolve_target(url)
+            if target_id is None:
+                await self._publish("log.capture_skipped", {"reason": "unresolved_target", "url": url, "kind": "websocket"})
+                return
             parts = urlsplit(url)
             content = getattr(message, "content", b"")
             if isinstance(content, str):
@@ -373,5 +384,6 @@ class CaptureAddon:
 
 
 # When loaded directly with ``mitmdump -s app/capture/mitm_addon.py``, mitmproxy
-# discovers this global list. Construction only initializes the local SQLite schema.
+# discovers this global list. Without an application-supplied resolver the addon
+# forwards traffic but deliberately persists nothing.
 addons = [CaptureAddon.from_environment()]
