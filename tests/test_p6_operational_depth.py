@@ -74,7 +74,9 @@ def test_budget_enforces_per_tool_and_marks_complete_only_when_active(tmp_path: 
     with pytest.raises(BudgetExceeded, match="not active"):
         ledger.mark_complete()
 
-    second_scan = database.create_scan(database.get_scan(scan_id)["target_id"], "v2:selected", ["fixture"])
+    with database._connect() as conn:
+        target_id = int(conn.execute("SELECT target_id FROM scans WHERE id = ?", (scan_id,)).fetchone()["target_id"])
+    second_scan = database.create_scan(target_id, "v2:selected", ["fixture"])
     second = BudgetLedger(database, audit, scan_id=second_scan, wall_clock_seconds=60, artifact_bytes=100, llm_tokens=100, per_tool_seconds=5)
     second.mark_complete()
     assert second.snapshot()["status"] == "complete"
