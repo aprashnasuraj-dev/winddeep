@@ -34,6 +34,33 @@ def test_consent_is_bound_to_exact_scope(tmp_path) -> None:
         authority.verify(record.id, changed)
 
 
+def test_explicit_scope_consent_can_authorize_an_allowed_candidate(tmp_path) -> None:
+    authority = _authority(tmp_path)
+    program_scope = ScopeEnforcer(
+        "example.com",
+        allow=["example.com", "*.example.com"],
+        deny=["admin.example.com"],
+    )
+    candidate_scope = ScopeEnforcer(
+        "https://api.example.com/path",
+        allow=["example.com", "*.example.com"],
+        deny=["admin.example.com"],
+    )
+    record = authority.issue(program_scope, authorized_by="owner", purpose="authorized testing", ttl_seconds=600)
+    verified = authority.verify(record.id, candidate_scope)
+    assert verified.id == record.id
+    candidate_scope.assert_allowed("https://api.example.com/path")
+
+
+def test_target_only_consent_remains_bound_to_exact_target(tmp_path) -> None:
+    authority = _authority(tmp_path)
+    original = ScopeEnforcer("example.com")
+    changed = ScopeEnforcer("api.example.com")
+    record = authority.issue(original, authorized_by="owner", purpose="authorized testing", ttl_seconds=600)
+    with pytest.raises(ConsentError):
+        authority.verify(record.id, changed)
+
+
 def test_modified_record_fails_signature(tmp_path) -> None:
     authority = _authority(tmp_path)
     scope = ScopeEnforcer("example.com")
