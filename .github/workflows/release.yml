@@ -98,7 +98,7 @@ jobs:
         shell: pwsh
         run: |
           ./installer/setup_tools.ps1
-          python scripts/audit/release_audit.py --phase B
+          python scripts/audit/release_audit.py --phase B --require-installed
           if ($LASTEXITCODE -ne 0) { Get-Content reports/tool_liveness.md; exit $LASTEXITCODE }
 
       - name: G12 Bundle embedded Python 3.11 and Playwright Chromium
