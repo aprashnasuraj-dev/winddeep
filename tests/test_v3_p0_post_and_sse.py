@@ -113,8 +113,10 @@ def test_sse_last_event_id_replays_gap_free_and_redacts_finding_evidence(monkeyp
     third = next(iterator).decode("utf-8")
     response.close()
     assert "id: 2" in second
-    assert "event: finding" in second
+    assert "event: finding" not in second
+    assert '"type":"finding"' in second
     assert "must-not-leak" not in second
     assert '"evidence"' not in second
     assert "id: 3" in third
-    assert "event: ranked" in third
+    assert "event: ranked" not in third
+    assert '"type":"ranked"' in third

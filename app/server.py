@@ -141,7 +141,7 @@ def create_app() -> Flask:
         event_type = str(decoded.get("type") or "message")
         seq = decoded.get("seq")
         event_id = f"id: {int(seq)}\n" if isinstance(seq, int) else ""
-        return f"{event_id}event: {event_type}\ndata: {payload}\n\n"
+        return f"{event_id}data: {payload}\n\n"
 
     def broadcast(event_type: str, data: dict[str, Any], scan_id: int | None = None) -> None:
         clean = dict(data)
