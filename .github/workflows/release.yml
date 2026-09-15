@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -22,9 +23,8 @@ jobs:
     timeout-minutes: 150
 
     steps:
-      # G1
-      - name: G1 Checkout repository
-        uses: actions/checkout@v4
+      - name: G1 Checkout tagged repository
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -33,137 +33,115 @@ jobs:
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
           if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match VERSION v$version" }
+          $tagCommit = (git rev-list -n 1 "${{ github.ref_name }}").Trim()
+          $headCommit = (git rev-parse HEAD).Trim()
+          if ($tagCommit -ne $headCommit) { throw "Release checkout is not the tagged commit: tag=$tagCommit head=$headCommit" }
 
-      # G2
       - name: G2 Setup Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-          cache: 'pip'
+          cache: pip
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
             requirements-capture.txt
 
-      # G3
       - name: G3 Install runtime and development requirements
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
-      # G4
       - name: G4 Phase A static audit
         shell: pwsh
-        run: python scripts/audit/release_audit.py --phase A
+        run: |
+          python scripts/audit/release_audit.py --phase A
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/static_audit.md; exit $LASTEXITCODE }
 
-      # G5
-      - name: G5 Phase B tool liveness and packaging contract audit
+      - name: G5 Phase B tool packaging contract audit
         shell: pwsh
-        run: python scripts/audit/release_audit.py --phase B
+        run: |
+          python scripts/audit/release_audit.py --phase B
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/tool_liveness.md; exit $LASTEXITCODE }
 
-      # G6
       - name: G6 Phase E dependency audit
         shell: pwsh
-        run: python scripts/audit/release_audit.py --phase E
+        run: |
+          python scripts/audit/release_audit.py --phase E
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/dependency_audit.md; exit $LASTEXITCODE }
 
-      # G7
       - name: G7 Pytest with minimum 85 percent coverage
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path reports -Force | Out-Null
           python -m pytest -q --cov=app --cov=launcher --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-fail-under=85
 
-      # G8
       - name: G8 Phase D local end-to-end audit
         shell: pwsh
-        run: python scripts/audit/release_audit.py --phase D
+        run: |
+          python scripts/audit/release_audit.py --phase D
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/e2e_audit.md; exit $LASTEXITCODE }
 
-      # G9
       - name: G9 Phase F release gate
         shell: pwsh
-        run: python scripts/audit/release_audit.py --phase F
+        run: |
+          python scripts/audit/release_audit.py --phase F
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/release_gate.json; exit $LASTEXITCODE }
 
-      # G10
       - name: G10 Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
-      # G11
       - name: G11 Download, checksum and liveness-verify portable tools
         shell: pwsh
         run: |
           ./installer/setup_tools.ps1
           python scripts/audit/release_audit.py --phase B --require-installed
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/tool_liveness.md; exit $LASTEXITCODE }
 
-      # G12
       - name: G12 Bundle embedded Python 3.11 and isolated capture Python 3.12
         shell: pwsh
         run: |
           ./installer/install_python.ps1
           ./installer/install_capture_runtime.ps1
-
-      - name: Verify capture runtime dependency health
-        shell: pwsh
-        run: |
           .\runtime\capture-python\python.exe -m pip check
-          $version = (.\runtime\capture-python\Scripts\mitmdump.exe --version | Out-String)
-          if ($LASTEXITCODE -ne 0 -or $version -notmatch '12\.2\.3') { throw "Pinned capture runtime verification failed: $version" }
+          $captureVersion = (.\runtime\capture-python\Scripts\mitmdump.exe --version | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $captureVersion -notmatch '12\.2\.3') { throw "Pinned capture runtime verification failed: $captureVersion" }
 
-      # G13
       - name: G13 Build Windeep with PyInstaller
         shell: pwsh
         run: pyinstaller --clean --noconfirm Windeep.spec
 
-      # G14
       - name: G14 Build Inno Setup installer
         shell: pwsh
         run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path -LiteralPath $iscc)) { throw "ISCC.exe not found at $iscc" }
           $version = (Get-Content VERSION -Raw).Trim()
-          & $iscc "/DMyAppVersion=$version" installer\BugBountyInstaller.iss
+          & $iscc "/DMyAppVersion=$version" 'installer\BugBountyInstaller.iss'
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 
-      # G15
-      - name: G15 Create portable zip
+      - name: G15 Create portable archive
         shell: pwsh
         run: |
-          if (Test-Path dist\Windeep-Portable.zip) { Remove-Item dist\Windeep-Portable.zip -Force }
+          if (Test-Path -LiteralPath dist\Windeep-Portable.zip) { Remove-Item dist\Windeep-Portable.zip -Force }
           Compress-Archive -Path dist\Windeep\* -DestinationPath dist\Windeep-Portable.zip -CompressionLevel Optimal
 
-      - name: Verify installer and portable build on clean Windows runner
+      - name: G16 Verify installer and portable build on clean Windows runner
         shell: pwsh
-        run: ./scripts/audit/windows_install_audit.ps1
+        run: |
+          ./scripts/audit/windows_install_audit.ps1
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/windows_install_audit.md; exit $LASTEXITCODE }
 
-      # G16
-      - name: G16 Create source snapshot
+      - name: G17 Create exact tagged source snapshot
         shell: pwsh
         run: |
           $archive = "dist\windeep-source-${{ github.ref_name }}.zip"
-          git archive --format=zip --output=$archive HEAD
+          git archive --format=zip --output=$archive "${{ github.ref_name }}"
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archive)) { throw 'git archive failed' }
 
-      # G17
-      - name: G17 Stage audit evidence and generate initial SHA256SUMS
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Path dist\reports -Force | Out-Null
-          Copy-Item reports\static_audit.md dist\reports\static_audit.md -Force
-          Copy-Item reports\tool_liveness.md dist\reports\tool_liveness.md -Force
-          Copy-Item reports\windows_install_audit.md dist\reports\windows_install_audit.md -Force
-          Copy-Item reports\release_gate.json dist\reports\release_gate.json -Force
-          $assets = @('Windeep-Setup.exe','Windeep-Portable.zip',"windeep-source-${{ github.ref_name }}.zip",'reports\static_audit.md','reports\tool_liveness.md','reports\windows_install_audit.md','reports\release_gate.json')
-          $lines = foreach ($rel in $assets) {
-            $file = Join-Path 'dist' $rel
-            if (-not (Test-Path -LiteralPath $file)) { throw "Missing release asset: $file" }
-            $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($rel.Replace('\','/'))"
-          }
-          $lines | Set-Content -LiteralPath dist\SHA256SUMS.txt -Encoding ascii
-
-      # G18
-      - name: G18 Generate RELEASE-NOTES.md from CHANGELOG and git log
+      - name: G18 Generate release notes and SBOM
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
@@ -173,43 +151,48 @@ jobs:
           $commits = @(git log $range --pretty=format:'- %h %s (%an)')
           $changelog = (Get-Content CHANGELOG.md -Raw).Trim()
           $gate = Get-Content reports\release_gate.json -Raw | ConvertFrom-Json
-          if ($gate.decision -ne 'GO') { throw "Refusing release notes for NO-GO gate" }
+          if ($gate.decision -ne 'GO') { throw 'Refusing release notes for a NO-GO release gate' }
           $notes = [System.Collections.Generic.List[string]]::new()
-          $notes.Add("# Windeep v$version") | Out-Null; $notes.Add('') | Out-Null
-          $notes.Add("Release gate: **$($gate.decision)**") | Out-Null; $notes.Add('') | Out-Null
-          $notes.Add('## Changelog') | Out-Null; $notes.Add('') | Out-Null; $notes.Add($changelog) | Out-Null; $notes.Add('') | Out-Null
-          $notes.Add("## Commits since $since") | Out-Null; $notes.Add('') | Out-Null
+          $notes.Add("# Windeep v$version") | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add("Release gate: **$($gate.decision)**") | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add('## Changelog') | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add($changelog) | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add("## Commits since $since") | Out-Null
+          $notes.Add('') | Out-Null
           foreach ($commit in $commits) { $notes.Add($commit) | Out-Null }
-          $notes.Add('') | Out-Null; $notes.Add('## Verification') | Out-Null; $notes.Add('') | Out-Null
-          $notes.Add('Verify SHA-256 hashes with `SHA256SUMS.txt`. GitHub build-provenance attestations are attached to the release and can be checked with `gh attestation verify <asset> --repo aprashnasuraj-dev/winddeep`.') | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add('## Verification') | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add('Verify SHA-256 hashes with `SHA256SUMS.txt`. GitHub build-provenance attestations can be checked with `gh attestation verify <asset> --repo aprashnasuraj-dev/winddeep`.') | Out-Null
           $notes | Set-Content -LiteralPath dist\RELEASE-NOTES.md -Encoding utf8
+          python scripts/audit/generate_sbom.py --output dist/SBOM.json
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath dist\SBOM.json)) { throw 'SBOM generation failed' }
 
-      # G19
-      - name: G19 Upload initial assets to draft GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          prerelease: false
-          fail_on_unmatched_files: true
-          body_path: dist/RELEASE-NOTES.md
-          files: |
-            dist/Windeep-Setup.exe
-            dist/Windeep-Portable.zip
-            dist/windeep-source-*.zip
-            dist/SHA256SUMS.txt
-            dist/RELEASE-NOTES.md
-            dist/reports/static_audit.md
-            dist/reports/tool_liveness.md
-            dist/reports/windows_install_audit.md
-            dist/reports/release_gate.json
-
-      # G20
-      - name: G20 Generate SBOM.json and finalize checksums
+      - name: G19 Stage release evidence and generate final SHA256SUMS
         shell: pwsh
         run: |
-          python scripts/audit/generate_sbom.py --output dist/SBOM.json
-          $assets = @('Windeep-Setup.exe','Windeep-Portable.zip',"windeep-source-${{ github.ref_name }}.zip",'RELEASE-NOTES.md','SBOM.json','reports\static_audit.md','reports\tool_liveness.md','reports\windows_install_audit.md','reports\release_gate.json')
-          $lines = foreach ($rel in $assets) {
+          New-Item -ItemType Directory -Path dist\reports -Force | Out-Null
+          $reportNames = @('static_audit.md','tool_liveness.md','dependency_audit.md','e2e_audit.md','windows_install_audit.md','release_gate.json','coverage.xml')
+          foreach ($name in $reportNames) {
+            $source = Join-Path 'reports' $name
+            if (Test-Path -LiteralPath $source) { Copy-Item $source (Join-Path 'dist\reports' $name) -Force }
+          }
+          $required = @(
+            'Windeep-Setup.exe',
+            'Windeep-Portable.zip',
+            "windeep-source-${{ github.ref_name }}.zip",
+            'RELEASE-NOTES.md',
+            'SBOM.json',
+            'reports\static_audit.md',
+            'reports\tool_liveness.md',
+            'reports\windows_install_audit.md',
+            'reports\release_gate.json'
+          )
+          $lines = foreach ($rel in $required) {
             $file = Join-Path 'dist' $rel
             if (-not (Test-Path -LiteralPath $file)) { throw "Missing release asset: $file" }
             $hash = (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -217,18 +200,7 @@ jobs:
           }
           $lines | Set-Content -LiteralPath dist\SHA256SUMS.txt -Encoding ascii
 
-      - name: G20 Attach SBOM and finalized SHA256SUMS
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          overwrite_files: true
-          fail_on_unmatched_files: true
-          files: |
-            dist/SBOM.json
-            dist/SHA256SUMS.txt
-
-      # G21
-      - name: G21 Sign release artifacts with GitHub Sigstore provenance
+      - name: G20 Attest release artifacts with GitHub build provenance
         uses: actions/attest@v4
         with:
           subject-path: |
@@ -249,12 +221,11 @@ jobs:
           subject-path: dist/Windeep-Setup.exe
           sbom-path: dist/SBOM.json
 
-      - name: Publish verified GitHub Release
+      - name: G22 Publish verified GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           draft: false
           prerelease: false
-          overwrite_files: true
           fail_on_unmatched_files: true
           body_path: dist/RELEASE-NOTES.md
           files: |
@@ -266,20 +237,24 @@ jobs:
             dist/SBOM.json
             dist/reports/static_audit.md
             dist/reports/tool_liveness.md
+            dist/reports/dependency_audit.md
+            dist/reports/e2e_audit.md
             dist/reports/windows_install_audit.md
             dist/reports/release_gate.json
+            dist/reports/coverage.xml
 
       - name: Preserve release evidence as workflow artifact
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: Windeep-${{ github.ref_name }}-release-evidence
+          if-no-files-found: warn
           path: |
             reports/
+            runtime/capture-requirements.lock
             dist/*.exe
             dist/*.zip
             dist/*.txt
             dist/*.md
             dist/*.json
             dist/reports/
-          if-no-files-found: warn
