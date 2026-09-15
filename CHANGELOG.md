@@ -4,6 +4,23 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-15
+
+### Added
+- P2 deterministic `windeep.evidence-bundle.v1` records binding findings to persisted flow IDs plus content hashes, raw artifact SHA-256 plus validated line ranges, detector provenance graphs, calibrated confidence, exploitability state, and observation-only reproduction handles.
+- Encrypted content-addressed `evidence_blobs` storage as the minimum immutable artifact primitive required for P2 integrity checks without importing the rest of the deferred P1 HAR/replay/custody scope.
+- Append-only evidence-bundle history with stable canonical JSON, SHA-256 bundle identity, explicit supersession, completeness scoring, and corruption revalidation on bundle resolution.
+- Reflection/browser-specific evidence slots for inert reflected-marker observations, screenshot artifact hashes, final URL/status, and viewport metadata.
+- P2 acceptance tests for byte-stable bundle generation, flow/artifact corruption failure, High/Critical completeness closure, closed exploitability values, and append-only supersession.
+
+### Changed
+- Evidence-bundle closure is fail-closed: missing captured flow, raw tool slice, provenance, replay handle, or required specialized evidence leaves the bundle incomplete instead of fabricating proof.
+- Exploitability is intentionally limited to `observed` and `needs-human-review`; evidence that would require exploit execution cannot be promoted to a synthetic `confirmed` state.
+
+### Security
+- P2 performs no network activity or subprocess execution. It only binds and validates already-persisted evidence, and bundle/artifact payloads remain encrypted at rest with context-specific AAD.
+- Because the requested work skips the roadmap's P1 phase, full raw-capture/HAR/replay/custody is not claimed here. P2 exposes missing prerequisites through completeness failures rather than weakening the evidence contract.
+
 ## [2.1.0] - 2026-09-15
 
 ### Added
