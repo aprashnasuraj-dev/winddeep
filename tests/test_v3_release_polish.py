@@ -36,7 +36,7 @@ def _fixture(tmp_path: Path):
     return crypto, database, audit, target_id, scan_id, consent_id
 
 
-def _finding(database, target_id: int, scan_id: int, title: str, endpoint: str, severity: str = "medium") -> int:
+def _finding(database, target_id: int, scan_id: int | None, title: str, endpoint: str, severity: str = "medium") -> int:
     finding_id, _ = database.create_finding(
         target_id,
         title,
@@ -50,6 +50,20 @@ def _finding(database, target_id: int, scan_id: int, title: str, endpoint: str, 
         confidence=0.8,
     )
     return finding_id
+
+
+def _app(crypto, database, audit, preflight_for, publisher=None):
+    app = Flask(__name__)
+    register_v3_api(
+        app,
+        crypto=crypto,
+        audit=audit,
+        database=database,
+        authenticated=lambda view: view,
+        preflight_for=preflight_for,
+        event_publisher=publisher or V3EventPublisher(database, crypto, audit, broadcast=lambda *_args: None),
+    )
+    return app
 
 
 def test_v3_event_publisher_uses_frozen_schema_gap_free_replay_and_redaction(tmp_path: Path) -> None:
@@ -77,18 +91,13 @@ def test_v3_api_reuses_scan_preflight_classifies_and_reports_every_finding(tmp_p
         calls.append((int(target_row["id"]), consent))
         return object()
 
-    app = Flask(__name__)
     publisher = V3EventPublisher(database, crypto, audit, broadcast=lambda *_args: None)
-    register_v3_api(
-        app,
-        crypto=crypto,
-        audit=audit,
-        database=database,
-        authenticated=lambda view: view,
-        preflight_for=preflight_for,
-        event_publisher=publisher,
-    )
-    client = app.test_client()
+    client = _app(crypto, database, audit, preflight_for, publisher).test_client()
+
+    status = client.get("/api/v3/status")
+    assert status.status_code == 200
+    assert status.get_json()["report_inclusion"] == "all-findings"
+    assert status.get_json()["policy_required"] is False
 
     before = client.get(f"/api/v3/scans/{scan_id}/findings")
     assert before.status_code == 200
@@ -121,20 +130,89 @@ def test_v3_api_reuses_scan_preflight_classifies_and_reports_every_finding(tmp_p
     assert calls and all(call == (target_id, consent_id) for call in calls)
 
 
+def test_v3_api_verification_state_formats_and_invalid_triage_are_explicit(tmp_path: Path) -> None:
+    crypto, database, audit, target_id, scan_id, consent_id = _fixture(tmp_path)
+    verified = _finding(database, target_id, scan_id, "Verification fixture", "https://example.test/verified", "high")
+    with database._connect() as conn:
+        cursor = conn.execute(
+            "INSERT INTO verification_record(finding_id, scan_id, bundle_sha256, artifact_sha256, schema_version, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (verified, scan_id, "b" * 64, "a" * 64, "windeep.verification.v1", 2.0),
+        )
+        record_id = int(cursor.lastrowid)
+        conn.execute(
+            "INSERT INTO verification_claim(record_id, claim_key, state, evidence_refs, plan, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (record_id, "claim:1", "verified", "[]", "{}", 2.0),
+        )
+        conn.execute(
+            "INSERT INTO verification_claim(record_id, claim_key, state, evidence_refs, plan, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (record_id, "claim:2", "needs-review", "[]", "{}", 2.0),
+        )
+
+    calls: list[str] = []
+
+    def preflight_for(_target, consent: str, **_kwargs):
+        calls.append(consent)
+        return object()
+
+    client = _app(crypto, database, audit, preflight_for).test_client()
+    listing = client.get(f"/api/v3/scans/{scan_id}/findings")
+    assert listing.status_code == 200
+    row = next(item for item in listing.get_json()["findings"] if item["finding_id"] == verified)
+    assert row["verification_state"] == "needs-review"
+    assert calls == [consent_id]
+
+    invalid = client.post(
+        f"/api/v3/findings/{verified}/triage",
+        json={"disposition": "actionable", "tester_priority": 101, "duplicate_risk": "low", "rationale": "invalid priority"},
+    )
+    assert invalid.status_code == 400
+    assert "tester_priority" in invalid.get_json()["error"]
+
+    missing = client.post(
+        "/api/v3/findings/999999/triage",
+        json={"disposition": "actionable", "tester_priority": 50, "duplicate_risk": "low", "rationale": "missing"},
+    )
+    assert missing.status_code == 400
+    assert "finding not found" in missing.get_json()["error"]
+
+    detached = _finding(database, target_id, None, "Detached finding", "https://example.test/detached")
+    denied = client.post(
+        f"/api/v3/findings/{detached}/triage",
+        json={"disposition": "needs-review", "tester_priority": 50, "duplicate_risk": "medium", "rationale": "detached"},
+    )
+    assert denied.status_code == 403
+    assert "authorized scan context" in denied.get_json()["error"]
+
+
+def test_v3_report_supports_html_json_and_rejects_unknown_format(tmp_path: Path) -> None:
+    crypto, database, audit, target_id, scan_id, _consent_id = _fixture(tmp_path)
+    finding_id = _finding(database, target_id, scan_id, "Format fixture", "https://example.test/format")
+    client = _app(crypto, database, audit, lambda *_args, **_kwargs: object()).test_client()
+
+    html = client.get(f"/api/v3/scans/{scan_id}/report?format=html")
+    assert html.status_code == 200
+    assert html.mimetype == "text/html"
+    assert "Format fixture" in html.get_data(as_text=True)
+
+    payload = client.get(f"/api/v3/scans/{scan_id}/report?format=json")
+    assert payload.status_code == 200
+    body = payload.get_json()
+    assert body["scan_id"] == scan_id
+    assert body["finding_ids"] == [finding_id]
+    assert len(body["sha256"]) == 64
+    assert "Format fixture" in body["markdown"]
+
+    invalid = client.get(f"/api/v3/scans/{scan_id}/report?format=pdf")
+    assert invalid.status_code == 400
+    assert "markdown, html, or json" in invalid.get_json()["error"]
+
+
 def test_v3_api_refuses_scan_without_stored_authorization(tmp_path: Path) -> None:
     crypto, database, audit, target_id, _scan_id, _consent_id = _fixture(tmp_path)
     unauthorized_scan = database.create_scan(target_id, "v3:no-auth", ["fixture"])
-    app = Flask(__name__)
-    register_v3_api(
-        app,
-        crypto=crypto,
-        audit=audit,
-        database=database,
-        authenticated=lambda view: view,
-        preflight_for=lambda *_args, **_kwargs: object(),
-        event_publisher=V3EventPublisher(database, crypto, audit, broadcast=lambda *_args: None),
+    response = _app(crypto, database, audit, lambda *_args, **_kwargs: object()).test_client().get(
+        f"/api/v3/scans/{unauthorized_scan}/findings"
     )
-    response = app.test_client().get(f"/api/v3/scans/{unauthorized_scan}/findings")
     assert response.status_code == 403
     assert "authorization" in response.get_json()["error"].casefold()
 
