@@ -113,3 +113,45 @@ Windeep is a loopback-only authorized-security-testing application. Targets, cap
 **Tests.** P0 persists the same tool finding twice and asserts one `scan_findings` row for the tuple.
 
 **Residual risk.** The canonical `findings` row still reflects the repository’s pre-P0 global fingerprint contract. Full immutable raw-output/flow custody is intentionally deferred to P1 rather than forced into a destructive P0 schema change.
+
+## P2 evidence bundles
+
+### Artifact substitution or evidence-record tampering
+
+**Threat.** A database edit, damaged disk page, or malicious local process could replace a raw detector artifact or captured flow while leaving a finding title intact, causing a later report to cite evidence that is no longer the evidence originally bound to the finding.
+
+**Mitigation.** P2 references raw artifacts by SHA-256 and validates the cited line range at construction. Captured flows are converted to a deterministic content representation and bound by flow ID plus SHA-256. `EvidenceBundleStore.resolve()` recomputes every referenced artifact and flow digest before returning a bundle. Bundle canonical JSON has its own SHA-256 identity and is encrypted at rest with finding-specific AAD.
+
+**Tests.** `tests/test_p2_evidence_bundles.py` mutates both an encrypted artifact payload and a persisted flow and asserts that resolution fails with `EvidenceIntegrityError`.
+
+**Residual risk.** SHA-256 integrity detects substitution but does not by itself prove when or by whom evidence was captured. The roadmap's P1 signed manifests, per-scan custody chain, binary hashes, and Merkle roots remain required for stronger temporal/non-repudiation guarantees.
+
+### Fabricated completeness or exploitability promotion
+
+**Threat.** A detector, model, or operator could label a finding complete or confirmed even though the supporting flow, raw output, provenance, or safe reproduction record is missing.
+
+**Mitigation.** Bundle completeness is computed from concrete references rather than accepted as caller input. Closing a bundle with missing required evidence raises `BundleIncompleteError`. Exploitability is a closed enum containing only `observed` and `needs-human-review`; `confirmed` is rejected. Reproduction steps are deterministic templates generated from recorded flow fields and explicitly stop at the observation point.
+
+**Tests.** P2 tests assert that a High bundle without a flow/provenance cannot close and that `confirmed` is rejected as an unsupported exploitability value.
+
+**Residual risk.** P2 cannot manufacture prerequisites that the skipped P1 capture phase never stored. On scans lacking P1-compatible raw artifacts or flows, bundles intentionally remain incomplete until that evidence exists.
+
+### Provenance spoofing and nondeterministic bundle identity
+
+**Threat.** Unstructured detector metadata or unstable serialization could make the same evidence produce different bundle bytes, weaken reproducibility, or obscure which detector/rule produced the finding.
+
+**Mitigation.** Provenance nodes require stable detector identity fields (`id`, `kind`, `name`, `version`, `detector_id`) and are deterministically sorted with their edges. Bundle serialization uses fixed UTF-8 canonical JSON with sorted keys and fixed separators. Rebuilding the same evidence reuses the same `(finding_id, bundle_sha256)` record; changed evidence appends a new record linked through `supersedes_id` rather than mutating the previous bundle.
+
+**Tests.** P2 rebuilds the same fixture twice and asserts byte-identical canonical JSON/hash, then changes provenance and asserts a new append-only superseding record.
+
+**Residual risk.** P2 validates provenance structure and source digests supplied by upstream capture/detector code, but does not independently authenticate third-party detector binaries. P1 binary-path/hash custody remains the missing trust anchor.
+
+### Browser and reflected-marker evidence confusion
+
+**Threat.** Reflection-like or browser-observed findings may be overstated from a text match alone, or a screenshot may be swapped without detection.
+
+**Mitigation.** Reflection-type bundles require explicit inert marker observations. Findings marked as browser-observed require a content-addressed screenshot reference and browser metadata; the screenshot hash is revalidated when resolving the bundle. P2 does not execute exploit payloads or mutate target state.
+
+**Tests.** P2 fixtures verify that reflection/browser findings remain incomplete until the specialized evidence is present, and that supplying the content-addressed screenshot plus marker observation produces a complete bundle.
+
+**Residual risk.** The screenshot metadata is only as trustworthy as the capture subsystem that produced it. P2 binds what exists; P1/P5 must establish deeper browser-capture custody and origin/redirect enforcement.
