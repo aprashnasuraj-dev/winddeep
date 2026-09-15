@@ -1,0 +1,30 @@
+name: V3 P0 Static Review Fix
+
+on:
+  push:
+    branches: [v3/p0-scheduler-pipeline]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: python scripts/engineering/fix_v3_p0_review.py
+      - run: python -m compileall -q app
+      - name: Commit corrections
+        shell: bash
+        run: |
+          git add app/server.py app/engine/scheduler.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix(v3-p0): clean SSE helpers and layered rate accounting"
+          git push origin HEAD:v3/p0-scheduler-pipeline
