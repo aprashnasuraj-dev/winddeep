@@ -16,6 +16,7 @@ from typing import Any, Callable, TypeVar, cast
 
 from flask import Flask, Response, jsonify, make_response, request, send_from_directory, stream_with_context
 
+from app.engine.pipeline_store import PipelineStore
 from app.engine.tool_wrapper import ToolExecutionError, ToolWrapperFactory
 from app.modules.test_packs import PACK_COUNTS, TOTAL_TESTS, list_tests, run_selected
 from app.tools.release_metadata import apply_release_metadata
@@ -75,6 +76,7 @@ def create_app() -> Flask:
     auth = LocalAuthManager(protector=crypto.protector)
     consent = ConsentAuthority(state / "consent", protector=crypto.protector)
     database = SecureDatabase(state / "windeep.db", crypto=crypto)
+    pipeline_store = PipelineStore(database)
     flow_database = SecureFlowDatabase(database)
     factory = ToolWrapperFactory(registry_path)
     wrapper_classes = factory.load()
@@ -109,8 +111,62 @@ def create_app() -> Flask:
             return view(*args, **kwargs)
         return cast(F, wrapper)
 
+    def _sse_safe(event_type: str, data: dict[str, Any]) -> dict[str, Any]:
+        safe = dict(data)
+        if event_type == "finding" and isinstance(safe.get("finding"), dict):
+            finding = dict(safe["finding"])
+            for key in ("evidence", "request", "response", "description", "steps", "impact", "remediation"):
+                finding.pop(key, None)
+            safe["finding"] = finding
+        for key in list(safe):
+            lowered = key.casefold()
+            if any(marker in lowered for marker in ("authorization", "cookie", "password", "secret", "token", "api_key")):
+                safe[key] = "<redacted>"
+        return safe
+
+    def _wire_replay_event(row: dict[str, Any]) -> str:
+        payload = _sse_safe(str(row["event_type"]), dict(row["payload"]))
+        envelope = {
+            "type": str(row["event_type"]),
+            "scan_id": int(row["scan_id"]),
+            "schema_version": str(row["schema_version"]),
+            "seq": int(row["seq"]),
+            **payload,
+        }
+        return json.dumps(envelope, separators=(",", ":"), sort_keys=True, default=str)
+
+    def _sse_frame(payload: str) -> str:
+        decoded = _json_value(payload, {})
+        event_type = str(decoded.get("type") or "message")
+        seq = decoded.get("seq")
+        event_id = f"id: {int(seq)}\n" if isinstance(seq, int) else ""
+        return f"{event_id}event: {event_type}\ndata: {payload}\n\n"
+
     def broadcast(event_type: str, data: dict[str, Any], scan_id: int | None = None) -> None:
-        payload = json.dumps({"type": event_type, "scan_id": scan_id, "timestamp": time.time(), **data}, separators=(",", ":"), default=str)
+        clean = dict(data)
+        persisted_seq = clean.pop("_sse_seq", None)
+        persisted_schema = clean.pop("_sse_schema", None)
+        clean = _sse_safe(event_type, clean)
+        if scan_id is not None:
+            if persisted_seq is None:
+                event = pipeline_store.append_scan_event(
+                    scan_id, event_type, clean, schema_version=str(persisted_schema or "windeep.sse.v1")
+                )
+                seq = int(event["seq"])
+                schema_version = str(event["schema_version"])
+            else:
+                seq = int(persisted_seq)
+                schema_version = str(persisted_schema or "windeep.sse.v1")
+            envelope = {
+                "type": event_type,
+                "scan_id": scan_id,
+                "schema_version": schema_version,
+                "seq": seq,
+                **clean,
+            }
+        else:
+            envelope = {"type": event_type, "scan_id": None, **clean}
+        payload = json.dumps(envelope, separators=(",", ":"), sort_keys=True, default=str)
         with sse_lock:
             recipients = set(sse_global)
             if scan_id is not None:
@@ -125,17 +181,38 @@ def create_app() -> Flask:
                 except (queue.Empty, queue.Full):
                     pass
 
-    def subscribe(scan_id: int | None = None):
+    def subscribe(scan_id: int | None = None, *, after_seq: int = 0):
         channel: queue.Queue[str] = queue.Queue(maxsize=256)
         with sse_lock:
             if scan_id is None:
                 sse_global.add(channel)
             else:
                 sse_scans.setdefault(scan_id, set()).add(channel)
+        last_seq = max(0, int(after_seq))
         try:
+            if scan_id is not None:
+                for event in pipeline_store.list_scan_events(scan_id, after_seq=last_seq):
+                    payload = _wire_replay_event(event)
+                    last_seq = int(event["seq"])
+                    yield _sse_frame(payload)
             while True:
                 try:
-                    yield f"data: {channel.get(timeout=25.0)}\n\n"
+                    payload = channel.get(timeout=25.0)
+                    decoded = _json_value(payload, {})
+                    seq = decoded.get("seq")
+                    if scan_id is not None and isinstance(seq, int):
+                        if seq <= last_seq:
+                            continue
+                        if seq > last_seq + 1:
+                            for event in pipeline_store.list_scan_events(scan_id, after_seq=last_seq):
+                                event_seq = int(event["seq"])
+                                if event_seq > seq:
+                                    break
+                                last_seq = event_seq
+                                yield _sse_frame(_wire_replay_event(event))
+                            continue
+                        last_seq = seq
+                    yield _sse_frame(payload)
                 except queue.Empty:
                     yield "event: heartbeat\ndata: {}\n\n"
         finally:
@@ -575,7 +652,12 @@ def create_app() -> Flask:
     @app.get("/api/stream/<int:scan_id>")
     @authenticated
     def stream_scan(scan_id: int) -> Response:
-        return Response(stream_with_context(subscribe(scan_id)), mimetype="text/event-stream", headers={"X-Accel-Buffering": "no"})
+        raw_last = request.headers.get("Last-Event-ID", "0").strip() or "0"
+        try:
+            after_seq = max(0, int(raw_last))
+        except ValueError:
+            after_seq = 0
+        return Response(stream_with_context(subscribe(scan_id, after_seq=after_seq)), mimetype="text/event-stream", headers={"X-Accel-Buffering": "no"})
 
     @app.get("/api/integrations")
     @authenticated

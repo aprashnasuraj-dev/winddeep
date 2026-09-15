@@ -283,11 +283,9 @@ class V3ScanPipeline:
 
     def _emit(self, scan_id: int, event_type: str, payload: Mapping[str, Any]) -> None:
         event = self.store.append_scan_event(scan_id, event_type, dict(payload), schema_version="windeep.sse.v1")
-        wire = {
-            "schema_version": event["schema_version"],
-            "seq": event["seq"],
-            "payload": dict(payload),
-        }
+        wire = dict(payload)
+        wire["_sse_schema"] = event["schema_version"]
+        wire["_sse_seq"] = event["seq"]
         self.broadcast(event_type, wire, scan_id)
 
     @staticmethod

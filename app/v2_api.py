@@ -21,6 +21,8 @@ from typing import Any, Callable, Mapping
 from flask import Flask, Response, jsonify, request
 
 from app.engine.tool_wrapper import ToolCancelledError, ToolExecutionError
+from app.engine.scan_runtime import RegisteredScanRuntime
+from app.engine.v3_scan_pipeline import V3ScanPipeline
 from app.tools import builtin_integrations
 
 
@@ -310,70 +312,16 @@ def register_v2_api(
             "ready_compatible_count": sum(1 for item in descriptors if item["ready"] and item["compatible"]),
         }
 
-    async def execute_tool(
-        tool_name: str,
-        target_row: dict[str, Any],
-        *,
-        scan_id: int,
-        cancel_event: threading.Event,
-        options: Mapping[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        cls = wrapper_classes[tool_name]
-        scope = target_scope(target_row)
-        wrapper = cls(
-            tools_dir=tools_dir,
-            scope_validator=scope.is_allowed,
-            environment=runtime_environment(),
-            cancel_check=cancel_event.is_set,
-        )
-        run_id = database.create_tool_run(
-            tool_name=tool_name,
-            status="running",
-            scan_id=scan_id,
-            target_id=int(target_row["id"]),
-            command=[tool_name, "<scope-bound target>"],
-        )
-        try:
-            findings = await wrapper.run(str(target_row["target"]), options=options)
-            output: list[dict[str, Any]] = []
-            for finding in findings:
-                payload = finding.model_dump()
-                evidence = dict(payload.get("evidence") or {})
-                evidence.setdefault("windeep", {})
-                if isinstance(evidence["windeep"], dict):
-                    evidence["windeep"].update({"scan_id": scan_id, "tool": tool_name, "target": str(target_row["target"]), "captured_at": time.time()})
-                steps = str(payload.get("steps") or "").strip() or (
-                    f"Run {tool_name} against the same authorized target `{target_row['target']}` and compare the emitted output with the raw evidence object."
-                )
-                finding_id, created = database.create_finding(
-                    target_id=int(target_row["id"]),
-                    scan_id=scan_id,
-                    title=str(payload["title"]),
-                    severity=str(payload.get("severity") or "info"),
-                    vuln_type=str(payload.get("vuln_type") or "tool_output"),
-                    tool=tool_name,
-                    endpoint=payload.get("endpoint"),
-                    description=str(payload.get("description") or ""),
-                    evidence=evidence,
-                    request=str(payload.get("request") or ""),
-                    response=str(payload.get("response") or ""),
-                    steps=steps,
-                    impact=str(payload.get("impact") or ""),
-                    remediation=str(payload.get("remediation") or ""),
-                    confidence=float(payload.get("confidence") or 0.5),
-                )
-                payload.update({"id": finding_id, "created": created, "evidence": evidence, "steps": steps})
-                output.append(payload)
-                if created:
-                    broadcast("finding", {"finding": payload}, scan_id)
-            database.finish_tool_run(run_id, status="completed", exit_code=0, stdout_tail=f"{len(output)} normalized result(s)")
-            return output
-        except ToolCancelledError:
-            database.finish_tool_run(run_id, status="cancelled", error="cancelled by user")
-            raise
-        except Exception as exc:
-            database.finish_tool_run(run_id, status="failed", error=str(exc))
-            raise
+    scan_runtime = RegisteredScanRuntime()
+    pipeline = V3ScanPipeline(
+        database=database,
+        wrapper_classes=wrapper_classes,
+        tools_dir=tools_dir,
+        target_scope=target_scope,
+        preflight_for=preflight_for,
+        runtime_environment=runtime_environment,
+        broadcast=broadcast,
+    )
 
     def worker(
         scan_id: int,
@@ -383,56 +331,28 @@ def register_v2_api(
         tool_options: Mapping[str, Any],
         cancel_event: threading.Event,
     ) -> None:
-        selected = list(plan["selected"])
-        errors: list[dict[str, str]] = []
-        total_findings = 0
-        database.update_scan(scan_id, status="running", started_at=time.time(), progress=0.0)
-        broadcast("log", {"level": "info", "module": "v2-orchestrator", "message": f"{plan['mode']} scan starting with {len(selected)} integration(s)."}, scan_id)
         try:
-            preflight_for(target_row, consent_id)
-            if not selected:
-                raise ValueError("scan plan contains no runnable integrations")
-            for index, tool_name in enumerate(selected, start=1):
-                if cancel_event.is_set():
-                    database.update_scan(scan_id, status="cancelled", finished_at=time.time())
-                    broadcast("progress", {"progress": round(((index - 1) / len(selected)) * 100, 2), "status": "cancelled"}, scan_id)
-                    return
-                broadcast("log", {"level": "info", "module": tool_name, "message": f"Starting {tool_name}"}, scan_id)
-                try:
-                    findings = asyncio.run(
-                        execute_tool(
-                            tool_name,
-                            target_row,
-                            scan_id=scan_id,
-                            cancel_event=cancel_event,
-                            options=tool_options.get(tool_name) if isinstance(tool_options.get(tool_name), Mapping) else None,
-                        )
-                    )
-                    total_findings += len(findings)
-                except ToolCancelledError:
-                    database.update_scan(scan_id, status="cancelled", finished_at=time.time())
-                    broadcast("progress", {"progress": round(((index - 1) / len(selected)) * 100, 2), "status": "cancelled"}, scan_id)
-                    return
-                except Exception as exc:
-                    errors.append({"tool": tool_name, "error": str(exc)})
-                    database.add_scan_log(scan_id, str(exc), "error", tool_name)
-                    broadcast("log", {"level": "error", "module": tool_name, "message": str(exc)}, scan_id)
-                progress = round((index / len(selected)) * 100.0, 2)
-                database.update_scan(scan_id, progress=progress)
-                broadcast("progress", {"progress": progress, "status": "running"}, scan_id)
-
-            summary = {
-                "mode": plan["mode"],
-                "tools_planned": len(selected),
-                "findings": total_findings,
-                "errors": errors,
-                "skipped": plan["skipped"],
-            }
-            database.update_scan(scan_id, status="completed", progress=100.0, finished_at=time.time(), results_summary=summary)
-            broadcast("progress", {"progress": 100.0, "status": "completed", "summary": summary}, scan_id)
+            pipeline.run_sync(
+                scan_id=scan_id,
+                target_row=target_row,
+                selected=list(plan["selected"]),
+                consent_id=consent_id,
+                tool_options=tool_options,
+                cancel_event=cancel_event,
+                mode=str(plan["mode"]),
+                skipped=list(plan["skipped"]),
+            )
+        except asyncio.CancelledError:
+            database.update_scan(scan_id, status="cancelled", finished_at=time.time())
+            broadcast("progress", {"status": "cancelled", "reason": "operator cancellation"}, scan_id)
         except Exception as exc:
-            database.add_scan_log(scan_id, str(exc), "error", "v2-orchestrator")
-            database.update_scan(scan_id, status="failed", finished_at=time.time(), results_summary={"errors": [{"tool": "v2-orchestrator", "error": str(exc)}]})
+            database.add_scan_log(scan_id, str(exc), "error", "v3-orchestrator")
+            database.update_scan(
+                scan_id,
+                status="failed",
+                finished_at=time.time(),
+                results_summary={"errors": [{"tool": "v3-orchestrator", "error": str(exc)}]},
+            )
             broadcast("progress", {"status": "failed", "error": str(exc)}, scan_id)
         finally:
             with cancel_lock:
@@ -490,12 +410,11 @@ def register_v2_api(
             event = threading.Event()
             with cancel_lock:
                 cancel_events[scan_id] = event
-            threading.Thread(
-                target=worker,
+            scan_runtime.start(
+                scan_id,
+                worker,
                 args=(scan_id, target_row, plan, consent_id, tool_options, event),
-                daemon=True,
-                name=f"windeep-v2-scan-{scan_id}",
-            ).start()
+            )
             audit.append("v2.scan.started", {"scan_id": scan_id, "target_id": target_id, "mode": mode, "tools": len(plan["selected"])})
             return jsonify({"scan_id": scan_id, "status": "queued", "plan": plan}), 202
         except (KeyError, TypeError, ValueError, PermissionError) as exc:
