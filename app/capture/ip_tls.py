@@ -156,8 +156,6 @@ class CaptureTLSConnector:
         consent_id: str,
     ) -> Mapping[str, Any]:
         address = ipaddress.ip_address(ip)
-        if address.zone_id if isinstance(address, ipaddress.IPv6Address) else False:
-            raise CaptureTLSFailure("IPv6 zone ids are forbidden")
         self.guard.authorize_scan(target=declared_target, consent_id=consent_id)
         await self.guard.acquire_rate(f"transport:{address}")
         started = time.monotonic()
