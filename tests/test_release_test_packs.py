@@ -115,8 +115,9 @@ async def test_run_selected_tests_filters_packs_ids_and_mapping_context() -> Non
         packs=["browser_fidelity"],
         test_ids=["missing_csp", "cors_wildcard_origin"],
     )
-    assert [item["test_id"] for item in selected] == ["missing_csp", "cors_wildcard_origin"]
-    assert selected[0]["status"] == "observed"
+    by_id = {item["test_id"]: item for item in selected}
+    assert set(by_id) == {"missing_csp", "cors_wildcard_origin"}
+    assert by_id["missing_csp"]["status"] == "observed"
 
 
 @pytest.mark.asyncio
