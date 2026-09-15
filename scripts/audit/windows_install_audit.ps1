@@ -43,6 +43,13 @@ function Add-Check([string]$Name, [bool]$Passed, [string]$Detail) {
     $checks.Add([pscustomobject]@{ Name = $Name; Passed = $Passed; Detail = $Detail }) | Out-Null
 }
 
+function Get-OptionalProperty([object]$Object, [string]$Name, $DefaultValue = $null) {
+    if ($null -ne $Object -and $Object.PSObject.Properties.Name -contains $Name) {
+        return $Object.$Name
+    }
+    return $DefaultValue
+}
+
 function Get-FreePort {
     $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
     $listener.Start()
@@ -123,7 +130,12 @@ function Test-ManifestTools([string]$Root, [string]$Label, [object[]]$ManifestTo
         }
         $exe = Join-Path $toolsRoot $destination
         $probe = @($tool.probe)
-        $expected = if ($null -ne $tool.expected_exit_codes) { @($tool.expected_exit_codes | ForEach-Object { [int]$_ }) } else { @(0) }
+        $expectedRaw = Get-OptionalProperty -Object $tool -Name 'expected_exit_codes' -DefaultValue @(0)
+        $expected = @($expectedRaw | ForEach-Object { [int]$_ })
+        if ($probe.Count -eq 0 -or $expected.Count -eq 0) {
+            Add-Check "$Label tool $name" $false 'manifest probe contract is empty'
+            continue
+        }
         $result = Invoke-Probe -Executable $exe -Arguments $probe -ExpectedExitCodes $expected -Name $name
         Add-Check "$Label tool $name" ([bool]$result.Passed) ([string]$result.Detail)
     }
@@ -193,6 +205,7 @@ try {
 
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "Tool manifest missing: $manifestPath" }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    if (-not ($manifest.PSObject.Properties.Name -contains 'tools')) { throw 'Tool manifest is missing the tools array.' }
     $manifestTools = @($manifest.tools)
     Add-Check 'Tool manifest non-empty' ($manifestTools.Count -gt 0) "entries=$($manifestTools.Count)"
 
