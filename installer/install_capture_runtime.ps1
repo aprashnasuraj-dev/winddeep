@@ -1,10 +1,19 @@
 param(
-    [string]$Destination = (Join-Path $PSScriptRoot '..\runtime\capture-python')
+    [string]$Destination = 'runtime\capture-python'
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$destinationPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $Destination))
+
+# Accept either a repository-relative destination or an explicit absolute path.
+# Do not Join-Path an already-rooted Windows path (for example D:\runtime)
+# onto $PSScriptRoot; PowerShell would produce an invalid path such as
+# <repo>\installer\D:\runtime.
+if ([IO.Path]::IsPathRooted($Destination)) {
+    $destinationPath = [IO.Path]::GetFullPath($Destination)
+} else {
+    $destinationPath = [IO.Path]::GetFullPath((Join-Path $root $Destination))
+}
 $cache = Join-Path $root 'runtime\cache'
 New-Item -ItemType Directory -Path $cache -Force | Out-Null
 
