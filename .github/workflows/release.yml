@@ -19,7 +19,7 @@ jobs:
   release-windows:
     name: release-windows
     runs-on: windows-latest
-    timeout-minutes: 120
+    timeout-minutes: 150
 
     steps:
       # G1
@@ -32,9 +32,7 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
-          if ("v$version" -ne "${{ github.ref_name }}") {
-            throw "Tag ${{ github.ref_name }} does not match VERSION v$version"
-          }
+          if ("v$version" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match VERSION v$version" }
 
       # G2
       - name: G2 Setup Python 3.11
@@ -45,6 +43,7 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
+            requirements-capture.txt
 
       # G3
       - name: G3 Install runtime and development requirements
@@ -91,18 +90,25 @@ jobs:
         run: choco install innosetup -y --no-progress
 
       # G11
-      - name: G11 Download and verify portable external tools
+      - name: G11 Download, checksum and liveness-verify portable tools
         shell: pwsh
-        run: ./installer/setup_tools.ps1
-
-      - name: G11b Re-run safe tool probes after download
-        shell: pwsh
-        run: python scripts/audit/release_audit.py --phase B
+        run: |
+          ./installer/setup_tools.ps1
+          python scripts/audit/release_audit.py --phase B --require-installed
 
       # G12
-      - name: G12 Bundle embedded Python runtime
+      - name: G12 Bundle embedded Python 3.11 and isolated capture Python 3.12
         shell: pwsh
-        run: ./installer/install_python.ps1
+        run: |
+          ./installer/install_python.ps1
+          ./installer/install_capture_runtime.ps1
+
+      - name: Verify capture runtime dependency health
+        shell: pwsh
+        run: |
+          .\runtime\capture-python\python.exe -m pip check
+          $version = (.\runtime\capture-python\Scripts\mitmdump.exe --version | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $version -notmatch '12\.2\.3') { throw "Pinned capture runtime verification failed: $version" }
 
       # G13
       - name: G13 Build Windeep with PyInstaller
@@ -126,7 +132,7 @@ jobs:
           if (Test-Path dist\Windeep-Portable.zip) { Remove-Item dist\Windeep-Portable.zip -Force }
           Compress-Archive -Path dist\Windeep\* -DestinationPath dist\Windeep-Portable.zip -CompressionLevel Optimal
 
-      - name: Verify installer and portable build on Windows
+      - name: Verify installer and portable build on clean Windows runner
         shell: pwsh
         run: ./scripts/audit/windows_install_audit.ps1
 
@@ -139,7 +145,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archive)) { throw 'git archive failed' }
 
       # G17
-      - name: G17 Generate initial SHA256SUMS and stage reports
+      - name: G17 Stage audit evidence and generate initial SHA256SUMS
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist\reports -Force | Out-Null
@@ -147,15 +153,7 @@ jobs:
           Copy-Item reports\tool_liveness.md dist\reports\tool_liveness.md -Force
           Copy-Item reports\windows_install_audit.md dist\reports\windows_install_audit.md -Force
           Copy-Item reports\release_gate.json dist\reports\release_gate.json -Force
-          $assets = @(
-            'Windeep-Setup.exe',
-            'Windeep-Portable.zip',
-            "windeep-source-${{ github.ref_name }}.zip",
-            'reports\static_audit.md',
-            'reports\tool_liveness.md',
-            'reports\windows_install_audit.md',
-            'reports\release_gate.json'
-          )
+          $assets = @('Windeep-Setup.exe','Windeep-Portable.zip',"windeep-source-${{ github.ref_name }}.zip",'reports\static_audit.md','reports\tool_liveness.md','reports\windows_install_audit.md','reports\release_gate.json')
           $lines = foreach ($rel in $assets) {
             $file = Join-Path 'dist' $rel
             if (-not (Test-Path -LiteralPath $file)) { throw "Missing release asset: $file" }
@@ -175,22 +173,15 @@ jobs:
           $commits = @(git log $range --pretty=format:'- %h %s (%an)')
           $changelog = (Get-Content CHANGELOG.md -Raw).Trim()
           $gate = Get-Content reports\release_gate.json -Raw | ConvertFrom-Json
+          if ($gate.decision -ne 'GO') { throw "Refusing release notes for NO-GO gate" }
           $notes = [System.Collections.Generic.List[string]]::new()
-          $notes.Add("# Windeep v$version") | Out-Null
-          $notes.Add('') | Out-Null
-          $notes.Add("Release gate: **$($gate.decision)**") | Out-Null
-          $notes.Add('') | Out-Null
-          $notes.Add('## Changelog') | Out-Null
-          $notes.Add('') | Out-Null
-          $notes.Add($changelog) | Out-Null
-          $notes.Add('') | Out-Null
-          $notes.Add("## Commits since $since") | Out-Null
-          $notes.Add('') | Out-Null
+          $notes.Add("# Windeep v$version") | Out-Null; $notes.Add('') | Out-Null
+          $notes.Add("Release gate: **$($gate.decision)**") | Out-Null; $notes.Add('') | Out-Null
+          $notes.Add('## Changelog') | Out-Null; $notes.Add('') | Out-Null; $notes.Add($changelog) | Out-Null; $notes.Add('') | Out-Null
+          $notes.Add("## Commits since $since") | Out-Null; $notes.Add('') | Out-Null
           foreach ($commit in $commits) { $notes.Add($commit) | Out-Null }
-          $notes.Add('') | Out-Null
-          $notes.Add('## Verification') | Out-Null
-          $notes.Add('') | Out-Null
-          $notes.Add('Verify file hashes with `SHA256SUMS.txt`. GitHub build-provenance attestations are generated after the final assets are assembled; check them with `gh attestation verify <asset> --repo aprashnasuraj-dev/winddeep`.') | Out-Null
+          $notes.Add('') | Out-Null; $notes.Add('## Verification') | Out-Null; $notes.Add('') | Out-Null
+          $notes.Add('Verify SHA-256 hashes with `SHA256SUMS.txt`. GitHub build-provenance attestations are attached to the release and can be checked with `gh attestation verify <asset> --repo aprashnasuraj-dev/winddeep`.') | Out-Null
           $notes | Set-Content -LiteralPath dist\RELEASE-NOTES.md -Encoding utf8
 
       # G19
@@ -217,17 +208,7 @@ jobs:
         shell: pwsh
         run: |
           python scripts/audit/generate_sbom.py --output dist/SBOM.json
-          $assets = @(
-            'Windeep-Setup.exe',
-            'Windeep-Portable.zip',
-            "windeep-source-${{ github.ref_name }}.zip",
-            'RELEASE-NOTES.md',
-            'SBOM.json',
-            'reports\static_audit.md',
-            'reports\tool_liveness.md',
-            'reports\windows_install_audit.md',
-            'reports\release_gate.json'
-          )
+          $assets = @('Windeep-Setup.exe','Windeep-Portable.zip',"windeep-source-${{ github.ref_name }}.zip",'RELEASE-NOTES.md','SBOM.json','reports\static_audit.md','reports\tool_liveness.md','reports\windows_install_audit.md','reports\release_gate.json')
           $lines = foreach ($rel in $assets) {
             $file = Join-Path 'dist' $rel
             if (-not (Test-Path -LiteralPath $file)) { throw "Missing release asset: $file" }
@@ -262,7 +243,7 @@ jobs:
             dist/reports/windows_install_audit.md
             dist/reports/release_gate.json
 
-      - name: G21b Bind SBOM attestation to installer
+      - name: G21 Bind SBOM attestation to installer
         uses: actions/attest@v4
         with:
           subject-path: dist/Windeep-Setup.exe
