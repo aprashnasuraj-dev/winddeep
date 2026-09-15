@@ -70,7 +70,7 @@ def test_consent_and_preflight_work_with_csrf(tmp_path, monkeypatch) -> None:
         "/api/preflight/check",
         headers={"X-CSRF-Token": csrf},
         json={
-            "target": "api.example.com",
+            "target": "example.com",
             "scope": ["example.com", "*.example.com"],
             "out_of_scope": ["admin.example.com"],
             "consent_id": consent_id,
