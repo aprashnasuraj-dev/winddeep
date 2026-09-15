@@ -1,7 +1,7 @@
 """P0 scheduler-driven v2 scan pipeline.
 
 This module is deliberately narrow: it wires existing Windeep engines into a
-single-loop DAG without weakening preflight.  It does not add signatures,
+single-loop DAG without weakening preflight. It does not add signatures,
 payloads, exploitation, or direct network/subprocess paths.
 """
 from __future__ import annotations
@@ -15,7 +15,6 @@ import threading
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -272,6 +271,12 @@ class FindingBatchWriter:
             payload["tool"] = tool_name
             payload["confidence"] = float(payload.get("confidence") or 0.5)
             payload["evidence"] = dict(payload.get("evidence") or {})
+            endpoint = str(payload.get("endpoint") or "<scope-bound target>")
+            payload["steps"] = str(payload.get("steps") or "").strip() or (
+                f"1. Run `{tool_name}` against the same authorized target and observation point `{endpoint}`.\n"
+                "2. Keep the same approved scope and authentication context used by the recorded scan.\n"
+                "3. Compare the resulting non-destructive observation with the stored evidence; do not add an exploitation step."
+            )
             payload["fingerprint"] = finding_fingerprint(
                 target_id=target_id,
                 title=payload["title"],
@@ -486,8 +491,6 @@ async def run_p0_scan(
     database.update_scan(scan_id, status="running", started_at=time.time(), progress=0.0)
     emit("log", {"level": "info", "module": "v2-orchestrator", "message": f"{mode} DAG scan starting with {len(selected)} integration(s)."})
 
-    node_by_tool: dict[str, PipelineNode] = {}
-
     def runner_factory(tool_name: str) -> Runner:
         cls = wrapper_classes[tool_name]
         timeout = max(1.0, float(getattr(cls, "timeout", 120.0)))
@@ -497,7 +500,6 @@ async def run_p0_scan(
             _successful_dependencies(dependencies)
             if cancel_event.is_set():
                 raise asyncio.CancelledError
-            # Full authorization is repeated immediately before each invocation.
             guard.authorize_scan(target=target, consent_id=consent_id)
             await guard.acquire_rate(_host_rate_key(target))
             scope = target_scope(dict(target_row))
@@ -568,10 +570,11 @@ async def run_p0_scan(
         return run_tool
 
     tool_nodes = build_tool_nodes(selected, wrapper_classes, runner_factory=runner_factory)
-    node_by_tool.update({node.tool_name or node.id: node for node in tool_nodes})
     tool_ids = tuple(node.id for node in tool_nodes)
 
     async def dedup_stage(scan_context: ScanContext, dependencies: Mapping[str, Any]) -> dict[str, Any]:
+        if cancel_event.is_set():
+            raise asyncio.CancelledError
         guard.authorize_scan(target=target, consent_id=consent_id)
         records = writer.read_scan_findings(scan_id)
         records.sort(key=lambda item: (str(item.get("fingerprint") or ""), int(item.get("finding_id") or 0)))
@@ -596,6 +599,8 @@ async def run_p0_scan(
         return {"findings": findings, "duplicates": sorted(duplicate_groups, key=lambda row: (row["fingerprint"], row["duplicate_finding_id"]))}
 
     async def chain_stage(scan_context: ScanContext, dependencies: Mapping[str, Any]) -> dict[str, Any]:
+        if cancel_event.is_set():
+            raise asyncio.CancelledError
         values = _successful_dependencies(dependencies)
         guard.authorize_scan(target=target, consent_id=consent_id)
         dedup = values["stage:dedup"]
@@ -608,6 +613,8 @@ async def run_p0_scan(
         return {"findings": findings, "duplicates": dedup["duplicates"], "chains": edge_rows}
 
     async def rank_stage(scan_context: ScanContext, dependencies: Mapping[str, Any]) -> dict[str, Any]:
+        if cancel_event.is_set():
+            raise asyncio.CancelledError
         values = _successful_dependencies(dependencies)
         guard.authorize_scan(target=target, consent_id=consent_id)
         chained = values["stage:chain"]
@@ -629,6 +636,8 @@ async def run_p0_scan(
         return {**chained, "ranked": rows}
 
     async def hypothesis_stage(scan_context: ScanContext, dependencies: Mapping[str, Any]) -> dict[str, Any]:
+        if cancel_event.is_set():
+            raise asyncio.CancelledError
         values = _successful_dependencies(dependencies)
         guard.authorize_scan(target=target, consent_id=consent_id)
         ranked = values["stage:rank"]
