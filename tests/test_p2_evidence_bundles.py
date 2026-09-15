@@ -1,6 +1,7 @@
 """P2 acceptance tests for deterministic self-proving evidence bundles."""
 from __future__ import annotations
 
+import base64
 import json
 from pathlib import Path
 
@@ -134,6 +135,8 @@ def test_complete_high_bundle_is_deterministic_and_flow_bound(tmp_path: Path) ->
     assert first["reproduction"]["steps"][0].startswith("Send the captured GET request")
     assert first["exploitability"] == "observed"
     assert first["confidence"]["band"] == "high"
+    with database._connect() as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM evidence_bundles").fetchone()["n"] == 1
 
 
 def test_high_bundle_refuses_to_close_without_flow_and_provenance(tmp_path: Path) -> None:
@@ -199,9 +202,12 @@ def test_artifact_corruption_and_invalid_slice_fail_closed(tmp_path: Path) -> No
             exploitability="observed",
         )
 
-    tampered = crypto.encrypt_bytes(b"changed\n", aad=f"windeep:evidence-blob:{artifact['sha256']}".encode("utf-8"))
+    tampered = crypto.encrypt_text(
+        base64.b64encode(b"changed\n").decode("ascii"),
+        aad=f"windeep:evidence-blob:{artifact['sha256']}".encode("utf-8"),
+    )
     with database._connect() as conn:
-        conn.execute("UPDATE evidence_blobs SET payload = ? WHERE sha256 = ?", (tampered.decode("utf-8"), artifact["sha256"]))
+        conn.execute("UPDATE evidence_blobs SET payload = ? WHERE sha256 = ?", (tampered, artifact["sha256"]))
     with pytest.raises(EvidenceIntegrityError):
         store.read_artifact(artifact["sha256"])
 
@@ -276,3 +282,95 @@ def test_resolve_revalidates_artifact_and_flow_hashes(tmp_path: Path) -> None:
         conn.execute("UPDATE flows SET path = ? WHERE id = ?", ("/tampered", flow_id))
     with pytest.raises(EvidenceIntegrityError, match="flow"):
         store.resolve(int(finding["id"]))
+
+
+def test_validation_branches_and_append_only_supersession(tmp_path: Path) -> None:
+    crypto, database, _target_id, scan_id, run_id, finding, flow_id = _fixture(tmp_path)
+    store = EvidenceBundleStore(database, crypto)
+    artifact = store.put_artifact(
+        scan_id=scan_id,
+        tool_run_id=run_id,
+        kind="raw_tool_output",
+        media_type="text/plain",
+        content=b"one\ntwo\n",
+    )
+    # Content addressing is stable and duplicate insertion verifies rather than rewrites.
+    assert store.put_artifact(
+        scan_id=scan_id,
+        tool_run_id=run_id,
+        kind="raw_tool_output",
+        media_type="text/plain",
+        content=b"one\ntwo\n",
+    )["sha256"] == artifact["sha256"]
+    with pytest.raises(KeyError):
+        store.read_artifact("0" * 64)
+    with pytest.raises(ValueError, match="line range"):
+        store.build(
+            finding=finding, scan_id=scan_id, tool_run_id=run_id,
+            flow_ids=[flow_id], artifact_sha256=artifact["sha256"],
+            line_start=None, line_end=1, provenance=_provenance(), exploitability="observed"
+        )
+    with pytest.raises(ValueError, match="nodes"):
+        store.build(
+            finding=finding, scan_id=scan_id, tool_run_id=run_id,
+            flow_ids=[flow_id], artifact_sha256=artifact["sha256"],
+            line_start=1, line_end=1, provenance={"nodes": "bad", "edges": []}, exploitability="observed"
+        )
+    with pytest.raises(ValueError, match="missing version"):
+        store.build(
+            finding=finding, scan_id=scan_id, tool_run_id=run_id,
+            flow_ids=[flow_id], artifact_sha256=artifact["sha256"],
+            line_start=1, line_end=1,
+            provenance={"nodes": [{"id": "x", "kind": "detector", "name": "x", "detector_id": "x"}], "edges": []},
+            exploitability="observed"
+        )
+    with pytest.raises(KeyError):
+        store.resolve(999999)
+
+    first = store.build(
+        finding=finding, scan_id=scan_id, tool_run_id=run_id,
+        flow_ids=[flow_id], artifact_sha256=artifact["sha256"],
+        line_start=1, line_end=1, provenance=_provenance(), exploitability="observed", close=True
+    )
+    changed_provenance = _provenance()
+    changed_provenance["nodes"][0]["source_digest"] = "b" * 64
+    second = store.build(
+        finding=finding, scan_id=scan_id, tool_run_id=run_id,
+        flow_ids=[flow_id], artifact_sha256=artifact["sha256"],
+        line_start=1, line_end=1, provenance=changed_provenance, exploitability="observed", close=True
+    )
+    assert first["bundle_sha256"] != second["bundle_sha256"]
+    with database._connect() as conn:
+        rows = conn.execute("SELECT id, supersedes_id FROM evidence_bundles ORDER BY id").fetchall()
+    assert len(rows) == 2
+    assert rows[1]["supersedes_id"] == rows[0]["id"]
+
+
+def test_reflection_and_browser_require_specialized_evidence(tmp_path: Path) -> None:
+    crypto, database, _target_id, scan_id, run_id, finding, flow_id = _fixture(tmp_path)
+    store = EvidenceBundleStore(database, crypto)
+    artifact = store.put_artifact(
+        scan_id=scan_id, tool_run_id=run_id, kind="raw_tool_output", media_type="text/plain", content=b"marker observed\n"
+    )
+    screenshot = store.put_artifact(
+        scan_id=scan_id, tool_run_id=run_id, kind="screenshot", media_type="image/png", content=b"fake-png-fixture"
+    )
+    reflected = dict(finding)
+    reflected["title"] = "Reflected marker observation"
+    reflected["vuln_type"] = "reflected_marker"
+    reflected["evidence"] = {"browser_observed": True}
+    incomplete = store.build(
+        finding=reflected, scan_id=scan_id, tool_run_id=run_id, flow_ids=[flow_id],
+        artifact_sha256=artifact["sha256"], line_start=1, line_end=1,
+        provenance=_provenance(), exploitability="observed", close=False
+    )
+    assert {"reflected_marker", "browser_observation"}.issubset(incomplete["completeness"]["missing"])
+    complete = store.build(
+        finding=reflected, scan_id=scan_id, tool_run_id=run_id, flow_ids=[flow_id],
+        artifact_sha256=artifact["sha256"], line_start=1, line_end=1,
+        provenance=_provenance(), exploitability="observed",
+        reflected_marker={"marker": "WINDEEP-INERT-1", "in_dom": True, "in_text": True},
+        browser_observation={"screenshot_sha256": screenshot["sha256"], "final_url": "https://example.test/", "status": 200, "viewport": {"width": 1280, "height": 720}},
+        close=True,
+    )
+    assert complete["completeness"]["score"] == 1.0
