@@ -1,8 +1,11 @@
 """Capture-layer HTTPS connector for declared literal-IP v3 targets.
 
 The connector is intentionally narrow: one observation-only GET request, bounded
-response size/time, literal-IP socket destination, and a second live preflight at
-the transport boundary. It never resolves DNS or invents SNI/Host values.
+response size/time, literal-IP socket destination, and optional defense-in-depth
+preflight at the transport boundary. The V3 target route always performs live
+preflight before invoking this connector; direct callers may additionally pass
+the declared target + consent token so the connector re-checks them itself. It
+never resolves DNS or invents SNI/Host values.
 """
 from __future__ import annotations
 
@@ -93,7 +96,7 @@ def _parse_response(raw: bytes) -> tuple[int, dict[str, str], bytes]:
 
 
 class CaptureTLSConnector:
-    """Perform one preflight-gated literal-IP HTTPS observation."""
+    """Perform one literal-IP HTTPS observation inside the capture boundary."""
 
     def __init__(
         self,
@@ -152,11 +155,14 @@ class CaptureTLSConnector:
         path: str,
         url: str,
         verification_attempt: str,
-        declared_target: str,
-        consent_id: str,
+        declared_target: str | None = None,
+        consent_id: str | None = None,
     ) -> Mapping[str, Any]:
         address = ipaddress.ip_address(ip)
-        self.guard.authorize_scan(target=declared_target, consent_id=consent_id)
+        if (declared_target is None) ^ (consent_id is None):
+            raise CaptureTLSFailure("transport preflight requires both declared_target and consent_id")
+        if declared_target is not None and consent_id is not None:
+            self.guard.authorize_scan(target=declared_target, consent_id=consent_id)
         await self.guard.acquire_rate(f"transport:{address}")
         started = time.monotonic()
         verification_error: str | None = None
