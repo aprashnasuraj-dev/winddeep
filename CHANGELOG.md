@@ -4,28 +4,50 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 ## [Unreleased]
 
+Post-freeze changes to the public v3 contracts are released as `3.0.x` patches unless they require a new major/minor compatibility window.
+
 ## [3.0.0] - 2026-09-15
 
+### Phase map
+- **P0 → Scheduler:** single-loop DAG scheduling, fail-closed preflight, partial-failure isolation, monotonic replayable SSE, deterministic post-processing.
+- **P1 → Forensic capture:** encrypted content-addressed raw artifacts, exact HTTP evidence, custody metadata, replay inputs, redaction and Merkle/integrity support.
+- **P2 → Evidence bundles:** deterministic self-proving evidence bundles, flow/artifact/provenance binding, completeness gates, `observed | needs-human-review` exploitability.
+- **P3 → Reporting:** evidence-only deterministic Markdown/HTML, CVSS v3.1, chain narratives, redacted HAR/attachments, audited submission lifecycle.
+- **P4 → LLM assist:** prompt-guarded, evidence-grounded hard-middle analysis with structured validation and no direct model-to-tool authority.
+- **P5 → Web3:** read-only multi-chain source/bytecode resolution, Slither+Aderyn corroboration, bounded Mythril, immutable engine/detector/SWC provenance.
+- **P6 → Operations:** restart-safe checkpoints, per-scan/per-tool budgets, encrypted structured logs, durable-first backpressure, active cleanup.
+- **P7 → Self-threat-model:** release-blocking threat/mitigation/test/residual-risk mapping across the complete platform attack surface.
+- **P8 → Schema:** current+previous readers, current-only writers, explicit API deprecation policy, evidence-preserving rollback discipline.
+
 ### Added
+- v3 contract-freeze manifest covering `windeep.sse.v1`, `windeep.har-extension.v1`, `windeep.evidence-bundle.v1`, `windeep.artifact.v1`, `windeep.report.v1`, and the new `windeep.verification.v1` verification record.
+- Single evidence-preserving Python release migration `0030_v3_release.py` for v3 release wiring, verification, target-class, handling-policy, and triage metadata tables.
+- Unified v3 stage coordinator: scope+consent → recon → engines → dedup → chain → rank → hypothesis → handling → bundle close → verification → report → export/submission, with resumable encrypted checkpoints and audited transitions.
+- R5 hash-addressed per-claim verification records stored as P1 artifacts before report generation.
 - Completed P1 forensic capture/custody convergence so P2 evidence bundles and P3 reports consume real encrypted raw artifacts, captured flows, deterministic redaction data, replay/custody metadata, and integrity roots.
 - P4 hard-middle intelligence with guarded JavaScript harvesting, two-session authorization-diff evidence, prompt-guarded LLM narrative assistance, schema validation, and scheduler/preflight-controlled action planning.
 - Expanded P5 multi-chain static web3 analysis with audited Sourcify → Etherscan → Blockscout → Routescout resolution, verified compiler/ABI provenance, encrypted bytecode/disassembly artifacts, Slither + Aderyn corroboration, bounded Mythril analysis, SWC mapping, immutable engine/finding provenance, read-only RPC enforcement, and deterministic web3 report sections.
 - P6 restart-safe operational runtime with encrypted committed stage boundaries, per-scan and per-tool budgets, redaction-aware structured logs, durable-first backpressure fanout, and active temp/process/orphan-chunk cleanup.
 - P7 release-blocking platform threat model covering prompt injection, artifact traversal, loopback SSRF, compromised tools, key leakage, redaction DoS, authorization-diff misuse, web3 write escalation, crash/resume confusion, slow clients, and cleanup leakage with explicit mitigation/test/residual-risk mappings.
 - P8 versioned schema envelopes, persisted schema/API compatibility metadata, current+previous readers, current-only writers, and an evidence-preserving paired down-migration mechanism with mandatory backup and destructive-SQL rejection.
-- `docs/schema_compatibility.md` documenting the v2/v1 API compatibility and deprecation window plus safe rollback policy.
+
+### Breaking changes
+- `3.0.0` freezes the P0–P8 public wire contracts listed above. Any incompatible post-freeze change requires an explicit compatibility/migration note; patch-level changes may only extend these contracts compatibly.
+- New v3 reports require a closed evidence bundle and a hash-addressed verification record for every rendered claim. A missing verification record now fails report generation rather than degrading silently.
+- v3 release metadata is installed by `0030_v3_release.py`; its down path is intentionally evidence-preserving and does not remove historical v3 evidence tables/records.
+- New writes use the current v2 API/schema contract; v1 remains readable only during its documented deprecation window.
 
 ### Changed
-- Release version advanced to `3.0.0`; schema migration sequence now includes deep web3 provenance (`0006`), operational recovery (`0007`), and schema/API compatibility (`0008`).
-- The threat model now reflects P1 forensic capture as landed and treats uncovered attack surfaces as release blockers.
+- Release version advanced to `3.0.0`; the pre-v3 SQL migration chain remains intact while `0030_v3_release.py` owns all new v3 tables.
+- The threat model reflects P1 forensic capture as landed and treats uncovered attack surfaces as release blockers.
 - Web3 High/Critical confidence is driven by inspectable source evidence and/or independent engine corroboration; bytecode-only or exploitation-required cases remain `needs-human-review`.
-- Migration rollback is no longer an implicit/destructive operation: only paired down migrations may execute, and evidence-table deletion/alteration, table drops, truncation, and dangerous database administration statements are rejected before execution.
-- API compatibility is explicit: `v2` is current, `v1` remains the supported previous read contract during deprecation, and new writes use the current contract.
+- Migration rollback is no longer an implicit/destructive operation: only paired safe rollback contracts may execute, and historical evidence is retained.
 
 ### Security
-- No P5 path sends transactions, forks/deploys contracts, signs data, or performs state-changing RPC; source/bytecode analysis is static/read-only and every resolver/tool path remains guardrail-controlled.
+- Existing C1–C7 constraints remain unchanged: no new v3 path bypasses preflight, scope, consent, rate governance, encryption, audit, or scheduler ownership.
+- No P5 path sends transactions, forks/deploys contracts, signs data, or performs state-changing RPC.
 - P6 durable persistence occurs before bounded UI fanout, so a slow client cannot cause evidence loss; cleanup actively removes registered temp artifacts/processes and fails closed if residue remains.
-- P8 down migrations preserve historical evidence and take a consistent backup before rollback. Incompatible readers must refuse newer evidence rather than erase or rewrite it.
+- R5 verification records are immutable encrypted P1 artifacts; report claims resolve to those records instead of relying on narrative trust.
 
 ## [2.3.0] - 2026-09-15
 
