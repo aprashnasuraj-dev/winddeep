@@ -171,27 +171,26 @@ jobs:
           $version = (Get-Content VERSION -Raw).Trim()
           $previous = $null
           try { $previous = (git describe --tags --abbrev=0 HEAD^ 2>$null).Trim() } catch { }
-          if ($previous) { $range = "$previous..HEAD" } else { $range = 'HEAD' }
-          $commits = git log $range --pretty=format:'- %h %s (%an)'
-          $changelog = Get-Content CHANGELOG.md -Raw
+          if ($previous) { $range = "$previous..HEAD"; $since = $previous } else { $range = 'HEAD'; $since = 'repository start' }
+          $commits = @(git log $range --pretty=format:'- %h %s (%an)')
+          $changelog = (Get-Content CHANGELOG.md -Raw).Trim()
           $gate = Get-Content reports\release_gate.json -Raw | ConvertFrom-Json
-          $notes = @"
-          # Windeep v$version
-
-          Release gate: **$($gate.decision)**
-
-          ## Changelog
-
-          $changelog
-
-          ## Commits since $($previous ? $previous : 'repository start')
-
-          $($commits -join "`n")
-
-          ## Verification
-
-          Verify file hashes with `SHA256SUMS.txt`. GitHub build-provenance attestations are generated after the final assets are assembled; they can be checked with `gh attestation verify <asset> --repo aprashnasuraj-dev/winddeep`.
-          "@
+          $notes = [System.Collections.Generic.List[string]]::new()
+          $notes.Add("# Windeep v$version") | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add("Release gate: **$($gate.decision)**") | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add('## Changelog') | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add($changelog) | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add("## Commits since $since") | Out-Null
+          $notes.Add('') | Out-Null
+          foreach ($commit in $commits) { $notes.Add($commit) | Out-Null }
+          $notes.Add('') | Out-Null
+          $notes.Add('## Verification') | Out-Null
+          $notes.Add('') | Out-Null
+          $notes.Add('Verify file hashes with `SHA256SUMS.txt`. GitHub build-provenance attestations are generated after the final assets are assembled; check them with `gh attestation verify <asset> --repo aprashnasuraj-dev/winddeep`.') | Out-Null
           $notes | Set-Content -LiteralPath dist\RELEASE-NOTES.md -Encoding utf8
 
       # G19
@@ -200,6 +199,7 @@ jobs:
         with:
           draft: true
           prerelease: false
+          fail_on_unmatched_files: true
           body_path: dist/RELEASE-NOTES.md
           files: |
             dist/Windeep-Setup.exe
@@ -241,6 +241,7 @@ jobs:
         with:
           draft: true
           overwrite_files: true
+          fail_on_unmatched_files: true
           files: |
             dist/SBOM.json
             dist/SHA256SUMS.txt
@@ -273,6 +274,7 @@ jobs:
           draft: false
           prerelease: false
           overwrite_files: true
+          fail_on_unmatched_files: true
           body_path: dist/RELEASE-NOTES.md
           files: |
             dist/Windeep-Setup.exe
