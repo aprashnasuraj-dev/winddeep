@@ -64,6 +64,7 @@ def test_0030_python_migration_up_down_preserves_evidence(tmp_path: Path) -> Non
     assert result.direction == "up"
     with database._connect() as conn:
         tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+        triage_columns = {row[1] for row in conn.execute("PRAGMA table_info(handling_classification)").fetchall()}
     required = {
         "v3_contract_freeze",
         "v3_pipeline_checkpoint",
@@ -71,11 +72,12 @@ def test_0030_python_migration_up_down_preserves_evidence(tmp_path: Path) -> Non
         "verification_record",
         "verification_claim",
         "v3_targets",
-        "handling_policy",
-        "handling_rule",
         "handling_classification",
     }
     assert required.issubset(tables)
+    assert "handling_policy" not in tables
+    assert "handling_rule" not in tables
+    assert {"asset_class", "disposition", "tester_priority", "duplicate_risk", "rationale", "score"}.issubset(triage_columns)
     evidence = artifacts.put(
         scan_id=scan_id,
         tool_run_id=None,
