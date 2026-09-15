@@ -77,8 +77,9 @@ class ChainBuilder:
         """Build a validated finding graph and cache edges in SQLite."""
         try:
             compact = [self._compact(item) for item in findings if item.get("id") is not None]
-            prompt = CHAIN_BUILDER_PROMPT.format(
-                context_json=json.dumps({"findings": compact}, ensure_ascii=False, separators=(",", ":"))
+            prompt = CHAIN_BUILDER_PROMPT.replace(
+                "{context_json}",
+                json.dumps({"findings": compact}, ensure_ascii=False, separators=(",", ":")),
             )
             raw = await self.llm_client.complete_json(
                 prompt,
