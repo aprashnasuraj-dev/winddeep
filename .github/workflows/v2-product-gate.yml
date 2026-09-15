@@ -51,10 +51,11 @@ jobs:
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Verify catalog, packaging, and v3 release contracts
+        shell: bash
         run: |
-          python scripts/audit/release_audit.py --phase A
-          python scripts/audit/release_audit.py --phase B
-          python scripts/audit/release_audit.py --phase V3
+          python scripts/audit/release_audit.py --phase A || { cat reports/static_audit.md || true; exit 1; }
+          python scripts/audit/release_audit.py --phase B || { cat reports/tool_liveness.md || true; exit 1; }
+          python scripts/audit/release_audit.py --phase V3 || { cat reports/v3_release_audit.md || true; exit 1; }
 
       - name: Run complete unit and product regression suite
         run: python -m pytest -q --cov=app --cov=launcher --cov-report=term-missing --cov-report=xml:reports/coverage-v2.xml --cov-fail-under=85
