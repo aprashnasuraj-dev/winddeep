@@ -48,9 +48,10 @@ jobs:
         run: python scripts/audit/release_audit.py --phase D
 
       - name: Phase F pre-tag release gate
-        env:
-          GITHUB_REF_NAME: v0.1.0
-        run: python scripts/audit/release_audit.py --phase F
+        shell: pwsh
+        run: |
+          Remove-Item Env:GITHUB_REF_NAME -ErrorAction SilentlyContinue
+          python scripts/audit/release_audit.py --phase F
 
       - name: Install Inno Setup
         shell: pwsh
