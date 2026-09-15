@@ -219,7 +219,8 @@ def write_report(ok: bool, checks: list[Check]) -> None:
         "|---|---|---|",
     ]
     for check in checks:
-        lines.append(f"| {check.name} | **{'PASS' if check.ok else 'FAIL'}** | {check.detail.replace('|', '\\|')} |")
+        detail = check.detail.replace("|", "\\|")
+        lines.append(f"| {check.name} | **{'PASS' if check.ok else 'FAIL'}** | {detail} |")
     lines.append("")
     REPORT.write_text("\n".join(lines), encoding="utf-8")
 
