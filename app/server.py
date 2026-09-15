@@ -1,7 +1,7 @@
-"""Local-only Flask API bootstrap with mandatory dashboard security controls."""
-
+"""Local-only production Flask server for the Windeep Windows desktop app."""
 from __future__ import annotations
 
+import atexit
 import os
 import webbrowser
 from functools import wraps
@@ -9,8 +9,11 @@ from pathlib import Path
 from threading import Timer
 from typing import Any, Callable, TypeVar, cast
 
-from flask import Flask, Response, jsonify, make_response, request
+from flask import Flask, Response, jsonify, make_response, request, send_from_directory
 
+from app.api import register_production_api
+from app.capture.process import CaptureProcess
+from app.runtime import WindeepRuntime, resource_root
 from app.security.audit import AuditLog
 from app.security.auth import AuthenticationError, LocalAuthManager, SessionClaims, is_loopback_remote
 from app.security.consent import ConsentAuthority, ConsentError
@@ -18,6 +21,7 @@ from app.security.crypto import CryptoManager
 from app.security.preflight import PreFlightGuard
 from app.security.rate_governor import RateGovernor, RatePolicy
 from app.security.scope import ScopeEnforcer, ScopeViolation
+from app.tools.release_metadata import apply_release_metadata
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -34,12 +38,13 @@ def _request_token() -> str:
 
 
 def create_app() -> Flask:
-    """Create the Windeep Flask app with localhost, auth, CSRF, and CSP controls."""
+    """Create Windeep with localhost/auth/CSRF/CSP and all production routes."""
     state = _state_dir()
     state.mkdir(parents=True, exist_ok=True)
-    app = Flask(__name__)
+    root = resource_root()
+    app = Flask(__name__, static_folder=None)
     app.config.update(
-        MAX_CONTENT_LENGTH=16 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=32 * 1024 * 1024,
         JSON_SORT_KEYS=True,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Strict",
@@ -49,11 +54,25 @@ def create_app() -> Flask:
     audit = AuditLog(state / "audit" / "audit.jsonl")
     auth = LocalAuthManager(protector=crypto.protector)
     consent = ConsentAuthority(state / "consent", protector=crypto.protector)
+    runtime = WindeepRuntime(state_dir=state, crypto=crypto, audit=audit, consent=consent)
+    apply_release_metadata(runtime.wrapper_classes, root / "tools_config.json")
+    app_port = int(os.getenv("WINDEEP_PORT", "7331"))
+    capture = CaptureProcess(root, state_dir=state, capture_token=runtime.capture_token, app_port=app_port)
 
     app.extensions["windeep.crypto"] = crypto
     app.extensions["windeep.audit"] = audit
     app.extensions["windeep.auth"] = auth
     app.extensions["windeep.consent"] = consent
+    app.extensions["windeep.runtime"] = runtime
+    app.extensions["windeep.capture"] = capture
+
+    def shutdown() -> None:
+        try:
+            capture.stop()
+        finally:
+            runtime.close()
+
+    atexit.register(shutdown)
 
     def authenticated(view: F) -> F:
         @wraps(view)
@@ -70,7 +89,6 @@ def create_app() -> Flask:
                 return jsonify({"error": str(exc)}), 401
             request.environ["windeep.session_claims"] = claims
             return view(*args, **kwargs)
-
         return cast(F, wrapper)
 
     @app.before_request
@@ -85,7 +103,7 @@ def create_app() -> Flask:
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; base-uri 'none'; frame-ancestors 'none'; "
             "form-action 'self'; object-src 'none'; connect-src 'self'; "
-            "img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+            "img-src 'self' data:; style-src 'self'; script-src 'self'"
         )
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -106,6 +124,7 @@ def create_app() -> Flask:
                 "status": "ok" if ok else "blocked",
                 "service": "windeep",
                 "localhost_only": True,
+                "tool_count": len(runtime.wrapper_classes),
                 "controls": {
                     "crypto": crypto_health,
                     "audit": audit_health,
@@ -183,8 +202,8 @@ def create_app() -> Flask:
             )
             governor = RateGovernor(
                 global_policy=RatePolicy(
-                    rate_per_second=float(data.get("global_rps", 10.0)),
-                    burst=float(data.get("global_burst", 10.0)),
+                    rate_per_second=max(0.1, min(float(data.get("global_rps", 10.0)), 25.0)),
+                    burst=max(1.0, min(float(data.get("global_burst", 10.0)), 50.0)),
                 )
             )
             guard = PreFlightGuard(scope=scope, rate_governor=governor, consent=consent, crypto=crypto, audit=audit)
@@ -199,15 +218,15 @@ def create_app() -> Flask:
         claims = cast(SessionClaims, request.environ["windeep.session_claims"])
         return jsonify({"authenticated": True, "issued_at": claims.issued_at, "expires_at": claims.expires_at}), 200
 
+    register_production_api(app, runtime=runtime, capture=capture, authenticated=authenticated)
+
     @app.get("/")
-    def index() -> tuple[str, int, dict[str, str]]:
-        body = (
-            "<!doctype html><html><head><meta charset='utf-8'><title>Windeep</title>"
-            "<style>body{background:#0a0e17;color:#e5e7eb;font-family:system-ui;max-width:760px;margin:10vh auto;padding:24px}code{color:#67e8f9}</style>"
-            "</head><body><h1>Windeep</h1><p>Secure local bootstrap is running.</p>"
-            "<p>Start a local API session with <code>POST /api/handshake</code>.</p></body></html>"
-        )
-        return body, 200, {"Content-Type": "text/html; charset=utf-8"}
+    def index() -> Response:
+        return send_from_directory(root / "app" / "static", "index.html")
+
+    @app.get("/static/<path:filename>")
+    def static_assets(filename: str) -> Response:
+        return send_from_directory(root / "app" / "static", filename)
 
     return app
 
@@ -218,7 +237,7 @@ def main() -> int:
     if port < 1 or port > 65535:
         raise ValueError("WINDEEP_PORT must be between 1 and 65535")
     Timer(0.8, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
-    create_app().run(host="127.0.0.1", port=port, debug=False, use_reloader=False)
+    create_app().run(host="127.0.0.1", port=port, debug=False, use_reloader=False, threaded=True)
     return 0
 
 
