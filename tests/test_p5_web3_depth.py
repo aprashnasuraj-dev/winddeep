@@ -113,7 +113,9 @@ def test_resolver_order_fallback_is_audited_and_verified_metadata_wins(tmp_path:
     assert result.source_artifact_id is not None
     assert result.bytecode_artifact_id is not None
     assert result.resolver_response_hash and len(result.resolver_response_hash) == 64
-    assert preflight.calls == [("0x00000000000000000000000000000000000000aa", "consent-1")]
+    expected_guard = ("0x00000000000000000000000000000000000000aa", "consent-1")
+    assert len(preflight.calls) == 3
+    assert all(call == expected_guard for call in preflight.calls)
     records = [json.loads(line) for line in audit.path.read_text(encoding="utf-8").splitlines() if line.strip()]
     attempts = [row for row in records if row["event"] == "p5.resolver.attempt"]
     assert [row["data"]["resolver"] for row in attempts] == ["sourcify", "etherscan"]
