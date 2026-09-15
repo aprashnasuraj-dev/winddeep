@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Windeep — Authorized Audit Center</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside>
+    <div class="brand"><span class="mark">W</span><div><strong>Windeep</strong><small>Authorized Audit Center</small></div></div>
+    <nav id="nav">
+      <button data-view="overview" class="active">Overview</button><button data-view="targets">Targets</button><button data-view="scans">Scan Center</button><button data-view="recon">Recon</button><button data-view="web">Web Audit</button><button data-view="testpacks">Test Packs</button><button data-view="traffic">Browser & Traffic</button><button data-view="auth">Auth & Session</button><button data-view="brain">AI Brain</button><button data-view="mobile">Mobile Lab</button><button data-view="web3">Web3 Audit</button><button data-view="secrets">Secrets</button><button data-view="findings">Findings</button><button data-view="reports">Reports</button><button data-view="tools">Tools Status</button><button data-view="settings">Settings</button>
+    </nav>
+    <div class="guardrail"><span id="healthDot"></span><b>Guardrails</b><small>scope · consent · rate · encryption · auth</small></div>
+  </aside>
+  <main>
+    <header><div><h1 id="viewTitle">Overview</h1><p>Local-only release dashboard</p></div><div class="pill" id="sessionState">Connecting…</div></header>
+    <section id="overview" class="view active"><div class="stats"><article><span>Release</span><strong id="version">—</strong></article><article><span>Certified tools</span><strong id="toolCount">—</strong></article><article><span>Test catalog</span><strong id="testCount">—</strong></article><article><span>Findings</span><strong id="findingCount">—</strong></article></div><div class="grid2"><article class="card"><h2>Release guardrails</h2><div id="controls" class="checklist"></div></article><article class="card"><h2>Live activity</h2><pre id="liveLog" class="terminal">Waiting for local events…</pre></article></div></section>
+    <section id="targets" class="view"><div class="grid2"><article class="card"><h2>Add authorized target</h2><label>Name<input id="targetName" placeholder="Program / asset"></label><label>Target<input id="targetValue" placeholder="https://example.test"></label><label>Type<select id="targetType"><option>web</option><option>mobile</option><option>web3</option></select></label><label>In-scope rule<input id="targetScope" placeholder="example.test or https://example.test"></label><label>Out-of-scope rule<input id="targetDeny" placeholder="Optional deny rule"></label><button class="primary" id="addTarget">Save target</button></article><article class="card"><h2>Targets</h2><div id="targetList" class="list"></div></article></div></section>
+    <section id="scans" class="view"><article class="card"><h2>Authorized scan center</h2><p>Execution is blocked unless signed consent, scope validation, encryption health and rate controls pass preflight.</p><div class="notice">Create consent from the selected target before starting a scan. v0.1.0 runs only release-certified bundled wrappers.</div><label>Target<select id="scanTarget"></select></label><label>Authorized by<input id="authorizedBy" placeholder="Your name / program authorization"></label><label>Purpose<input id="consentPurpose" value="Authorized security assessment"></label><button id="issueConsent">Issue signed local consent</button><div id="consentState" class="muted">No consent issued.</div><div class="actions"><button class="primary" id="runFullScan">Run certified full scan</button></div></article><article class="card"><h2>Recent scans</h2><div id="scanList" class="list"></div></article></section>
+    <section id="recon" class="view"><article class="card"><h2>Recon</h2><p>Release-certified passive and active discovery output is normalized into findings and streamed through the common scan pipeline.</p><div id="reconTools"></div></article></section>
+    <section id="web" class="view"><article class="card"><h2>Web Audit</h2><p>Template-based checks run only after signed-consent preflight and bounded rate controls.</p><div id="webTools"></div></article></section>
+    <section id="testpacks" class="view"><article class="card"><h2>160-test assessment catalog</h2><p>The test-pack layer is assessment-only in v0.1.0: it evaluates guarded observations and never initiates network actions itself.</p><div id="packList" class="packgrid"></div></article></section>
+    <section id="traffic" class="view"><article class="card"><h2>Browser & Traffic</h2><p>Playwright and capture modules are packaged with secure-flow persistence. Active browser/capture actions remain scope-bound and are surfaced through integrations status.</p><pre id="integrationState"></pre></article></section>
+    <section id="auth" class="view"><article class="card"><h2>Auth & Session</h2><p>Session analysis modules are present; dashboard access itself uses local session authentication, CSRF protection and strict loopback binding.</p></article></section>
+    <section id="brain" class="view"><article class="card"><h2>AI Brain</h2><p>Hypothesis, ranking, chaining, memory and critique modules are available for local triage. Tool execution remains independent of AI suggestions and must pass preflight.</p></article></section>
+    <section id="mobile" class="view"><article class="card"><h2>Mobile Lab</h2><p>Mobile integrations that could not be reproducibly bundled on clean Windows were removed from the v0.1.0 certified tool set rather than shipped unverified.</p></article></section>
+    <section id="web3" class="view"><article class="card"><h2>Web3 Audit</h2><p>Web3 integrations remain catalogued for a later certified release; v0.1.0 does not claim them as installed.</p></article></section>
+    <section id="secrets" class="view"><article class="card"><h2>Secrets</h2><p>Sensitive findings and reports are encrypted at rest. Uncertified external secret scanners are not advertised as bundled in this release.</p></article></section>
+    <section id="findings" class="view"><article class="card"><div class="row"><h2>Findings</h2><button id="refreshFindings">Refresh</button></div><div id="findingList" class="list"></div></article></section>
+    <section id="reports" class="view"><article class="card"><h2>Reports</h2><label>Target<select id="reportTarget"></select></label><button class="primary" id="generateReport">Generate encrypted Markdown report</button><div id="reportList" class="list"></div></article></section>
+    <section id="tools" class="view"><article class="card"><h2>Release-certified tools</h2><p>Every tool shown here must have a pinned Windows payload, SHA-256, license, installer mapping and liveness probe.</p><div id="toolsList" class="list"></div></article></section>
+    <section id="settings" class="view"><article class="card"><h2>Settings</h2><label>Global requests/sec<input id="globalRps" type="number" min="0.1" max="20" step="0.1" value="5"></label><label>Proxy<input id="proxy" placeholder="Optional local proxy URL"></label><button id="saveSettings">Save encrypted settings</button><p class="muted">Secrets are encrypted with AES-256-GCM; the data key is protected by Windows DPAPI in production.</p></article></section>
+  </main>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

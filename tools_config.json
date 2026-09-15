@@ -1,15 +1,9 @@
 {
-  "schema_version": 1,
-  "tool_count": 137,
+  "schema_version": 2,
+  "tool_count": 3,
+  "release_policy": "Only release-certified Windows tools are active. Additional audited integrations remain in the catalog until pinned and verified.",
   "includes": [
-    "app/tools/config/recon_passive.json",
-    "app/tools/config/recon_active.json",
-    "app/tools/config/web_vulns.json",
-    "app/tools/config/mobile.json",
-    "app/tools/config/web3.json",
-    "app/tools/config/secrets.json",
-    "app/tools/config/network.json",
-    "app/tools/config/utilities.json"
+    "app/tools/config/release_core.json"
   ],
   "tools": {}
 }

@@ -1,0 +1,37 @@
+{
+  "tools": {
+    "subfinder": {
+      "category": "recon_passive",
+      "binary": "subfinder",
+      "args": ["-silent", "-d", "{target}"],
+      "parser": "lines",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Release-certified passive subdomain enumeration."
+    },
+    "httpx": {
+      "category": "recon_active",
+      "binary": "httpx",
+      "args": ["-u", "{target}", "-json", "-silent", "-rl", "5"],
+      "parser": "jsonl",
+      "timeout": 180,
+      "retries": 1,
+      "rate_limit": 1.0,
+      "requires_scope": true,
+      "description": "Release-certified HTTP reachability and metadata probe."
+    },
+    "nuclei": {
+      "category": "web_vulns",
+      "binary": "nuclei",
+      "args": ["-u", "{target}", "-jsonl", "-silent", "-rl", "5", "-severity", "info,low,medium,high,critical"],
+      "parser": "jsonl",
+      "timeout": 600,
+      "retries": 0,
+      "rate_limit": 0.5,
+      "requires_scope": true,
+      "description": "Release-certified template-based vulnerability audit with bounded rate."
+    }
+  }
+}

@@ -1,4 +1,46 @@
 {
-  "schema_version": 1,
-  "tools": []
+  "schema_version": 2,
+  "release": "0.1.0",
+  "policy": "Every active wrapper must map to exactly one pinned Windows x64 payload.",
+  "tools": [
+    {
+      "name": "subfinder",
+      "version": "2.16.0",
+      "url": "https://github.com/projectdiscovery/subfinder/releases/download/v2.16.0/subfinder_2.16.0_windows_amd64.zip",
+      "sha256": "ef760f0a064c22811100c75a61da35ba73d71398cb99ae85d32d0eed44496ab8",
+      "license": "MIT",
+      "destination": "subfinder.exe",
+      "package_type": "zip",
+      "archive_path": "subfinder.exe",
+      "provides": ["subfinder"],
+      "probe": ["-version"],
+      "expected_exit_codes": [0]
+    },
+    {
+      "name": "httpx",
+      "version": "1.12.0",
+      "url": "https://github.com/projectdiscovery/httpx/releases/download/v1.12.0/httpx_1.12.0_windows_amd64.zip",
+      "sha256": "14d8ccaa2d95ce9365162682f1a2ba3f14d2000bb4bfb0924af65ec5163ae021",
+      "license": "MIT",
+      "destination": "httpx.exe",
+      "package_type": "zip",
+      "archive_path": "httpx.exe",
+      "provides": ["httpx"],
+      "probe": ["-version"],
+      "expected_exit_codes": [0]
+    },
+    {
+      "name": "nuclei",
+      "version": "3.11.1",
+      "url": "https://github.com/projectdiscovery/nuclei/releases/download/v3.11.1/nuclei_3.11.1_windows_amd64.zip",
+      "sha256": "bb6cb9ff8939b753f6fcab06fd30a15f5bc61d8382a597871334c007a85ff9d2",
+      "license": "MIT",
+      "destination": "nuclei.exe",
+      "package_type": "zip",
+      "archive_path": "nuclei.exe",
+      "provides": ["nuclei"],
+      "probe": ["-version"],
+      "expected_exit_codes": [0]
+    }
+  ]
 }
