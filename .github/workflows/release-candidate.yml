@@ -7,7 +7,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  actions: write
 
 concurrency:
   group: release-candidate-${{ github.ref }}
@@ -104,6 +105,7 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $version -notmatch '12\.2\.3') { throw "Pinned capture runtime verification failed: $version" }
 
       - name: Build PyInstaller onedir
+        shell: pwsh
         run: pyinstaller --clean --noconfirm Windeep.spec
 
       - name: Build Inno Setup installer
@@ -120,6 +122,34 @@ jobs:
         run: |
           ./scripts/audit/windows_install_audit.ps1
           if ($LASTEXITCODE -ne 0) { Get-Content reports/windows_install_audit.md; exit $LASTEXITCODE }
+
+      - name: Tag verified candidate and dispatch tagged release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          $tag = "v$version"
+          if ($tag -ne 'v0.1.0') { throw "This promotion gate is locked to v0.1.0, found $tag" }
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:GITHUB_SHA) { throw "Checkout SHA $head differs from workflow SHA $env:GITHUB_SHA" }
+          git fetch --tags origin
+          $direct = @(git ls-remote --tags origin "refs/tags/$tag")
+          $peeled = @(git ls-remote --tags origin "refs/tags/$tag^{}")
+          if ($direct.Count -gt 0) {
+            $remoteSha = if ($peeled.Count -gt 0) { ($peeled[0] -split '\s+')[0] } else { ($direct[0] -split '\s+')[0] }
+            if ($remoteSha -ne $head) { throw "Existing $tag points to $remoteSha instead of verified candidate $head" }
+            Write-Host "$tag already points to verified candidate $head"
+          } else {
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git tag -a $tag -m "Windeep $tag verified release"
+            git push origin "refs/tags/$tag"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to push release tag $tag" }
+          }
+          gh workflow run release.yml --ref $tag
+          if ($LASTEXITCODE -ne 0) { throw "Failed to dispatch tagged release workflow for $tag" }
+          Write-Host "Dispatched release.yml for $tag at $head"
 
       - name: Upload candidate evidence
         if: always()
