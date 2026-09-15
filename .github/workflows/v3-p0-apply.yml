@@ -1,0 +1,36 @@
+name: V3 P0 Apply Wiring
+
+on:
+  push:
+    branches: [v3/p0-scheduler-pipeline]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - name: Apply marker-bounded P0 wiring
+        run: python scripts/engineering/apply_v3_p0.py
+      - name: Syntax check patched surfaces
+        run: python -m compileall -q app scripts/engineering/apply_v3_p0.py
+      - name: Commit generated wiring
+        shell: bash
+        run: |
+          git add app/v2_api.py app/server.py app/engine/v3_scan_pipeline.py
+          if git diff --cached --quiet; then
+            echo "P0 wiring already applied."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(v3-p0): wire scheduler pipeline into v2 scan surface"
+          git push origin HEAD:v3/p0-scheduler-pipeline
