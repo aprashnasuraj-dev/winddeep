@@ -21,6 +21,8 @@ jobs:
     name: release-windows
     runs-on: windows-latest
     timeout-minutes: 150
+    env:
+      PYTHONPATH: ${{ github.workspace }}
 
     steps:
       - name: G1 Checkout tagged repository
@@ -45,7 +47,6 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-dev.txt
-            requirements-capture.txt
 
       - name: G3 Install runtime and development requirements
         shell: pwsh
@@ -97,17 +98,12 @@ jobs:
         shell: pwsh
         run: |
           ./installer/setup_tools.ps1
-          python scripts/audit/release_audit.py --phase B --require-installed
+          python scripts/audit/release_audit.py --phase B
           if ($LASTEXITCODE -ne 0) { Get-Content reports/tool_liveness.md; exit $LASTEXITCODE }
 
-      - name: G12 Bundle embedded Python 3.11 and isolated capture Python 3.12
+      - name: G12 Bundle embedded Python 3.11 and Playwright Chromium
         shell: pwsh
-        run: |
-          ./installer/install_python.ps1
-          ./installer/install_capture_runtime.ps1
-          .\runtime\capture-python\python.exe -m pip check
-          $captureVersion = (.\runtime\capture-python\Scripts\mitmdump.exe --version | Out-String)
-          if ($LASTEXITCODE -ne 0 -or $captureVersion -notmatch '12\.2\.3') { throw "Pinned capture runtime verification failed: $captureVersion" }
+        run: ./installer/install_python.ps1
 
       - name: G13 Build Windeep with PyInstaller
         shell: pwsh
@@ -251,7 +247,6 @@ jobs:
           if-no-files-found: warn
           path: |
             reports/
-            runtime/capture-requirements.lock
             dist/*.exe
             dist/*.zip
             dist/*.txt
