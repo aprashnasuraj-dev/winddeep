@@ -1,0 +1,62 @@
+name: Dispatch verified v0.1.0 release
+
+on:
+  push:
+    branches:
+      - 'release/promote-v0.1.0'
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  dispatch:
+    name: dispatch-release-from-exact-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout promotion branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify v0.1.0 resolves to certified candidate
+        shell: bash
+        env:
+          RELEASE_SHA: 8425c53ea8699e1d3fd2d5cc5c46a67b3bfd0ca0
+        run: |
+          set -euo pipefail
+          git fetch origin refs/tags/v0.1.0:refs/tags/v0.1.0 --force
+          tagged="$(git rev-list -n 1 refs/tags/v0.1.0)"
+          if [ "$tagged" != "$RELEASE_SHA" ]; then
+            echo "v0.1.0 points to $tagged, expected $RELEASE_SHA" >&2
+            exit 1
+          fi
+          echo "v0.1.0 -> $tagged"
+
+      - name: Dispatch release workflow on v0.1.0
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request
+          url = f"https://api.github.com/repos/{os.environ['REPOSITORY']}/actions/workflows/release.yml/dispatches"
+          payload = json.dumps({"ref": "v0.1.0"}).encode()
+          request = urllib.request.Request(
+              url,
+              data=payload,
+              method="POST",
+              headers={
+                  "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                  "Accept": "application/vnd.github+json",
+                  "Content-Type": "application/json",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              if response.status != 204:
+                  raise SystemExit(f"workflow dispatch failed: HTTP {response.status}")
+              print("release.yml dispatched on ref v0.1.0")
+          PY
