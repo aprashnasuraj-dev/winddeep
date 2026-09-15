@@ -20,6 +20,8 @@ from app.engine.tool_wrapper import ToolExecutionError, ToolWrapperFactory
 from app.modules.test_packs import PACK_COUNTS, TOTAL_TESTS, list_tests, run_selected
 from app.tools.release_metadata import apply_release_metadata
 from app.v2_api import register_v2_api
+from app.v3.api import register_v3_api
+from app.v3.events import V3EventPublisher
 from app.security.audit import AuditLog
 from app.security.auth import AuthenticationError, LocalAuthManager, SessionClaims, is_loopback_remote
 from app.security.consent import ConsentAuthority, ConsentError
@@ -596,6 +598,17 @@ def create_app() -> Flask:
         broadcast=broadcast,
         target_scope=target_scope,
         preflight_for=preflight_for,
+    )
+    v3_events = V3EventPublisher(database, crypto, audit, broadcast=broadcast)
+    app.extensions["windeep.v3_events"] = v3_events
+    register_v3_api(
+        app,
+        crypto=crypto,
+        audit=audit,
+        database=database,
+        authenticated=authenticated,
+        preflight_for=preflight_for,
+        event_publisher=v3_events,
     )
 
     @app.get("/")

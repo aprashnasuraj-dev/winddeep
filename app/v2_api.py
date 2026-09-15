@@ -1,27 +1,19 @@
-"""Windeep v2 product API.
-
-This module adds a coherent product layer over the 137-entry integration
-catalog without weakening the existing authorization boundary.  It focuses on
-runtime readiness, target compatibility, cancellable scans, evidence-first
-reports, and actionable local intelligence.  The v1 API remains intact for
-release compatibility while the v2 UI migrates to these endpoints.
-"""
+"""Windeep v2 product API with a guardrail-first DAG scan runtime."""
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
 import shutil
-import threading
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, request, stream_with_context
 
-from app.engine.tool_wrapper import ToolCancelledError, ToolExecutionError
+from app.migrations import MigrationManager
 from app.tools import builtin_integrations
+from app.v2_pipeline import ScanEventLog, SchedulerRuntimeRegistry, canonical_bytes, run_p0_scan
 
 
 _CATEGORY_TARGET_TYPES: dict[str, tuple[str, ...]] = {
@@ -67,6 +59,7 @@ _SETTINGS_ENV = {
 }
 
 _SEVERITY_WEIGHT = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
+_TERMINAL_SCAN_STATUSES = {"completed", "completed_with_errors", "cancelled", "failed"}
 
 
 def _target_type(value: str) -> str:
@@ -79,6 +72,7 @@ def _safe_filename(value: str) -> str:
 
 
 def _proof_markdown(target: Mapping[str, Any], findings: list[dict[str, Any]], title: str) -> str:
+    """Legacy v2 proof renderer retained until the P3 evidence renderer lands."""
     lines = [
         f"# {title}",
         "",
@@ -86,7 +80,7 @@ def _proof_markdown(target: Mapping[str, Any], findings: list[dict[str, Any]], t
         f"Target type: `{target.get('type', '')}`",
         f"Generated: `{time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}`",
         "",
-        "> Windeep encrypts stored evidence at rest. This exported report is intentionally plaintext so an authorized tester can submit reproducible proof.",
+        "> Windeep encrypts stored evidence at rest. This export requires the same live preflight authorization as a scan.",
         "",
         "## Executive summary",
         "",
@@ -99,7 +93,6 @@ def _proof_markdown(target: Mapping[str, Any], findings: list[dict[str, Any]], t
         counts[severity] = counts.get(severity, 0) + 1
     lines.append("Severity: " + ", ".join(f"{key}={value}" for key, value in counts.items()))
     lines.extend(["", "## Findings with raw proof", ""])
-
     if not findings:
         lines.extend(["No findings were recorded for this target.", ""])
         return "\n".join(lines)
@@ -123,7 +116,6 @@ def _proof_markdown(target: Mapping[str, Any], findings: list[dict[str, Any]], t
         description = str(finding.get("description") or "").strip()
         if description:
             lines.extend(["#### Description", "", description, ""])
-
         steps = str(finding.get("steps") or "").strip()
         if not steps:
             steps = (
@@ -132,17 +124,14 @@ def _proof_markdown(target: Mapping[str, Any], findings: list[dict[str, Any]], t
                 "3. Compare the resulting output with the raw evidence below."
             )
         lines.extend(["#### Proof of concept / reproduction", "", steps, ""])
-
         evidence = finding.get("evidence") or {}
         lines.extend(["#### Raw evidence", "", "```json", json.dumps(evidence, indent=2, ensure_ascii=False, default=str), "```", ""])
-
         raw_request = str(finding.get("request") or "").strip()
         raw_response = str(finding.get("response") or "").strip()
         if raw_request:
             lines.extend(["#### Raw request", "", "```http", raw_request, "```", ""])
         if raw_response:
             lines.extend(["#### Raw response", "", "```http", raw_response, "```", ""])
-
         impact = str(finding.get("impact") or "").strip()
         remediation = str(finding.get("remediation") or "").strip()
         if impact:
@@ -169,10 +158,13 @@ def register_v2_api(
     target_scope: Callable[[dict[str, Any]], Any],
     preflight_for: Callable[..., Any],
 ) -> None:
-    """Register the v2 routes on an existing Windeep Flask application."""
+    """Register v2 routes and the P0 scheduler-owned scan runtime."""
+    del consent  # authorization remains encapsulated by preflight_for
 
-    cancel_events: dict[int, threading.Event] = {}
-    cancel_lock = threading.Lock()
+    MigrationManager(database.path, root / "app" / "data" / "migrations").apply()
+    runtime = SchedulerRuntimeRegistry()
+    event_log = ScanEventLog(database, crypto)
+    event_log.ensure_schema()
     settings_path = state / "settings.enc"
 
     def read_settings() -> dict[str, Any]:
@@ -214,7 +206,7 @@ def register_v2_api(
         ready = not missing_env and (builtin or binary_path is not None)
         types = compatible_types(cls)
         normalized_type = _target_type(target_type or "") if target_type else None
-        compatible = normalized_type is None or normalized_type in types or "web" in types and normalized_type in {"domain", "url", "host"}
+        compatible = normalized_type is None or normalized_type in types or ("web" in types and normalized_type in {"domain", "url", "host"})
         if missing_env:
             blocked_reason = "Missing configuration: " + ", ".join(missing_env)
         elif not builtin and binary_path is None:
@@ -257,34 +249,33 @@ def register_v2_api(
         return [tool_descriptor(name, cls, target_type=target_type) for name, cls in sorted(wrapper_classes.items())]
 
     def build_plan(target_row: dict[str, Any], mode: str, modules: list[str], names: list[str]) -> dict[str, Any]:
-        target_type = _target_type(str(target_row.get("type") or "web"))
-        descriptors = all_descriptors(target_type)
+        normalized_target_type = _target_type(str(target_row.get("type") or "web"))
+        descriptors = all_descriptors(normalized_target_type)
         by_name = {item["name"]: item for item in descriptors}
         selected: list[str] = []
         skipped: list[dict[str, str]] = []
-        mode = mode.strip().lower() or "smart"
+        normalized_mode = mode.strip().lower() or "smart"
         requested_names = {str(item) for item in names if str(item)}
         requested_modules = {str(item) for item in modules if str(item)}
-
         for item in descriptors:
             name = item["name"]
             category = item["category"]
             choose = False
             require_ready = True
-            if mode == "smart":
+            if normalized_mode == "smart":
                 choose = bool(item["scan_default"] and category != "utilities")
-            elif mode == "full":
+            elif normalized_mode == "full":
                 choose = category != "utilities"
-            elif mode in {"module", "category"}:
+            elif normalized_mode in {"module", "category"}:
                 choose = category in requested_modules
-            elif mode in {"selected", "single"}:
+            elif normalized_mode in {"selected", "single"}:
                 choose = name in requested_names
                 require_ready = False
-            elif mode == "catalog":
+            elif normalized_mode == "catalog":
                 choose = category != "utilities"
                 require_ready = False
             else:
-                raise ValueError(f"unknown scan mode: {mode}")
+                raise ValueError(f"unknown scan mode: {normalized_mode}")
             if not choose:
                 continue
             if not item["compatible"]:
@@ -294,14 +285,13 @@ def register_v2_api(
                 skipped.append({"tool": name, "reason": item["blocked_reason"] or "not ready"})
                 continue
             selected.append(name)
-
         unknown = sorted(requested_names.difference(by_name))
         skipped.extend({"tool": name, "reason": "unknown integration"} for name in unknown)
         return {
             "target_id": int(target_row["id"]),
             "target": target_row["target"],
-            "target_type": target_type,
-            "mode": mode,
+            "target_type": normalized_target_type,
+            "mode": normalized_mode,
             "selected": selected,
             "selected_count": len(selected),
             "skipped": skipped,
@@ -310,133 +300,36 @@ def register_v2_api(
             "ready_compatible_count": sum(1 for item in descriptors if item["ready"] and item["compatible"]),
         }
 
-    async def execute_tool(
-        tool_name: str,
-        target_row: dict[str, Any],
-        *,
-        scan_id: int,
-        cancel_event: threading.Event,
-        options: Mapping[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        cls = wrapper_classes[tool_name]
-        scope = target_scope(target_row)
-        wrapper = cls(
-            tools_dir=tools_dir,
-            scope_validator=scope.is_allowed,
-            environment=runtime_environment(),
-            cancel_check=cancel_event.is_set,
-        )
-        run_id = database.create_tool_run(
-            tool_name=tool_name,
-            status="running",
-            scan_id=scan_id,
-            target_id=int(target_row["id"]),
-            command=[tool_name, "<scope-bound target>"],
-        )
-        try:
-            findings = await wrapper.run(str(target_row["target"]), options=options)
-            output: list[dict[str, Any]] = []
-            for finding in findings:
-                payload = finding.model_dump()
-                evidence = dict(payload.get("evidence") or {})
-                evidence.setdefault("windeep", {})
-                if isinstance(evidence["windeep"], dict):
-                    evidence["windeep"].update({"scan_id": scan_id, "tool": tool_name, "target": str(target_row["target"]), "captured_at": time.time()})
-                steps = str(payload.get("steps") or "").strip() or (
-                    f"Run {tool_name} against the same authorized target `{target_row['target']}` and compare the emitted output with the raw evidence object."
-                )
-                finding_id, created = database.create_finding(
-                    target_id=int(target_row["id"]),
-                    scan_id=scan_id,
-                    title=str(payload["title"]),
-                    severity=str(payload.get("severity") or "info"),
-                    vuln_type=str(payload.get("vuln_type") or "tool_output"),
-                    tool=tool_name,
-                    endpoint=payload.get("endpoint"),
-                    description=str(payload.get("description") or ""),
-                    evidence=evidence,
-                    request=str(payload.get("request") or ""),
-                    response=str(payload.get("response") or ""),
-                    steps=steps,
-                    impact=str(payload.get("impact") or ""),
-                    remediation=str(payload.get("remediation") or ""),
-                    confidence=float(payload.get("confidence") or 0.5),
-                )
-                payload.update({"id": finding_id, "created": created, "evidence": evidence, "steps": steps})
-                output.append(payload)
-                if created:
-                    broadcast("finding", {"finding": payload}, scan_id)
-            database.finish_tool_run(run_id, status="completed", exit_code=0, stdout_tail=f"{len(output)} normalized result(s)")
-            return output
-        except ToolCancelledError:
-            database.finish_tool_run(run_id, status="cancelled", error="cancelled by user")
-            raise
-        except Exception as exc:
-            database.finish_tool_run(run_id, status="failed", error=str(exc))
-            raise
+    def save_scan_authorization(scan_id: int, target_id: int, consent_id: str) -> None:
+        encrypted = crypto.encrypt_text(consent_id, aad=f"windeep:scan_auth:{scan_id}".encode("utf-8"))
+        with database._connect() as conn:
+            conn.execute(
+                "INSERT INTO scan_authorizations(scan_id, target_id, consent_ref, created_at) VALUES (?, ?, ?, ?)",
+                (scan_id, target_id, encrypted, time.time()),
+            )
 
-    def worker(
-        scan_id: int,
-        target_row: dict[str, Any],
-        plan: dict[str, Any],
-        consent_id: str,
-        tool_options: Mapping[str, Any],
-        cancel_event: threading.Event,
-    ) -> None:
-        selected = list(plan["selected"])
-        errors: list[dict[str, str]] = []
-        total_findings = 0
-        database.update_scan(scan_id, status="running", started_at=time.time(), progress=0.0)
-        broadcast("log", {"level": "info", "module": "v2-orchestrator", "message": f"{plan['mode']} scan starting with {len(selected)} integration(s)."}, scan_id)
-        try:
-            preflight_for(target_row, consent_id)
-            if not selected:
-                raise ValueError("scan plan contains no runnable integrations")
-            for index, tool_name in enumerate(selected, start=1):
-                if cancel_event.is_set():
-                    database.update_scan(scan_id, status="cancelled", finished_at=time.time())
-                    broadcast("progress", {"progress": round(((index - 1) / len(selected)) * 100, 2), "status": "cancelled"}, scan_id)
-                    return
-                broadcast("log", {"level": "info", "module": tool_name, "message": f"Starting {tool_name}"}, scan_id)
-                try:
-                    findings = asyncio.run(
-                        execute_tool(
-                            tool_name,
-                            target_row,
-                            scan_id=scan_id,
-                            cancel_event=cancel_event,
-                            options=tool_options.get(tool_name) if isinstance(tool_options.get(tool_name), Mapping) else None,
-                        )
-                    )
-                    total_findings += len(findings)
-                except ToolCancelledError:
-                    database.update_scan(scan_id, status="cancelled", finished_at=time.time())
-                    broadcast("progress", {"progress": round(((index - 1) / len(selected)) * 100, 2), "status": "cancelled"}, scan_id)
-                    return
-                except Exception as exc:
-                    errors.append({"tool": tool_name, "error": str(exc)})
-                    database.add_scan_log(scan_id, str(exc), "error", tool_name)
-                    broadcast("log", {"level": "error", "module": tool_name, "message": str(exc)}, scan_id)
-                progress = round((index / len(selected)) * 100.0, 2)
-                database.update_scan(scan_id, progress=progress)
-                broadcast("progress", {"progress": progress, "status": "running"}, scan_id)
+    def load_scan_authorization(scan_id: int) -> tuple[dict[str, Any], str]:
+        with database._connect() as conn:
+            row = conn.execute("SELECT target_id, consent_ref FROM scan_authorizations WHERE scan_id = ?", (scan_id,)).fetchone()
+        if row is None:
+            raise PermissionError("scan authorization record is unavailable")
+        target_row = database.get_target(int(row["target_id"]))
+        if target_row is None:
+            raise PermissionError("authorized target is unavailable")
+        consent_id = crypto.decrypt_text(str(row["consent_ref"]), aad=f"windeep:scan_auth:{scan_id}".encode("utf-8"))
+        return target_row, consent_id
 
-            summary = {
-                "mode": plan["mode"],
-                "tools_planned": len(selected),
-                "findings": total_findings,
-                "errors": errors,
-                "skipped": plan["skipped"],
-            }
-            database.update_scan(scan_id, status="completed", progress=100.0, finished_at=time.time(), results_summary=summary)
-            broadcast("progress", {"progress": 100.0, "status": "completed", "summary": summary}, scan_id)
-        except Exception as exc:
-            database.add_scan_log(scan_id, str(exc), "error", "v2-orchestrator")
-            database.update_scan(scan_id, status="failed", finished_at=time.time(), results_summary={"errors": [{"tool": "v2-orchestrator", "error": str(exc)}]})
-            broadcast("progress", {"status": "failed", "error": str(exc)}, scan_id)
-        finally:
-            with cancel_lock:
-                cancel_events.pop(scan_id, None)
+    def latest_target_authorization(target_id: int) -> tuple[dict[str, Any], str]:
+        with database._connect() as conn:
+            row = conn.execute("SELECT scan_id FROM scan_authorizations WHERE target_id = ? ORDER BY scan_id DESC LIMIT 1", (target_id,)).fetchone()
+        if row is None:
+            raise PermissionError("no authorized scan exists for this target")
+        return load_scan_authorization(int(row["scan_id"]))
+
+    def require_target_access(target_id: int) -> dict[str, Any]:
+        target_row, consent_id = latest_target_authorization(target_id)
+        preflight_for(target_row, consent_id)
+        return target_row
 
     @app.get("/api/v2/tools")
     @authenticated
@@ -476,7 +369,8 @@ def register_v2_api(
             if target_row is None:
                 return jsonify({"error": "target not found"}), 404
             consent_id = str(data["consent_id"])
-            preflight_for(target_row, consent_id, rps=float(data.get("global_rps", 5.0)))
+            global_rps = float(data.get("global_rps", 5.0))
+            preflight_for(target_row, consent_id, rps=global_rps)
             mode = str(data.get("mode") or "smart")
             modules = [str(item) for item in data.get("modules", [])]
             names = [str(item) for item in data.get("tools", [])]
@@ -486,37 +380,90 @@ def register_v2_api(
             tool_options = data.get("tool_options") or {}
             if not isinstance(tool_options, dict):
                 raise ValueError("tool_options must be an object")
-            scan_id = database.create_scan(target_id, f"v2:{mode}", plan["selected"])
-            event = threading.Event()
-            with cancel_lock:
-                cancel_events[scan_id] = event
-            threading.Thread(
-                target=worker,
-                args=(scan_id, target_row, plan, consent_id, tool_options, event),
-                daemon=True,
-                name=f"windeep-v2-scan-{scan_id}",
-            ).start()
-            audit.append("v2.scan.started", {"scan_id": scan_id, "target_id": target_id, "mode": mode, "tools": len(plan["selected"])})
-            return jsonify({"scan_id": scan_id, "status": "queued", "plan": plan}), 202
+            scan_id = database.create_scan(target_id, f"v2:{plan['mode']}", plan["selected"])
+            database.update_scan(scan_id, status="queued", progress=0.0)
+            save_scan_authorization(scan_id, target_id, consent_id)
+            environment = runtime_environment()
+
+            async def run(cancel_event: Any) -> None:
+                await run_p0_scan(
+                    scan_id=scan_id,
+                    target_row=target_row,
+                    selected=plan["selected"],
+                    skipped=plan["skipped"],
+                    mode=plan["mode"],
+                    consent_id=consent_id,
+                    tool_options=tool_options,
+                    cancel_event=cancel_event,
+                    database=database,
+                    crypto=crypto,
+                    audit=audit,
+                    wrapper_classes=wrapper_classes,
+                    tools_dir=tools_dir,
+                    target_scope=target_scope,
+                    preflight_for=lambda row, cid: preflight_for(row, cid, rps=global_rps),
+                    broadcast=broadcast,
+                    environment=environment,
+                )
+
+            runtime.start(scan_id, run)
+            audit.append("v2.scan.started", {"scan_id": scan_id, "target_id": target_id, "mode": plan["mode"], "tools": len(plan["selected"])})
+            return jsonify({"scan_id": scan_id, "status": "queued", "plan": plan, "events": f"/api/v2/scans/{scan_id}/events"}), 202
         except (KeyError, TypeError, ValueError, PermissionError) as exc:
             return jsonify({"error": str(exc)}), 400
 
     @app.post("/api/v2/scans/<int:scan_id>/stop")
     @authenticated
     def v2_scans_stop(scan_id: int) -> tuple[Response, int]:
-        with cancel_lock:
-            event = cancel_events.get(scan_id)
-        if event is None:
+        try:
+            target_row, consent_id = load_scan_authorization(scan_id)
+            preflight_for(target_row, consent_id)
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        if not runtime.stop(scan_id):
             with database._connect() as conn:
                 row = conn.execute("SELECT status FROM scans WHERE id = ?", (scan_id,)).fetchone()
             if row is None:
                 return jsonify({"error": "scan not found"}), 404
             return jsonify({"scan_id": scan_id, "stop_requested": False, "status": row["status"], "message": "scan is not actively running"}), 409
-        event.set()
         database.update_scan(scan_id, status="cancelling")
         audit.append("v2.scan.stop_requested", {"scan_id": scan_id})
-        broadcast("progress", {"status": "cancelling", "message": "Stop requested; active process is being terminated."}, scan_id)
+        event = event_log.append(scan_id, "progress", {"status": "cancelling", "message": "Stop requested; active task is draining within its timeout."})
+        broadcast("progress", dict(event["data"]), scan_id)
         return jsonify({"scan_id": scan_id, "stop_requested": True, "status": "cancelling"}), 202
+
+    @app.get("/api/v2/scans/<int:scan_id>/events")
+    @authenticated
+    def v2_scan_events(scan_id: int) -> tuple[Response, int] | Response:
+        try:
+            target_row, consent_id = load_scan_authorization(scan_id)
+            preflight_for(target_row, consent_id)
+            raw_last = request.headers.get("Last-Event-ID", "0").strip() or "0"
+            last_seq = int(raw_last)
+            if last_seq < 0:
+                raise ValueError("Last-Event-ID must be non-negative")
+        except (PermissionError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 403
+
+        @stream_with_context
+        def stream():
+            cursor = last_seq
+            while True:
+                events = event_log.list_after(scan_id, cursor)
+                for event in events:
+                    cursor = int(event["seq"])
+                    body = canonical_bytes(event).decode("utf-8")
+                    yield f"id: {cursor}\nevent: {event['type']}\ndata: {body}\n\n"
+                with database._connect() as conn:
+                    row = conn.execute("SELECT status FROM scans WHERE id = ?", (scan_id,)).fetchone()
+                if row is None or (str(row["status"]) in _TERMINAL_SCAN_STATUSES and not events):
+                    return
+                time.sleep(0.10)
+
+        response = Response(stream(), mimetype="text/event-stream")
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Accel-Buffering"] = "no"
+        return response
 
     @app.post("/api/v2/reports/generate")
     @authenticated
@@ -524,9 +471,7 @@ def register_v2_api(
         data = request.get_json(silent=True) or {}
         try:
             target_id = int(data["target_id"])
-            target_row = database.get_target(target_id)
-            if target_row is None:
-                return jsonify({"error": "target not found"}), 404
+            target_row = require_target_access(target_id)
             findings = database.list_findings(target_id=target_id, limit=5000)
             title = str(data.get("title") or f"Windeep proof report - {target_row['name']}")
             markdown = _proof_markdown(target_row, findings, title)
@@ -540,12 +485,22 @@ def register_v2_api(
                 report_id = int(cursor.lastrowid)
             audit.append("v2.report.generated", {"report_id": report_id, "target_id": target_id, "findings": len(ids)})
             return jsonify({"id": report_id, "title": title, "finding_ids": ids, "content": markdown, "format": "markdown", "encrypted_at_rest": True, "plaintext_export": True}), 201
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, PermissionError) as exc:
             return jsonify({"error": str(exc)}), 400
 
     @app.get("/api/v2/reports/<int:report_id>/download")
     @authenticated
     def v2_reports_download(report_id: int) -> tuple[Response, int] | Response:
+        # Read authorization metadata first. The evidence-bearing report row is
+        # not fetched until the target has passed live preflight.
+        with database._connect() as conn:
+            auth_row = conn.execute("SELECT target_id FROM reports WHERE id = ?", (report_id,)).fetchone()
+        if auth_row is None:
+            return jsonify({"error": "report not found"}), 404
+        try:
+            require_target_access(int(auth_row["target_id"]))
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
         with database._connect() as conn:
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
         if row is None:
@@ -553,9 +508,8 @@ def register_v2_api(
         item = dict(row)
         title = str(item.get("title") or f"windeep-report-{report_id}")
         fmt = str(request.args.get("format") or "markdown").lower()
-        ids_raw = item.get("finding_ids") or "[]"
         try:
-            finding_ids = [int(value) for value in json.loads(str(ids_raw))]
+            finding_ids = [int(value) for value in json.loads(str(item.get("finding_ids") or "[]"))]
         except Exception:
             finding_ids = []
         if fmt == "json":
@@ -566,8 +520,7 @@ def register_v2_api(
                 "generated_at": item.get("created_at"),
                 "findings": [finding for fid in finding_ids if (finding := database.get_finding(fid)) is not None],
             }
-            body = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
-            response = Response(body, mimetype="application/json")
+            response = Response(json.dumps(payload, indent=2, ensure_ascii=False, default=str), mimetype="application/json")
             response.headers["Content-Disposition"] = f'attachment; filename="{_safe_filename(title)}.json"'
             return response
         markdown = crypto.decrypt_text(str(item["content"]), aad=b"windeep:report.content")
@@ -580,13 +533,11 @@ def register_v2_api(
     def v2_intelligence() -> tuple[Response, int] | Response:
         try:
             target_id = int(request.args["target_id"])
-            target_row = database.get_target(target_id)
-            if target_row is None:
-                return jsonify({"error": "target not found"}), 404
+            target_row = require_target_access(target_id)
             findings = database.list_findings(target_id=target_id, limit=5000)
             ranked = sorted(
                 findings,
-                key=lambda item: (_SEVERITY_WEIGHT.get(str(item.get("severity") or "info").lower(), 0), float(item.get("confidence") or 0.0)),
+                key=lambda item: (_SEVERITY_WEIGHT.get(str(item.get("severity") or "info").lower(), 0), float(item.get("confidence") or 0.0), -int(item.get("id") or 0)),
                 reverse=True,
             )
             descriptors = all_descriptors(str(target_row.get("type") or "web"))
@@ -615,7 +566,7 @@ def register_v2_api(
                 "already_run_tools": sorted(already_run),
                 "summary": {severity: sum(1 for item in findings if str(item.get("severity") or "info").lower() == severity) for severity in _SEVERITY_WEIGHT},
             })
-        except (KeyError, TypeError, ValueError) as exc:
+        except (KeyError, TypeError, ValueError, PermissionError) as exc:
             return jsonify({"error": str(exc)}), 400
 
     @app.get("/api/v2/settings")
@@ -668,4 +619,6 @@ def register_v2_api(
             "raw_proof_exports": True,
             "cancellable_processes": True,
             "target_aware_planning": True,
+            "dag_scheduler": True,
+            "replayable_sse": True,
         })

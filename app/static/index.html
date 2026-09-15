@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Windeep v2 — Authorized Security Workspace</title>
+  <title>Windeep v3 — Authorized Security Workspace</title>
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
 <div class="app-shell">
   <aside class="sidebar">
-    <div class="brand"><span class="mark">W</span><div><strong>Windeep v2</strong><small>Authorized Security Workspace</small></div></div>
+    <div class="brand"><span class="mark">W</span><div><strong>Windeep v3</strong><small>Authorized Security Workspace</small></div></div>
     <nav id="nav">
       <button data-view="overview" class="active">Overview</button>
       <button data-view="targets">Targets</button>
@@ -41,11 +41,11 @@
       </div>
       <div class="grid2">
         <article class="card"><div class="card-head"><div><h2>Operational guardrails</h2><p>Every active action remains scope and consent bound.</p></div><button id="refreshOverview">Refresh</button></div><div id="controls" class="checklist"></div></article>
-        <article class="card"><div class="card-head"><div><h2>Live activity</h2><p>Global scan, finding and stop events.</p></div><button id="clearLog">Clear</button></div><pre id="liveLog" class="terminal">Waiting for local events…</pre></article>
+        <article class="card"><div class="card-head"><div><h2>Live activity</h2><p>Global scan, finding, disposition and stop events.</p></div><button id="clearLog">Clear</button></div><pre id="liveLog" class="terminal">Waiting for local events…</pre></article>
       </div>
       <div class="grid2 lower-gap">
         <article class="card"><h2>Readiness snapshot</h2><div id="readinessSnapshot" class="metric-list"></div></article>
-        <article class="card"><h2>What changed in v2</h2><div class="feature-list"><span>Target-aware scan planning</span><span>Process-level stop control</span><span>137 runtime-addressable integrations</span><span>Raw proof / PoC report exports</span><span>Tool readiness and configuration guidance</span><span>Local next-step intelligence</span></div></article>
+        <article class="card"><h2>What changed in v3</h2><div class="feature-list"><span>Full IP / IP-URL / CIDR target reachability</span><span>Tester-driven handling and ranking</span><span>Actionable / Needs-review / Not-actionable views</span><span>All-findings deterministic reports</span><span>Persistent verification badges</span><span>Gap-free replayable v1 SSE</span></div></article>
       </div>
     </section>
 
@@ -105,7 +105,7 @@
 
     <section id="findings" class="view">
       <article class="card">
-        <div class="card-head"><div><h2>Findings & raw proof</h2><p>Stored sensitive fields stay encrypted at rest; this view decrypts locally for authorized review.</p></div><button id="refreshFindings">Refresh</button></div>
+        <div class="card-head"><div><h2>Findings, tester triage & raw proof</h2><p>Actionability changes ordering and view only. Every finding remains in the final report.</p></div><button id="refreshFindings">Refresh</button></div>
         <div class="toolbar"><select id="findingSeverity"><option value="">All severities</option><option>critical</option><option>high</option><option>medium</option><option>low</option><option>info</option></select><select id="findingStatus"><option value="">All statuses</option><option>new</option><option>triaged</option><option>confirmed</option><option>resolved</option></select><input id="findingSearch" placeholder="Search title, tool, endpoint"></div>
         <div id="findingList" class="list"></div>
       </article>
@@ -114,8 +114,8 @@
 
     <section id="reports" class="view">
       <div class="grid2">
-        <article class="card"><h2>Proof report builder</h2><p>Generated reports include raw evidence, raw HTTP request/response when available, and reproduction steps / PoC. Storage stays encrypted; downloads are intentionally plaintext for submission.</p><label>Target<select id="reportTarget"></select></label><label>Title<input id="reportTitle" placeholder="Windeep proof report"></label><button class="primary" id="generateReport">Generate proof report</button><pre id="reportPreview" class="terminal report-preview">No report generated yet.</pre></article>
-        <article class="card"><div class="card-head"><div><h2>Reports</h2><p>Download Markdown or JSON evidence bundles.</p></div><button id="refreshReports">Refresh</button></div><div id="reportList" class="list"></div></article>
+        <article class="card"><h2>V3 all-findings report</h2><p>Every normalized scan finding is included. Evidence-backed detail is embedded when available; missing detail is stated rather than silently suppressing the finding.</p><label>Target<select id="reportTarget"></select></label><label>Title<input id="reportTitle" placeholder="Windeep v3 report"></label><button class="primary" id="generateReport">Generate v3 report</button><pre id="reportPreview" class="terminal report-preview">No report generated yet.</pre></article>
+        <article class="card"><div class="card-head"><div><h2>Stored legacy reports</h2><p>Existing v2 stored reports remain available; the v3 generator renders directly from the authorized scan.</p></div><button id="refreshReports">Refresh</button></div><div id="reportList" class="list"></div></article>
       </div>
     </section>
 
@@ -136,5 +136,6 @@
 </div>
 <div id="toast" class="toast hidden"></div>
 <script src="/static/app.js"></script>
+<script src="/static/v3.js"></script>
 </body>
 </html>

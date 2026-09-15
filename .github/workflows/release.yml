@@ -66,50 +66,57 @@ jobs:
           python scripts/audit/release_audit.py --phase B
           if ($LASTEXITCODE -ne 0) { Get-Content reports/tool_liveness.md; exit $LASTEXITCODE }
 
-      - name: G6 Phase E dependency audit
+      - name: G6 V3 release contract audit
+        shell: pwsh
+        run: |
+          python scripts/audit/release_audit.py --phase V3
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/v3_release_audit.md; exit $LASTEXITCODE }
+
+      - name: G7 Phase E dependency audit
         shell: pwsh
         run: |
           python scripts/audit/release_audit.py --phase E
           if ($LASTEXITCODE -ne 0) { Get-Content reports/dependency_audit.md; exit $LASTEXITCODE }
 
-      - name: G7 Pytest with minimum 85 percent coverage
+      - name: G8 Pytest with minimum 85 percent coverage
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path reports -Force | Out-Null
           python -m pytest -q --cov=app --cov=launcher --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-fail-under=85
+          python scripts/audit/check_v3_coverage.py reports/coverage.xml app/v3/api.py app/v3/events.py app/v3/triage.py app/v3/reporting.py --minimum 90
 
-      - name: G8 Phase D local end-to-end audit
+      - name: G9 Phase D local end-to-end audit
         shell: pwsh
         run: |
           python scripts/audit/release_audit.py --phase D
           if ($LASTEXITCODE -ne 0) { Get-Content reports/e2e_audit.md; exit $LASTEXITCODE }
 
-      - name: G9 Phase F release gate
+      - name: G10 Phase F release gate
         shell: pwsh
         run: |
           python scripts/audit/release_audit.py --phase F
           if ($LASTEXITCODE -ne 0) { Get-Content reports/release_gate.json; exit $LASTEXITCODE }
 
-      - name: G10 Install Inno Setup
+      - name: G11 Install Inno Setup
         shell: pwsh
         run: choco install innosetup -y --no-progress
 
-      - name: G11 Download, checksum and liveness-verify portable tools
+      - name: G12 Download, checksum and liveness-verify portable tools
         shell: pwsh
         run: |
           ./installer/setup_tools.ps1
           python scripts/audit/release_audit.py --phase B --require-installed
           if ($LASTEXITCODE -ne 0) { Get-Content reports/tool_liveness.md; exit $LASTEXITCODE }
 
-      - name: G12 Bundle embedded Python 3.11 and Playwright Chromium
+      - name: G13 Bundle embedded Python 3.11 and Playwright Chromium
         shell: pwsh
         run: ./installer/install_python.ps1
 
-      - name: G13 Build Windeep with PyInstaller
+      - name: G14 Build Windeep with PyInstaller
         shell: pwsh
         run: pyinstaller --clean --noconfirm Windeep.spec
 
-      - name: G14 Build Inno Setup installer
+      - name: G15 Build Inno Setup installer
         shell: pwsh
         run: |
           $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
@@ -118,26 +125,26 @@ jobs:
           & $iscc "/DMyAppVersion=$version" 'installer\BugBountyInstaller.iss'
           if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
 
-      - name: G15 Create portable archive
+      - name: G16 Create portable archive
         shell: pwsh
         run: |
           if (Test-Path -LiteralPath dist\Windeep-Portable.zip) { Remove-Item dist\Windeep-Portable.zip -Force }
           Compress-Archive -Path dist\Windeep\* -DestinationPath dist\Windeep-Portable.zip -CompressionLevel Optimal
 
-      - name: G16 Verify installer and portable build on clean Windows runner
+      - name: G17 Verify installer and portable build on clean Windows runner
         shell: pwsh
         run: |
           ./scripts/audit/windows_install_audit.ps1
           if ($LASTEXITCODE -ne 0) { Get-Content reports/windows_install_audit.md; exit $LASTEXITCODE }
 
-      - name: G17 Create exact tagged source snapshot
+      - name: G18 Create exact tagged source snapshot
         shell: pwsh
         run: |
           $archive = "dist\windeep-source-${{ github.ref_name }}.zip"
           git archive --format=zip --output=$archive "${{ github.ref_name }}"
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archive)) { throw 'git archive failed' }
 
-      - name: G18 Generate release notes and SBOM
+      - name: G19 Generate release notes and SBOM
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
@@ -168,11 +175,11 @@ jobs:
           python scripts/audit/generate_sbom.py --output dist/SBOM.json
           if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath dist\SBOM.json)) { throw 'SBOM generation failed' }
 
-      - name: G19 Stage release evidence and generate final SHA256SUMS
+      - name: G20 Stage release evidence and generate final SHA256SUMS
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist\reports -Force | Out-Null
-          $reportNames = @('static_audit.md','tool_liveness.md','dependency_audit.md','e2e_audit.md','windows_install_audit.md','release_gate.json','coverage.xml')
+          $reportNames = @('static_audit.md','tool_liveness.md','v3_release_audit.md','dependency_audit.md','e2e_audit.md','windows_install_audit.md','release_gate.json','coverage.xml')
           foreach ($name in $reportNames) {
             $source = Join-Path 'reports' $name
             if (Test-Path -LiteralPath $source) { Copy-Item $source (Join-Path 'dist\reports' $name) -Force }
@@ -185,6 +192,7 @@ jobs:
             'SBOM.json',
             'reports\static_audit.md',
             'reports\tool_liveness.md',
+            'reports\v3_release_audit.md',
             'reports\windows_install_audit.md',
             'reports\release_gate.json'
           )
@@ -196,7 +204,7 @@ jobs:
           }
           $lines | Set-Content -LiteralPath dist\SHA256SUMS.txt -Encoding ascii
 
-      - name: G20 Attest release artifacts with GitHub build provenance
+      - name: G21 Attest release artifacts with GitHub build provenance
         uses: actions/attest@v4
         with:
           subject-path: |
@@ -208,16 +216,17 @@ jobs:
             dist/SBOM.json
             dist/reports/static_audit.md
             dist/reports/tool_liveness.md
+            dist/reports/v3_release_audit.md
             dist/reports/windows_install_audit.md
             dist/reports/release_gate.json
 
-      - name: G21 Bind SBOM attestation to installer
+      - name: G22 Bind SBOM attestation to installer
         uses: actions/attest@v4
         with:
           subject-path: dist/Windeep-Setup.exe
           sbom-path: dist/SBOM.json
 
-      - name: G22 Publish verified GitHub Release
+      - name: G23 Publish verified GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           draft: false
@@ -233,6 +242,7 @@ jobs:
             dist/SBOM.json
             dist/reports/static_audit.md
             dist/reports/tool_liveness.md
+            dist/reports/v3_release_audit.md
             dist/reports/dependency_audit.md
             dist/reports/e2e_audit.md
             dist/reports/windows_install_audit.md
