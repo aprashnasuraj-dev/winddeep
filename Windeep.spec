@@ -11,6 +11,10 @@ datas = [
     (str(ROOT / "README.md"), "."),
     (str(ROOT / "tools_config.json"), "."),
 ]
+release_policy = ROOT / "app" / "tools" / "release-policy.json"
+if release_policy.exists():
+    datas.append((str(release_policy), "app/tools"))
+
 for source, target in [
     (ROOT / "app" / "tools" / "config", "app/tools/config"),
     (ROOT / "app" / "data" / "migrations", "app/data/migrations"),
