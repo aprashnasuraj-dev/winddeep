@@ -1,33 +1,22 @@
-"""Shared scan context and conservative scope matching for Windeep."""
+"""Shared scan context with authorization metadata for Windeep."""
 
 from __future__ import annotations
 
-import fnmatch
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlparse
 
-
-def _hostname(value: str) -> str:
-    candidate = value.strip()
-    parsed = urlparse(candidate if "://" in candidate else f"//{candidate}")
-    return (parsed.hostname or "").rstrip(".").lower()
-
-
-def _normalized_url(value: str) -> str:
-    value = value.strip()
-    if "://" not in value:
-        value = f"https://{value}"
-    return value.rstrip("/")
+from app.security.scope import ScopeEnforcer
 
 
 @dataclass(slots=True)
 class ScanContext:
-    """Mutable state passed across an authorized scan pipeline."""
+    """Mutable state passed across one explicitly authorized scan pipeline."""
 
     target: str
     scope: list[str] = field(default_factory=list)
     out_of_scope: list[str] = field(default_factory=list)
+    consent_id: str = ""
+    target_id: int | None = None
     tech_stack: set[str] = field(default_factory=set)
     session: Any | None = None
     auth_tokens: dict[str, str] = field(default_factory=dict)
@@ -36,31 +25,26 @@ class ScanContext:
     proxy_config: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def is_in_scope(self, candidate: str) -> bool:
-        """Return whether a candidate is allowed by scope and not denied.
+    def scope_enforcer(self) -> ScopeEnforcer:
+        """Build the canonical ScopeEnforcer for this scan context."""
+        return ScopeEnforcer(target=self.target, allow=list(self.scope), deny=list(self.out_of_scope))
 
-        Out-of-scope rules always win. With no explicit scope rules, Windeep
-        defaults to the exact target host rather than assuming sibling hosts or
-        subdomains are authorized.
-        """
-        if not candidate.strip():
-            return False
-        if any(self._matches_rule(candidate, rule) for rule in self.out_of_scope):
-            return False
-        rules = self.scope or [self.target]
-        return any(self._matches_rule(candidate, rule) for rule in rules)
+    def is_in_scope(self, candidate: str) -> bool:
+        """Return whether a candidate is allowed by the canonical scope engine."""
+        return self.scope_enforcer().is_allowed(candidate)
 
     def require_in_scope(self, candidate: str) -> None:
-        """Raise PermissionError when a candidate is outside authorized scope."""
-        if not self.is_in_scope(candidate):
-            raise PermissionError(f"target is outside configured scope: {candidate}")
+        """Raise when a candidate is outside authorized scope."""
+        self.scope_enforcer().assert_allowed(candidate)
 
     def redacted_snapshot(self) -> dict[str, Any]:
         """Return serializable state with authentication material removed."""
         return {
             "target": self.target,
+            "target_id": self.target_id,
             "scope": list(self.scope),
             "out_of_scope": list(self.out_of_scope),
+            "consent_id": self.consent_id,
             "tech_stack": sorted(self.tech_stack),
             "auth_token_names": sorted(self.auth_tokens),
             "finding_count": len(self.findings_so_far),
@@ -68,32 +52,7 @@ class ScanContext:
             "proxy_config": {
                 key: value
                 for key, value in self.proxy_config.items()
-                if "password" not in key.lower()
+                if "password" not in key.lower() and "token" not in key.lower()
             },
             "metadata": dict(self.metadata),
         }
-
-    @staticmethod
-    def _matches_rule(candidate: str, rule: str) -> bool:
-        candidate_host = _hostname(candidate)
-        rule = rule.strip()
-        if not rule:
-            return False
-
-        if "://" in rule or "/" in rule:
-            candidate_url = _normalized_url(candidate)
-            rule_url = _normalized_url(rule)
-            if any(char in rule_url for char in "*?["):
-                return fnmatch.fnmatchcase(candidate_url.lower(), rule_url.lower())
-            return (
-                candidate_url.lower() == rule_url.lower()
-                or candidate_url.lower().startswith(rule_url.lower() + "/")
-            )
-
-        rule_host = _hostname(rule)
-        if not candidate_host or not rule_host:
-            return False
-        if rule.startswith("*."):
-            suffix = rule_host[2:] if rule_host.startswith("*.") else rule[2:].lower()
-            return candidate_host.endswith("." + suffix) and candidate_host != suffix
-        return fnmatch.fnmatchcase(candidate_host, rule_host)
