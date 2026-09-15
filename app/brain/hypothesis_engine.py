@@ -1,4 +1,4 @@
-"""Evidence-grounded hypothesis generation for the Windeep Brain."""
+"""Evidence-grounded, injection-resistant hypothesis generation for the Windeep Brain."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from urllib.parse import urljoin
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from app.brain.llm_client import LLMClient
+from app.brain.prompt_guard import PromptGuard
 from app.brain.prompts import HYPOTHESIS_GEN_PROMPT
 from app.database import Database
 from app.engine.event_bus import EventBus
@@ -38,6 +39,7 @@ class Hypothesis(BaseModel):
     @field_validator("severity_hint")
     @classmethod
     def validate_severity(cls, value: str) -> str:
+        """Normalize and validate severity hints."""
         normalized = value.lower().strip()
         if normalized not in _ALLOWED_SEVERITIES:
             raise ValueError(f"unsupported severity: {value}")
@@ -45,7 +47,7 @@ class Hypothesis(BaseModel):
 
 
 class HypothesisEngine:
-    """Generate hypotheses using an LLM with deterministic rule fallback."""
+    """Generate hypotheses using guarded untrusted context and deterministic fallback."""
 
     def __init__(
         self,
@@ -54,6 +56,7 @@ class HypothesisEngine:
         *,
         database: Database | None = None,
         max_hypotheses: int = 40,
+        prompt_guard: PromptGuard | None = None,
     ) -> None:
         if max_hypotheses < 1:
             raise ValueError("max_hypotheses must be positive")
@@ -61,6 +64,7 @@ class HypothesisEngine:
         self.event_bus = event_bus
         self.database = database
         self.max_hypotheses = max_hypotheses
+        self.prompt_guard = prompt_guard or PromptGuard()
 
     async def generate(
         self,
@@ -81,22 +85,19 @@ class HypothesisEngine:
                 "findings": [self._compact_finding(item) for item in findings],
                 "memory_examples": list(memory_examples)[:8],
             }
-            prompt = HYPOTHESIS_GEN_PROMPT.replace(
-                "{context_json}",
-                json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-            )
+            guarded_context = self.prompt_guard.wrap_untrusted_json(payload)
+            prompt = HYPOTHESIS_GEN_PROMPT.replace("{context_json}", guarded_context)
             raw = await self.llm_client.complete_json(
                 prompt,
                 heuristic=lambda: self._rule_based(findings, context),
             )
+            self.prompt_guard.reject_instructional_output(raw)
             hypotheses = self._normalize(raw, context)
             context.hypotheses.extend(hypotheses)
             for hypothesis in hypotheses:
                 if self.database is not None:
                     self.database.create_hypothesis(
-                        hypothesis.model_dump(),
-                        target_id=target_id,
-                        scan_id=scan_id,
+                        hypothesis.model_dump(), target_id=target_id, scan_id=scan_id
                     )
                 await self.event_bus.publish(
                     "brain.hypothesis",
@@ -108,11 +109,7 @@ class HypothesisEngine:
                 )
             await self.event_bus.publish(
                 "brain.hypotheses_generated",
-                {
-                    "scan_id": scan_id,
-                    "target_id": target_id,
-                    "count": len(hypotheses),
-                },
+                {"scan_id": scan_id, "target_id": target_id, "count": len(hypotheses)},
             )
             return hypotheses
         except asyncio.CancelledError:
