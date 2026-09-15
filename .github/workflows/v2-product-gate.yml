@@ -1,0 +1,93 @@
+name: Windeep v2 Product Gate
+
+on:
+  push:
+    branches: [v2/product-overhaul]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'tests/test_v2_product.py'
+      - 'scripts/audit/ui_v2_smoke.py'
+      - 'scripts/migrate_v2_overhaul.py'
+      - 'tools_config.json'
+      - 'VERSION'
+
+permissions:
+  contents: write
+
+jobs:
+  v2-product:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+      WINDEEP_NO_BROWSER: '1'
+      WINDEEP_PORT: '7332'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Apply deterministic v2 migration
+        run: python scripts/migrate_v2_overhaul.py
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Verify catalog and packaging contracts
+        run: |
+          python scripts/audit/release_audit.py --phase A
+          python scripts/audit/release_audit.py --phase B
+
+      - name: Run complete unit and product regression suite
+        run: python -m pytest -q --cov=app --cov=launcher --cov-report=term-missing --cov-report=xml:reports/coverage-v2.xml --cov-fail-under=85
+
+      - name: Install Chromium for UI audit
+        run: python -m playwright install --with-deps chromium
+
+      - name: Launch local Windeep server
+        shell: bash
+        run: |
+          export WINDEEP_STATE_DIR="$RUNNER_TEMP/windeep-v2-ui-state"
+          python -m app.server > "$RUNNER_TEMP/windeep-v2-server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/windeep-v2-server.pid"
+          for i in $(seq 1 60); do
+            if curl --fail --silent "http://127.0.0.1:${WINDEEP_PORT}/api/health" >/dev/null; then
+              exit 0
+            fi
+            sleep 0.5
+          done
+          cat "$RUNNER_TEMP/windeep-v2-server.log"
+          exit 1
+
+      - name: Verify every primary v2 UI workflow
+        run: python scripts/audit/ui_v2_smoke.py
+
+      - name: Show server log on failure
+        if: failure()
+        shell: bash
+        run: cat "$RUNNER_TEMP/windeep-v2-server.log" || true
+
+      - name: Commit verified generated migration
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+        shell: bash
+        run: |
+          git add app/engine/tool_wrapper.py app/server.py app/tools/config/*.json
+          if git diff --cached --quiet; then
+            echo "No generated migration changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "feat(v2): activate cancellable target-aware 137-tool runtime"
+          git push origin HEAD:v2/product-overhaul
