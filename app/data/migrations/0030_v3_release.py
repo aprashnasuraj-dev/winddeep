@@ -80,46 +80,18 @@ CREATE TABLE IF NOT EXISTS v3_targets (
     created_at REAL NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS handling_policy (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    source TEXT NOT NULL,
-    imported_at REAL NOT NULL,
-    raw_artifact_id INTEGER NOT NULL REFERENCES artifacts(id) ON DELETE RESTRICT,
-    version TEXT NOT NULL,
-    UNIQUE(name, version)
-);
-
-CREATE TABLE IF NOT EXISTS handling_rule (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    policy_id INTEGER NOT NULL REFERENCES handling_policy(id) ON DELETE RESTRICT,
-    rule_id TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK(kind IN ('accepted','documented_exclusion','known_issue','deferred','informational','severity_matrix','duplicate_policy')),
-    matcher TEXT NOT NULL,
-    severity_floor TEXT,
-    priority_band TEXT,
-    notes TEXT NOT NULL,
-    reference_url TEXT,
-    UNIQUE(policy_id, rule_id)
-);
-
 CREATE TABLE IF NOT EXISTS handling_classification (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    finding_id INTEGER NOT NULL REFERENCES findings(id) ON DELETE RESTRICT,
+    finding_id INTEGER NOT NULL REFERENCES findings(id) ON DELETE RESTRICT UNIQUE,
     scan_id INTEGER NOT NULL REFERENCES scans(id) ON DELETE RESTRICT,
-    policy_id INTEGER REFERENCES handling_policy(id) ON DELETE RESTRICT,
-    policy_version TEXT NOT NULL,
-    disposition TEXT NOT NULL,
-    handling_rule_ids TEXT NOT NULL,
-    acceptance_likelihood TEXT NOT NULL,
+    asset_class TEXT NOT NULL CHECK(asset_class IN ('http','https','ipv4','ipv6')),
+    disposition TEXT NOT NULL CHECK(disposition IN ('actionable','needs-review','not-actionable','informational')),
+    tester_priority REAL NOT NULL CHECK(tester_priority >= 0 AND tester_priority <= 100),
+    duplicate_risk TEXT NOT NULL CHECK(duplicate_risk IN ('low','medium','high')),
     rationale TEXT NOT NULL,
-    duplicate_risk TEXT NOT NULL,
-    severity_floor_met INTEGER NOT NULL CHECK(severity_floor_met IN (0,1)),
-    priority_floor_met INTEGER NOT NULL CHECK(priority_floor_met IN (0,1)),
-    triage_readiness TEXT NOT NULL,
     score REAL NOT NULL,
-    created_at REAL NOT NULL,
-    UNIQUE(finding_id, policy_version)
+    classified_at REAL NOT NULL,
+    updated_at REAL NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_v3_transition_scan ON v3_scan_transitions(scan_id, id);
