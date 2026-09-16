@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +35,108 @@ def _compatible(cls: type[Any], target_type: str | None) -> bool:
     return normalized in declared or ("web" in declared and normalized in {"domain", "url", "host", "web"})
 
 
+def resolver_descriptor(
+    name: str,
+    cls: type[Any],
+    *,
+    tools_dir: Path,
+    target_type: str | None = None,
+    environment: Mapping[str, str] | None = None,
+) -> dict[str, Any]:
+    """Return the canonical v4 resolver/readiness descriptor for one tool."""
+    wrapper = cls(
+        tools_dir=tools_dir,
+        scope_validator=lambda _value: True,
+        environment=environment if environment is not None else os.environ,
+    )
+    status = wrapper.runtime_status()
+    compatible = _compatible(cls, target_type)
+    missing_env = list(wrapper.missing_environment())
+    ready = status["tier"] != "unavailable" and compatible and not missing_env
+    try:
+        options_schema = cls.input_schema.model_json_schema()
+    except Exception:
+        options_schema = {"type": "object", "properties": {}}
+    if not compatible:
+        blocked_reason = f"Not compatible with target type '{_target_type(target_type or '')}'"
+    elif missing_env:
+        blocked_reason = "Missing configuration: " + ", ".join(missing_env)
+    elif status["tier"] == "unavailable" and getattr(cls, "provision", None):
+        blocked_reason = "Not installed yet; provision on demand or run 'winddeep doctor --heal'."
+    elif status["tier"] == "unavailable" and getattr(cls, "requires_host", ""):
+        blocked_reason = f"Requires {getattr(cls, 'requires_host')} host; configure a compatible WSL/remote worker."
+    elif status["tier"] == "unavailable":
+        blocked_reason = "No execution backend currently resolves this integration."
+    else:
+        blocked_reason = ""
+    return {
+        "name": name,
+        "execution_name": getattr(cls, "execution_name", name),
+        "alias_to": getattr(cls, "alias_to", "") or None,
+        "served_by": getattr(cls, "execution_name", name) if getattr(cls, "alias_to", "") else None,
+        "category": getattr(cls, "category", "uncategorized"),
+        "description": getattr(cls, "description", ""),
+        "runtime_strategy": getattr(cls, "runtime_strategy", "auto"),
+        "execution_preference": list(getattr(cls, "execution_preference", ())),
+        "adapter": status["backend"] or getattr(cls, "runtime_strategy", "auto"),
+        "tier": status["tier"],
+        "backend": status["backend"],
+        "backend_chain": status["chain"],
+        "ready": ready,
+        "compatible": compatible,
+        "blocked_reason": blocked_reason,
+        "target_types": list(getattr(cls, "target_types", ())),
+        "scan_default": bool(getattr(cls, "scan_default", True)),
+        "missing_env": missing_env,
+        "configured": not missing_env,
+        "provisionable": bool(getattr(cls, "provision", None)),
+        "provision": dict(getattr(cls, "provision", {}) or {}),
+        "container_image": getattr(cls, "container_image", "") or None,
+        "builtin_fallback": getattr(cls, "builtin_fallback", "") or None,
+        "requires_host": getattr(cls, "requires_host", "") or None,
+        "probe": list(getattr(cls, "probe", ())),
+        "options_schema": options_schema,
+        "release_support": getattr(cls, "release_support", "resolver-managed"),
+        "windows_certified": getattr(cls, "release_support", "") == "bundled",
+    }
+
+
+def filter_resolver_tools(
+    classes: Mapping[str, type[Any]],
+    *,
+    tools_dir: Path,
+    target_type: str | None,
+    candidate_names: Sequence[str],
+    environment: Mapping[str, str] | None = None,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Filter candidate names through the same v4 resolver truth used by the API."""
+    selected: list[str] = []
+    skipped: list[dict[str, Any]] = []
+    for name in candidate_names:
+        cls = classes.get(name)
+        if cls is None:
+            skipped.append({"tool": name, "reason": "unknown integration", "code": "UNKNOWN_TOOL"})
+            continue
+        row = resolver_descriptor(
+            name,
+            cls,
+            tools_dir=tools_dir,
+            target_type=target_type,
+            environment=environment,
+        )
+        if row["ready"]:
+            selected.append(name)
+            continue
+        skipped.append({
+            "tool": name,
+            "reason": row["blocked_reason"],
+            "tier": row["tier"],
+            "provisionable": row["provisionable"],
+            "code": "TOOL_NOT_RESOLVER_READY",
+        })
+    return selected, skipped
+
+
 def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]], Callable[..., Any]], audit: Any) -> None:
     factory = app.extensions["windeep.tool_factory"]
     classes = dict(getattr(factory, "_classes", {}) or factory.load())
@@ -43,66 +145,17 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
     tools_dir = root / "tools"
 
     def descriptor(name: str, cls: type[Any], target_type: str | None = None) -> dict[str, Any]:
-        wrapper = cls(tools_dir=tools_dir, scope_validator=lambda _value: True, environment=os.environ)
-        status = wrapper.runtime_status()
-        compatible = _compatible(cls, target_type)
-        missing_env = list(wrapper.missing_environment())
-        ready = status["tier"] != "unavailable" and compatible and not missing_env
-        try:
-            options_schema = cls.input_schema.model_json_schema()
-        except Exception:
-            options_schema = {"type": "object", "properties": {}}
-        if not compatible:
-            blocked_reason = f"Not compatible with target type '{_target_type(target_type or '')}'"
-        elif missing_env:
-            blocked_reason = "Missing configuration: " + ", ".join(missing_env)
-        elif status["tier"] == "unavailable" and getattr(cls, "provision", None):
-            blocked_reason = "Not installed yet; provision on demand or run 'winddeep doctor --heal'."
-        elif status["tier"] == "unavailable" and getattr(cls, "requires_host", ""):
-            blocked_reason = f"Requires {getattr(cls, 'requires_host')} host; configure a compatible WSL/remote worker."
-        elif status["tier"] == "unavailable":
-            blocked_reason = "No execution backend currently resolves this integration."
-        else:
-            blocked_reason = ""
-        return {
-            "name": name,
-            "execution_name": getattr(cls, "execution_name", name),
-            "alias_to": getattr(cls, "alias_to", "") or None,
-            "served_by": getattr(cls, "execution_name", name) if getattr(cls, "alias_to", "") else None,
-            "category": getattr(cls, "category", "uncategorized"),
-            "description": getattr(cls, "description", ""),
-            "runtime_strategy": getattr(cls, "runtime_strategy", "auto"),
-            "execution_preference": list(getattr(cls, "execution_preference", ())),
-            "adapter": status["backend"] or getattr(cls, "runtime_strategy", "auto"),
-            "tier": status["tier"],
-            "backend": status["backend"],
-            "backend_chain": status["chain"],
-            "ready": ready,
-            "compatible": compatible,
-            "blocked_reason": blocked_reason,
-            "target_types": list(getattr(cls, "target_types", ())),
-            "scan_default": bool(getattr(cls, "scan_default", True)),
-            "missing_env": missing_env,
-            "configured": not missing_env,
-            "provisionable": bool(getattr(cls, "provision", None)),
-            "provision": dict(getattr(cls, "provision", {}) or {}),
-            "container_image": getattr(cls, "container_image", "") or None,
-            "builtin_fallback": getattr(cls, "builtin_fallback", "") or None,
-            "requires_host": getattr(cls, "requires_host", "") or None,
-            "probe": list(getattr(cls, "probe", ())),
-            "options_schema": options_schema,
-            "release_support": getattr(cls, "release_support", "resolver-managed"),
-            "windows_certified": getattr(cls, "release_support", "") == "bundled",
-        }
+        return resolver_descriptor(name, cls, tools_dir=tools_dir, target_type=target_type, environment=os.environ)
 
     @app.before_request
     def enforce_v4_scan_readiness() -> tuple[Response, int] | None:
         """Block selected-tool readiness bypasses before scheduling.
 
         The unversioned /api/scans endpoint remains a compatibility shim. Its
-        server-side selector is resolver-filtered, so old clients/templates keep
-        working without bypassing v4 readiness. V2 selected/single requests are
-        checked here as a second layer in addition to the planner.
+        server-side selector is resolver-filtered inside the asynchronous worker,
+        so old clients/templates keep their immediate 202 lifecycle without
+        bypassing v4 readiness. V2 selected/single requests are checked here as a
+        second layer in addition to the planner.
         """
         if request.method != "POST" or request.path != "/api/v2/scans":
             return None
@@ -121,21 +174,13 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
                     target_type = str(target.get("type") or "")
             except (TypeError, ValueError):
                 pass
-        blocked: list[dict[str, Any]] = []
-        for name in requested:
-            cls = classes.get(name)
-            if cls is None:
-                blocked.append({"tool": name, "reason": "unknown integration", "code": "UNKNOWN_TOOL"})
-                continue
-            row = descriptor(name, cls, target_type)
-            if not row["ready"]:
-                blocked.append({
-                    "tool": name,
-                    "reason": row["blocked_reason"],
-                    "tier": row["tier"],
-                    "provisionable": row["provisionable"],
-                    "code": "TOOL_NOT_RESOLVER_READY",
-                })
+        _selected, blocked = filter_resolver_tools(
+            classes,
+            tools_dir=tools_dir,
+            target_type=target_type,
+            candidate_names=requested,
+            environment=os.environ,
+        )
         if blocked:
             audit.append("v4.scan.blocked_unready", {"tools": [item["tool"] for item in blocked], "mode": mode})
             return jsonify({
@@ -217,4 +262,4 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
         return jsonify(payload), 200 if passed else 409
 
 
-__all__ = ["register_v4_api"]
+__all__ = ["filter_resolver_tools", "register_v4_api", "resolver_descriptor"]
