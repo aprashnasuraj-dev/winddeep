@@ -5,6 +5,7 @@ on:
     paths:
       - 'app/**'
       - 'docker/**'
+      - 'scripts/probe_v4_container.py'
       - 'scripts/validate_v4_runtime_matrix.py'
       - 'tests/test_v4_runtime.py'
       - 'tools_config.json'
@@ -16,6 +17,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: windeep-v4-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 jobs:
   contract:
@@ -35,7 +40,7 @@ jobs:
       - name: Install runtime and test dependencies
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - name: Compile v4 runtime
-        run: python -m compileall -q app launcher.py scripts/validate_v4_runtime_matrix.py
+        run: python -m compileall -q app launcher.py scripts/probe_v4_container.py scripts/validate_v4_runtime_matrix.py
       - name: Enforce catalog route and resolver contracts
         run: python -m pytest -q tests/test_v4_runtime.py
       - name: Show host backend capabilities
@@ -49,46 +54,8 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build versioned Windeep tools image
         run: docker build -f docker/tools.Dockerfile -t winddeep/tools:v3 .
-      - name: Probe heavy and mobile tools in image
-        shell: bash
-        run: |
-          set -euo pipefail
-          probe() {
-            local label="$1"
-            shift
-            set +e
-            local output
-            output="$(timeout 45s docker run --rm winddeep/tools:v3 "$@" 2>&1)"
-            local rc=$?
-            set -e
-            printf '%s\n' "[$label] rc=$rc"
-            printf '%s\n' "$output" | head -n 20
-
-            # Liveness means the executable actually started. A number of
-            # security CLIs intentionally return 1 or 2 for -h/--version.
-            # Reserve timeout/Docker/exec/signal codes as hard failures.
-            if [[ $rc -eq 124 || $rc -eq 125 || $rc -eq 126 || $rc -eq 127 || $rc -ge 128 ]]; then
-              echo "::error title=Container liveness failure::$label failed to start cleanly (rc=$rc)"
-              return 1
-            fi
-            if [[ -z "$output" ]]; then
-              echo "::error title=Container liveness failure::$label produced no liveness output"
-              return 1
-            fi
-          }
-
-          probe nmap nmap --version
-          probe masscan masscan --version
-          probe tshark tshark --version
-          probe nikto nikto -Version
-          probe sqlmap sqlmap --version
-          probe metasploit msfconsole --version
-          probe wpscan wpscan --version
-          probe radare2 r2 -v
-          probe apktool apktool --version
-          probe jadx jadx --version
-          probe frida frida --version
-          probe objection objection version
+      - name: Probe every declared shared-container route
+        run: python scripts/probe_v4_container.py --image winddeep/tools:v3
 
   wsl-contract:
     name: Windows WSL backend contract
@@ -102,6 +69,7 @@ jobs:
           if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { throw 'wsl.exe is unavailable on runner' }
           python -m compileall -q app
           Select-String -Path app/tools/backends.py -Pattern 'class WslBackend' -Quiet | ForEach-Object { if (-not $_) { throw 'WslBackend missing' } }
+          Select-String -Path app/tools/wsl_provisioning.py -Pattern 'def provision_wsl' -Quiet | ForEach-Object { if (-not $_) { throw 'WSL provisioning path missing' } }
 
   full-heal:
     name: Full catalog heal ${{ matrix.os }}
