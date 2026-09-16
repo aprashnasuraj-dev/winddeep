@@ -1,8 +1,8 @@
 """Windeep v4 resolver/readiness API.
 
-This surface exposes runtime truth (tier/backend/readiness) and provides an
-explicitly consented provisioning action. It does not silently install during
-normal scan planning.
+This surface exposes runtime truth (tier/backend/readiness), requires explicit
+consent for provisioning, and prevents older scan routes from bypassing the v4
+resolver. Resolution itself never installs software.
 """
 from __future__ import annotations
 
@@ -37,7 +37,8 @@ def _compatible(cls: type[Any], target_type: str | None) -> bool:
 
 def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]], Callable[..., Any]], audit: Any) -> None:
     factory = app.extensions["windeep.tool_factory"]
-    classes = factory.load()
+    classes = dict(getattr(factory, "_classes", {}) or factory.load())
+    database = app.extensions.get("windeep.database")
     root = Path(os.getenv("WINDEEP_APP_ROOT", Path.cwd())).resolve()
     tools_dir = root / "tools"
 
@@ -93,6 +94,68 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
             "release_support": getattr(cls, "release_support", "resolver-managed"),
             "windows_certified": getattr(cls, "release_support", "") == "bundled",
         }
+
+    @app.before_request
+    def enforce_v4_scan_readiness() -> tuple[Response, int] | None:
+        """Block legacy/readiness-bypassing mutation paths before scheduling.
+
+        V2 smart/full/module planning already checks readiness. Historically the
+        selected/catalog modes did not; v4 closes that gap for API clients as
+        well as the UI. The old unversioned scan writer is retained for reads
+        but no longer starts work outside the resolver contract.
+        """
+        if request.method != "POST":
+            return None
+        if request.path == "/api/scans":
+            return jsonify({
+                "error": "legacy scan creation is disabled by the v4 resolver; use /api/v2/scans with smart/full/module/selected planning",
+                "code": "V4_LEGACY_SCAN_WRITE_BLOCKED",
+            }), 409
+        if request.path != "/api/v2/scans":
+            return None
+        body = request.get_json(silent=True) or {}
+        mode = str(body.get("mode") or "smart").strip().lower()
+        if mode == "catalog":
+            return jsonify({
+                "error": "catalog-attempt mode is diagnostic-only in v4; use 'winddeep doctor --heal' to resolve unavailable integrations before scanning",
+                "code": "V4_CATALOG_ATTEMPT_BLOCKED",
+            }), 409
+        if mode not in {"selected", "single"}:
+            return None
+        requested = [str(value) for value in body.get("tools", []) if str(value)]
+        if not requested:
+            return None
+        target_type: str | None = None
+        if database is not None and body.get("target_id") is not None:
+            try:
+                target = database.get_target(int(body["target_id"]))
+                if target:
+                    target_type = str(target.get("type") or "")
+            except (TypeError, ValueError):
+                pass
+        blocked: list[dict[str, Any]] = []
+        for name in requested:
+            cls = classes.get(name)
+            if cls is None:
+                blocked.append({"tool": name, "reason": "unknown integration", "code": "UNKNOWN_TOOL"})
+                continue
+            row = descriptor(name, cls, target_type)
+            if not row["ready"]:
+                blocked.append({
+                    "tool": name,
+                    "reason": row["blocked_reason"],
+                    "tier": row["tier"],
+                    "provisionable": row["provisionable"],
+                    "code": "TOOL_NOT_RESOLVER_READY",
+                })
+        if blocked:
+            audit.append("v4.scan.blocked_unready", {"tools": [item["tool"] for item in blocked], "mode": mode})
+            return jsonify({
+                "error": "one or more requested integrations are not resolver-ready",
+                "code": "V4_SCAN_READINESS_FAILED",
+                "blocked": blocked,
+            }), 409
+        return None
 
     @app.get("/api/v4/status")
     @authenticated
