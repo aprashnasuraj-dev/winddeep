@@ -45,6 +45,19 @@ async def _probe(wrapper: Any) -> dict[str, Any]:
         backend = wrapper.resolver.resolve(wrapper)
     except BackendUnavailableError as exc:
         return {"status": "unavailable", "error": str(exc)}
+
+    # Builtin fallbacks are Python adapters, not command-line programs. Their
+    # non-invasive liveness contract is successful resolver registration plus
+    # required-environment validation performed by can_run(). Calling exec()
+    # here would require a scan target and would create a false doctor failure.
+    if backend.key == "builtin_fallback":
+        return {
+            "status": "pass",
+            "backend": backend.key,
+            "tier": backend.tier,
+            "probe": "adapter-registration",
+        }
+
     probe = list(getattr(wrapper, "probe", ()) or [])
     if not probe:
         return {"status": "resolved", "backend": backend.key, "tier": backend.tier, "probe": "not-declared"}
@@ -52,11 +65,17 @@ async def _probe(wrapper: Any) -> dict[str, Any]:
         stdout, stderr, rc = await backend.probe(wrapper, probe, timeout=20.0)
     except Exception as exc:
         return {"status": "failed", "backend": backend.key, "tier": backend.tier, "error": str(exc)}
+
+    # Security CLIs are inconsistent about help/version exit codes. For a
+    # liveness probe, 0/1/2 all prove the executable started; timeout, backend
+    # failures and exec-not-found remain hard failures before this point.
+    accepted = tuple(getattr(wrapper, "probe_success_codes", (0, 1, 2)) or (0, 1, 2))
     return {
-        "status": "pass" if rc == 0 else "failed",
+        "status": "pass" if rc in accepted else "failed",
         "backend": backend.key,
         "tier": backend.tier,
         "rc": rc,
+        "accepted_rc": list(accepted),
         "stdout_tail": stdout[-1000:],
         "stderr_tail": stderr[-1000:],
     }
