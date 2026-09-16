@@ -117,7 +117,9 @@ def test_alias_execution_records_served_by_and_deprecation_notice(tmp_path: Path
     findings = asyncio.run(wrapper.run("example.com"))
     assert findings
     assert findings[0].evidence["served_by"] == "gowitness"
-    assert "deprecation" in findings[0].evidence
+    assert findings[0].evidence["deprecated_alias"] is True
+    assert "aquatone" in findings[0].evidence["deprecation_notice"]
+    assert "gowitness" in findings[0].evidence["deprecation_notice"]
 
 
 def test_provisioner_refuses_install_without_explicit_consent(tmp_path: Path) -> None:
@@ -176,10 +178,12 @@ def test_offline_bundle_round_trip_preserves_and_verifies_cached_runtime(tmp_pat
     payload.write_bytes(b"windeep-v4-offline-fixture\n")
     archive = tmp_path / "runtime.tar.zst"
     exported = export_bundle(source, archive, container_image="windeep/nonexistent:test")
-    assert Path(exported["bundle"]).is_file()
+    assert Path(exported["output"]).is_file()
+    assert exported["sha256"]
     restored = tmp_path / "restored-tools"
     imported = import_bundle(archive, restored, load_container=False)
     assert imported["verified"] is True
+    assert imported["verified_files"] >= 1
     assert (restored / "example-tool").read_bytes() == payload.read_bytes()
 
 
