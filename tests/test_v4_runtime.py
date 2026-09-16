@@ -8,10 +8,12 @@ from typing import Any, Sequence
 import pytest
 
 from app.engine.tool_wrapper import ToolWrapperFactory
-from app.tools import builtin_integrations
+from app.tools import builtin_fallbacks, builtin_integrations
 from app.tools.backends import ExecutionBackend, ExecutionResolver
+from app.tools.bundle import export_bundle, import_bundle
 from app.tools.provisioning import Provisioner
 from app.tools.release_metadata import effective_definitions
+from app.tools.wsl_provisioning import provision_wsl
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "tools_config.json"
@@ -23,9 +25,13 @@ class FakeBackend(ExecutionBackend):
     key = "local_binary"
     tier = "native"
 
-    def __init__(self, available: bool = True) -> None:
+    def __init__(self, available: bool = True, *, key: str | None = None, tier: str | None = None) -> None:
         self.available = available
         self.calls = 0
+        if key is not None:
+            self.key = key
+        if tier is not None:
+            self.tier = tier
 
     def can_run(self, tool: Any) -> bool:
         return self.available
@@ -78,6 +84,18 @@ def test_every_catalog_entry_declares_a_v4_runnable_route() -> None:
     assert not missing, "catalog entries without a v4 execution route: " + ", ".join(sorted(missing))
 
 
+def test_resolver_uses_first_available_backend_in_declared_order() -> None:
+    classes = ToolWrapperFactory(REGISTRY).load()
+    wrapper = classes["whois"](tools_dir=TOOLS, scope_validator=lambda _value: True)
+    native = FakeBackend(False, key="local_binary", tier="native")
+    provisioned = FakeBackend(True, key="provisioned_binary", tier="provisioned")
+    container = FakeBackend(True, key="container", tier="container")
+    resolver = ExecutionResolver([native, provisioned, container])
+    assert resolver.resolve(wrapper) is provisioned
+    assert resolver.status(wrapper)["backend"] == "provisioned_binary"
+    assert resolver.status(wrapper)["tier"] == "provisioned"
+
+
 def test_resolver_records_backend_evidence_without_real_tool_execution(tmp_path: Path) -> None:
     classes = ToolWrapperFactory(REGISTRY).load()
     cls = classes["whois"]
@@ -91,6 +109,17 @@ def test_resolver_records_backend_evidence_without_real_tool_execution(tmp_path:
     assert findings[0].evidence["backend_tier"] == "native"
 
 
+def test_alias_execution_records_served_by_and_deprecation_notice(tmp_path: Path) -> None:
+    classes = ToolWrapperFactory(REGISTRY).load()
+    cls = classes["aquatone"]
+    backend = FakeBackend()
+    wrapper = cls(tools_dir=tmp_path, scope_validator=lambda _value: True, resolver=ExecutionResolver([backend]))
+    findings = asyncio.run(wrapper.run("example.com"))
+    assert findings
+    assert findings[0].evidence["served_by"] == "gowitness"
+    assert "deprecation" in findings[0].evidence
+
+
 def test_provisioner_refuses_install_without_explicit_consent(tmp_path: Path) -> None:
     classes = ToolWrapperFactory(REGISTRY).load()
     cls = classes["subfinder"]
@@ -98,6 +127,60 @@ def test_provisioner_refuses_install_without_explicit_consent(tmp_path: Path) ->
     assert wrapper.provision
     with pytest.raises(PermissionError, match="explicit operator consent"):
         Provisioner(tmp_path).provision(wrapper, consent=False)
+
+
+def test_wsl_provisioning_refuses_install_without_explicit_consent(tmp_path: Path) -> None:
+    classes = ToolWrapperFactory(REGISTRY).load()
+    wrapper = classes["subfinder"](tools_dir=tmp_path, scope_validator=lambda _value: True)
+    with pytest.raises(PermissionError, match="explicit operator consent"):
+        provision_wsl(wrapper, consent=False)
+
+
+def test_builtin_fallback_catalog_covers_dead_and_api_shaped_cli_routes() -> None:
+    classes = ToolWrapperFactory(REGISTRY).load()
+    expected = {
+        "waybackrobots": "wayback_cdx",
+        "whois": "rdap",
+        "dig": "dns_query",
+        "crtsh": "crtsh",
+        "linkfinder": "js_analysis",
+        "git_secrets": "repo_secret_scan",
+    }
+    for name, adapter in expected.items():
+        assert classes[name].builtin_fallback == adapter
+        assert builtin_fallbacks.supports(adapter)
+
+
+def test_scan_planner_has_no_selected_or_catalog_readiness_bypass() -> None:
+    source = (ROOT / "app" / "v2_api.py").read_text(encoding="utf-8")
+    assert "runtime_state = wrapper.runtime_status()" in source
+    assert 'runtime_tier != "unavailable"' in source
+    assert "require_ready = False" not in source
+    assert 'if not item["ready"]:' in source
+
+
+def test_v4_ui_blocks_run_buttons_when_runtime_or_target_is_not_runnable() -> None:
+    index = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
+    ui = (ROOT / "app" / "static" / "v4_runtime_ui.js").read_text(encoding="utf-8")
+    assert "/static/v4_runtime_ui.js" in index
+    assert "Windeep v4" in index
+    assert "t.ready && t.compatible" in ui
+    assert "disabled aria-disabled" in ui
+    assert "runtime_tier" in ui
+
+
+def test_offline_bundle_round_trip_preserves_and_verifies_cached_runtime(tmp_path: Path) -> None:
+    source = tmp_path / "source-tools"
+    source.mkdir()
+    payload = source / "example-tool"
+    payload.write_bytes(b"windeep-v4-offline-fixture\n")
+    archive = tmp_path / "runtime.tar.zst"
+    exported = export_bundle(source, archive, container_image="windeep/nonexistent:test")
+    assert Path(exported["bundle"]).is_file()
+    restored = tmp_path / "restored-tools"
+    imported = import_bundle(archive, restored, load_container=False)
+    assert imported["verified"] is True
+    assert (restored / "example-tool").read_bytes() == payload.read_bytes()
 
 
 def test_v4_runtime_overlay_is_registered_from_root_config() -> None:
