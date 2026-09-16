@@ -30,14 +30,33 @@ def _container_runtime() -> str | None:
 
 
 def _safe_extract(tar: tarfile.TarFile, destination: Path) -> None:
+    """Extract regular files/directories only after canonical path validation.
+
+    This avoids relying on interpreter-version-specific tar extraction filters
+    while retaining the same fail-closed traversal/link guarantees on Python
+    3.11 and later.
+    """
     root = destination.resolve()
-    for member in tar.getmembers():
+    members = tar.getmembers()
+    for member in members:
         target = (root / member.name).resolve()
         if not target.is_relative_to(root):
             raise BundleError(f"unsafe archive path: {member.name}")
         if member.issym() or member.islnk():
             raise BundleError(f"links are not allowed in Windeep bundles: {member.name}")
-    tar.extractall(root, filter="data")
+        if not (member.isdir() or member.isfile()):
+            raise BundleError(f"unsupported archive member type: {member.name}")
+    for member in members:
+        target = (root / member.name).resolve()
+        if member.isdir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source = tar.extractfile(member)
+        if source is None:
+            raise BundleError(f"archive member has no file payload: {member.name}")
+        with source, target.open("wb") as output:
+            shutil.copyfileobj(source, output)
 
 
 def export_bundle(tools_dir: str | Path, output: str | Path, *, container_image: str = "winddeep/tools:v3") -> dict[str, Any]:
@@ -64,11 +83,7 @@ def export_bundle(tools_dir: str | Path, output: str | Path, *, container_image:
         files: dict[str, str] = {}
         for path in sorted(item for item in temp.rglob("*") if item.is_file() and item.name != "bundle-manifest.json"):
             files[str(path.relative_to(temp)).replace("\\", "/")] = _sha256(path)
-        manifest = {
-            "schema": "windeep.bundle.v4",
-            "container_image": container_image if image_file else None,
-            "files": files,
-        }
+        manifest = {"schema": "windeep.bundle.v4", "container_image": container_image if image_file else None, "files": files}
         (temp / "bundle-manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
         tar_path = temp / "bundle.tar"
