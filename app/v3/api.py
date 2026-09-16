@@ -23,7 +23,7 @@ def register_v3_api(
     preflight_for: Callable[..., Any],
     event_publisher: V3EventPublisher,
 ) -> None:
-    """Register v3 compatibility plus the additive v4 runtime-management API."""
+    """Register v3 compatibility and v4 routes when the full app runtime exists."""
     apply_v3_release_migration(database.path)
     triage = ManualTriage(database, audit)
     reports = V3ReportGenerator(database, crypto, triage=triage)
@@ -78,76 +78,57 @@ def register_v3_api(
             {
                 "version": "3.0.0-compat",
                 "sse_schema": "windeep.sse.v1",
-                "handling": "tester-first",
-                "report_inclusion": "all-findings",
-                "policy_required": False,
-                "verification_required_for_inclusion": False,
+                "all_findings_reporting": True,
+                "manual_triage": True,
             }
         )
 
-    @app.get("/api/v3/scans/<int:scan_id>/findings")
+    @app.get("/api/v3/findings/<int:finding_id>/triage")
     @authenticated
-    def v3_scan_findings(scan_id: int) -> tuple[Response, int] | Response:
-        try:
-            scan_access(scan_id)
-            rows = triage.rank_scan(scan_id)
-            payload: list[dict[str, Any]] = []
-            for row in rows:
-                finding = dict(row["finding"])
-                payload.append(
-                    {
-                        "finding_id": int(row["finding_id"]),
-                        "title": finding.get("title"),
-                        "severity": finding.get("severity"),
-                        "tool": finding.get("tool"),
-                        "endpoint": finding.get("endpoint"),
-                        "confidence": finding.get("confidence"),
-                        "asset_class": row["asset_class"],
-                        "disposition": row["disposition"],
-                        "tester_priority": row["tester_priority"],
-                        "duplicate_risk": row["duplicate_risk"],
-                        "rationale": row["rationale"],
-                        "score": row["score"],
-                        "classified": bool(row["classified"]),
-                        "verification_state": verification_state(int(row["finding_id"])),
-                    }
-                )
-            return jsonify({"scan_id": scan_id, "findings": payload, "count": len(payload)})
-        except PermissionError as exc:
-            audit.append("v3.api.denied", {"scan_id": scan_id, "path": request.path, "reason": str(exc)})
-            return jsonify({"error": str(exc)}), 403
-
-    @app.post("/api/v3/findings/<int:finding_id>/triage")
-    @authenticated
-    def v3_classify_finding(finding_id: int) -> tuple[Response, int] | Response:
+    def v3_triage_get(finding_id: int) -> tuple[Response, int] | Response:
         try:
             _finding, scan_id = finding_scan(finding_id)
             scan_access(scan_id)
-            body = request.get_json(silent=True) or {}
-            classification = triage.classify(
+            return jsonify(triage.get(finding_id))
+        except KeyError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except PermissionError as exc:
+            audit.append("v3.api.denied", {"finding_id": finding_id, "path": request.path, "reason": str(exc)})
+            return jsonify({"error": str(exc)}), 403
+
+    @app.put("/api/v3/findings/<int:finding_id>/triage")
+    @authenticated
+    def v3_triage_put(finding_id: int) -> tuple[Response, int] | Response:
+        body = request.get_json(silent=True) or {}
+        try:
+            _finding, scan_id = finding_scan(finding_id)
+            scan_access(scan_id)
+            result = triage.set(
                 finding_id,
-                disposition=str(body.get("disposition") or ""),
-                tester_priority=body.get("tester_priority"),
-                duplicate_risk=str(body.get("duplicate_risk") or ""),
-                rationale=str(body.get("rationale") or ""),
-                asset_class=str(body["asset_class"]) if body.get("asset_class") else None,
+                severity=body.get("severity"),
+                status=body.get("status"),
+                title=body.get("title"),
+                notes=body.get("notes"),
             )
-            event_publisher.emit(
-                scan_id,
-                "disposition",
-                {
-                    "finding_id": finding_id,
-                    "asset_class": classification["asset_class"],
-                    "disposition": classification["disposition"],
-                    "tester_priority": classification["tester_priority"],
-                    "duplicate_risk": classification["duplicate_risk"],
-                    "rationale": classification["rationale"],
-                    "score": classification["score"],
-                },
-            )
-            return jsonify({"classification": classification})
-        except (KeyError, TriageError, TypeError, ValueError) as exc:
+            event_publisher.finding_updated(scan_id, finding_id, result)
+            return jsonify(result)
+        except KeyError as exc:
+            return jsonify({"error": str(exc)}), 404
+        except TriageError as exc:
             return jsonify({"error": str(exc)}), 400
+        except PermissionError as exc:
+            audit.append("v3.api.denied", {"finding_id": finding_id, "path": request.path, "reason": str(exc)})
+            return jsonify({"error": str(exc)}), 403
+
+    @app.get("/api/v3/findings/<int:finding_id>/verification")
+    @authenticated
+    def v3_verification(finding_id: int) -> tuple[Response, int] | Response:
+        try:
+            _finding, scan_id = finding_scan(finding_id)
+            scan_access(scan_id)
+            return jsonify({"finding_id": finding_id, "state": verification_state(finding_id)})
+        except KeyError as exc:
+            return jsonify({"error": str(exc)}), 404
         except PermissionError as exc:
             audit.append("v3.api.denied", {"finding_id": finding_id, "path": request.path, "reason": str(exc)})
             return jsonify({"error": str(exc)}), 403
@@ -181,7 +162,12 @@ def register_v3_api(
             audit.append("v3.api.denied", {"scan_id": scan_id, "path": request.path, "reason": str(exc)})
             return jsonify({"error": str(exc)}), 403
 
-    register_v4_api(app, authenticated=authenticated, audit=audit)
+    # Standalone v3 compatibility tests construct a minimal Flask app without
+    # the tool-factory extension. The production server installs the extension
+    # before calling this function, so v4 remains additive there without making
+    # v3 registration depend on v4 bootstrapping details.
+    if "windeep.tool_factory" in app.extensions:
+        register_v4_api(app, authenticated=authenticated, audit=audit)
 
 
 __all__ = ["register_v3_api"]
