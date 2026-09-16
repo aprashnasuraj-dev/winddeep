@@ -57,11 +57,12 @@ def validate(registry: Path, reports: list[Path]) -> dict[str, Any]:
     if not reports:
         raise SystemExit("no doctor reports supplied")
 
+    # Path sorting makes merged evidence independent of shell/filesystem ordering.
+    ordered_reports = sorted((path.resolve() for path in reports), key=lambda path: path.as_posix().casefold())
     proven: dict[str, list[dict[str, str]]] = {name: [] for name in expected}
-    seen_by_report: dict[str, set[str]] = {}
     report_summaries: list[dict[str, Any]] = []
 
-    for path in reports:
+    for path in ordered_reports:
         data = _load(path)
         rows = data["tools"]
         names = [str(row.get("tool") or "") for row in rows]
@@ -72,9 +73,8 @@ def validate(registry: Path, reports: list[Path]) -> dict[str, Any]:
             missing = sorted(expected - found)
             extra = sorted(found - expected)
             raise SystemExit(f"{path}: catalog mismatch missing={missing} extra={extra}")
-        seen_by_report[str(path)] = found
         healthy_count = 0
-        for row in rows:
+        for row in sorted(rows, key=lambda item: str(item.get("tool") or "").casefold()):
             name = str(row["tool"])
             if _healthy(row):
                 healthy_count += 1
@@ -132,7 +132,7 @@ def main() -> int:
     parser.add_argument("--registry", type=Path, default=Path("tools_config.json"))
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    summary = validate(args.registry.resolve(), [path.resolve() for path in args.reports])
+    summary = validate(args.registry.resolve(), args.reports)
     text = json.dumps(summary, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.write_text(text, encoding="utf-8")
