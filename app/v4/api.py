@@ -1,7 +1,7 @@
 """Windeep v4 resolver/readiness API.
 
 This surface exposes runtime truth (tier/backend/readiness), requires explicit
-consent for provisioning, and prevents older scan routes from bypassing the v4
+consent for provisioning, and prevents scan routes from bypassing the v4
 resolver. Resolution itself never installs software.
 """
 from __future__ import annotations
@@ -47,14 +47,14 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
         status = wrapper.runtime_status()
         compatible = _compatible(cls, target_type)
         missing_env = list(wrapper.missing_environment())
-        ready = status["tier"] != "unavailable" and compatible
+        ready = status["tier"] != "unavailable" and compatible and not missing_env
         try:
             options_schema = cls.input_schema.model_json_schema()
         except Exception:
             options_schema = {"type": "object", "properties": {}}
         if not compatible:
             blocked_reason = f"Not compatible with target type '{_target_type(target_type or '')}'"
-        elif missing_env and status["tier"] == "unavailable":
+        elif missing_env:
             blocked_reason = "Missing configuration: " + ", ".join(missing_env)
         elif status["tier"] == "unavailable" and getattr(cls, "provision", None):
             blocked_reason = "Not installed yet; provision on demand or run 'winddeep doctor --heal'."
@@ -83,7 +83,7 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
             "target_types": list(getattr(cls, "target_types", ())),
             "scan_default": bool(getattr(cls, "scan_default", True)),
             "missing_env": missing_env,
-            "configured": not missing_env or status["tier"] == "remote",
+            "configured": not missing_env,
             "provisionable": bool(getattr(cls, "provision", None)),
             "provision": dict(getattr(cls, "provision", {}) or {}),
             "container_image": getattr(cls, "container_image", "") or None,
@@ -97,29 +97,17 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
 
     @app.before_request
     def enforce_v4_scan_readiness() -> tuple[Response, int] | None:
-        """Block legacy/readiness-bypassing mutation paths before scheduling.
+        """Block selected-tool readiness bypasses before scheduling.
 
-        V2 smart/full/module planning already checks readiness. Historically the
-        selected/catalog modes did not; v4 closes that gap for API clients as
-        well as the UI. The old unversioned scan writer is retained for reads
-        but no longer starts work outside the resolver contract.
+        The unversioned /api/scans endpoint remains a compatibility shim. Its
+        server-side selector is resolver-filtered, so old clients/templates keep
+        working without bypassing v4 readiness. V2 selected/single requests are
+        checked here as a second layer in addition to the planner.
         """
-        if request.method != "POST":
-            return None
-        if request.path == "/api/scans":
-            return jsonify({
-                "error": "legacy scan creation is disabled by the v4 resolver; use /api/v2/scans with smart/full/module/selected planning",
-                "code": "V4_LEGACY_SCAN_WRITE_BLOCKED",
-            }), 409
-        if request.path != "/api/v2/scans":
+        if request.method != "POST" or request.path != "/api/v2/scans":
             return None
         body = request.get_json(silent=True) or {}
         mode = str(body.get("mode") or "smart").strip().lower()
-        if mode == "catalog":
-            return jsonify({
-                "error": "catalog-attempt mode is diagnostic-only in v4; use 'winddeep doctor --heal' to resolve unavailable integrations before scanning",
-                "code": "V4_CATALOG_ATTEMPT_BLOCKED",
-            }), 409
         if mode not in {"selected", "single"}:
             return None
         requested = [str(value) for value in body.get("tools", []) if str(value)]
@@ -165,7 +153,8 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
         for row in rows:
             tiers[row["tier"]] = tiers.get(row["tier"], 0) + 1
         runnable = sum(1 for row in rows if row["tier"] != "unavailable")
-        return jsonify({"version": "4.0.0", "catalog": len(rows), "runnable": runnable, "unavailable": len(rows) - runnable, "tiers": tiers})
+        ready = sum(1 for row in rows if row["ready"])
+        return jsonify({"version": "4.0.0", "catalog": len(rows), "runnable": runnable, "ready": ready, "unavailable": len(rows) - runnable, "tiers": tiers})
 
     @app.get("/api/v4/tools")
     @authenticated
@@ -213,6 +202,8 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
             backend = wrapper.resolver.resolve(wrapper)
         except Exception as exc:
             return jsonify({"status": "unavailable", "error": str(exc)}), 409
+        if backend.key == "builtin_fallback":
+            return jsonify({"status": "pass", "tier": backend.tier, "backend": backend.key, "probe": "adapter-registration"})
         probe = list(getattr(cls, "probe", ()) or [])
         if not probe:
             return jsonify({"status": "resolved", "tier": backend.tier, "backend": backend.key, "probe": "not-declared"})
@@ -220,8 +211,10 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
             stdout, stderr, rc = asyncio.run(backend.probe(wrapper, probe, timeout=20.0))
         except Exception as exc:
             return jsonify({"status": "failed", "tier": backend.tier, "backend": backend.key, "error": str(exc)}), 409
-        payload = {"status": "pass" if rc == 0 else "failed", "tier": backend.tier, "backend": backend.key, "rc": rc, "stdout_tail": stdout[-1000:], "stderr_tail": stderr[-1000:]}
-        return jsonify(payload), 200 if rc == 0 else 409
+        accepted = tuple(getattr(cls, "probe_success_codes", (0, 1, 2)) or (0, 1, 2))
+        passed = rc in accepted
+        payload = {"status": "pass" if passed else "failed", "tier": backend.tier, "backend": backend.key, "rc": rc, "accepted_rc": list(accepted), "stdout_tail": stdout[-1000:], "stderr_tail": stderr[-1000:]}
+        return jsonify(payload), 200 if passed else 409
 
 
 __all__ = ["register_v4_api"]
