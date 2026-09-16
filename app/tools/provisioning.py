@@ -217,6 +217,15 @@ class Provisioner:
                 raise ProvisioningError(f"provisioned binary checksum mismatch for {tool.tool_name}: {actual}")
         return self._record_binary(tool, binary, ecosystem, command)
 
+    @staticmethod
+    def _privileged(command: list[str]) -> list[str]:
+        if os.name == "nt" or not hasattr(os, "geteuid") or os.geteuid() == 0:
+            return command
+        sudo = shutil.which("sudo")
+        if not sudo:
+            raise ProvisioningError("OS package installation requires root privileges or sudo")
+        return [sudo, *command]
+
     def _os_command(self, recipe: Mapping[str, Any]) -> list[str]:
         packages = recipe.get("packages") or {}
         if not isinstance(packages, Mapping):
@@ -237,7 +246,7 @@ class Provisioner:
             package = str(packages["apt"])
             if version and version not in {"latest", "*"}:
                 package = f"{package}={version}"
-            return [apt, "install", "-y", package]
+            return self._privileged([apt, "install", "-y", package])
         brew = shutil.which("brew")
         if brew and packages.get("brew"):
             return [brew, "install", str(packages["brew"])]
