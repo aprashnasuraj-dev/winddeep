@@ -1,4 +1,4 @@
-"""Forward-only, checksummed SQLite schema migrations for Windeep."""
+"""Checksummed SQLite schema migrations with evidence-preserving rollback support."""
 
 from __future__ import annotations
 
@@ -12,6 +12,27 @@ from pathlib import Path
 from typing import Iterable
 
 _MIGRATION_RE = re.compile(r"^(?P<version>\d{4})_(?P<name>[a-z0-9][a-z0-9_-]*)\.sql$")
+_EVIDENCE_TABLES = {
+    "findings",
+    "flows",
+    "scan_events",
+    "scan_findings",
+    "artifacts",
+    "artifact_chunks",
+    "artifact_manifests",
+    "artifact_access_log",
+    "custody_log",
+    "evidence_blobs",
+    "evidence_bundles",
+    "web3_source_artifact",
+    "web3_engine_run",
+    "web3_finding_provenance",
+}
+_DROP_TABLE_RE = re.compile(r"\bDROP\s+TABLE\b", re.I)
+_TRUNCATE_RE = re.compile(r"\bTRUNCATE\b", re.I)
+_DANGEROUS_ADMIN_RE = re.compile(r"\b(?:VACUUM\s+INTO|ATTACH\s+DATABASE|DETACH\s+DATABASE|PRAGMA\s+writable_schema)\b", re.I)
+_DELETE_RE = re.compile(r"\bDELETE\s+FROM\s+[`\"\[]?(?P<table>[a-zA-Z0-9_]+)", re.I)
+_ALTER_RE = re.compile(r"\bALTER\s+TABLE\s+[`\"\[]?(?P<table>[a-zA-Z0-9_]+)", re.I)
 
 
 class MigrationError(RuntimeError):
@@ -24,6 +45,10 @@ class MigrationChecksumError(MigrationError):
 
 class MigrationOrderError(MigrationError):
     """Raised when a migration would violate the forward-only version rule."""
+
+
+class MigrationSafetyError(MigrationError):
+    """Raised when a down migration is missing or could destroy evidence."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,8 +79,18 @@ class MigrationPlan:
         return self.pending[-1].version if self.pending else self.current_version
 
 
+@dataclass(frozen=True, slots=True)
+class RollbackPlan:
+    """Description of an executed evidence-preserving rollback."""
+
+    from_version: int
+    target_version: int
+    reverted_versions: tuple[int, ...]
+    backup_path: Path | None
+
+
 class MigrationManager:
-    """Discover, verify, back up, and apply forward-only SQLite migrations."""
+    """Discover, verify, back up, apply, and safely roll back SQLite migrations."""
 
     def __init__(
         self,
@@ -63,10 +98,16 @@ class MigrationManager:
         migrations_dir: str | Path = "app/data/migrations",
         *,
         backup_dir: str | Path | None = None,
+        down_migrations_dir: str | Path | None = None,
     ) -> None:
         self.database_path = Path(database_path)
         self.migrations_dir = Path(migrations_dir)
         self.backup_dir = Path(backup_dir) if backup_dir is not None else self.database_path.parent / "backups"
+        self.down_migrations_dir = (
+            Path(down_migrations_dir)
+            if down_migrations_dir is not None
+            else self.migrations_dir.parent / "migrations_down"
+        )
 
     def discover(self) -> tuple[Migration, ...]:
         """Discover uniquely versioned migration files in ascending order."""
@@ -133,6 +174,74 @@ class MigrationManager:
             for migration in plan.pending:
                 self._apply_one(conn, migration)
         return plan
+
+    def rollback(self, *, target_version: int) -> RollbackPlan:
+        """Roll back only through paired, evidence-preserving down migrations.
+
+        Down scripts are intentionally more restricted than forward migrations.
+        They may remove compatibility metadata or reverse non-evidence state, but
+        destructive table operations and evidence-row deletion/alteration fail
+        closed before SQLite executes anything.
+        """
+        target = int(target_version)
+        if target < 0:
+            raise MigrationSafetyError("rollback target_version cannot be negative")
+        applied = self._read_applied()
+        current = max(applied, default=0)
+        if target > current:
+            raise MigrationSafetyError(f"rollback target {target:04d} is ahead of current version {current:04d}")
+        versions = tuple(sorted((version for version in applied if version > target), reverse=True))
+        if not versions:
+            return RollbackPlan(current, target, (), None)
+        if not self.database_path.exists():
+            raise MigrationSafetyError("cannot rollback a missing database")
+
+        scripts: list[tuple[int, str]] = []
+        for version in versions:
+            name = applied[version][0]
+            path = self.down_migrations_dir / f"{version:04d}_{name}.sql"
+            if not path.exists():
+                raise MigrationSafetyError(f"missing down migration for {version:04d}_{name}")
+            sql = path.read_text(encoding="utf-8")
+            self._validate_down_sql(sql, version=version)
+            scripts.append((version, sql))
+
+        backup_path = self.backup()
+        chunks = ["BEGIN IMMEDIATE;"]
+        for version, sql in scripts:
+            chunks.append(sql.rstrip())
+            chunks.append(f"DELETE FROM schema_migrations WHERE version = {int(version)};")
+        chunks.append("COMMIT;")
+        script = "\n".join(chunks) + "\n"
+        with sqlite3.connect(self.database_path, timeout=30.0) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA busy_timeout = 30000")
+            self._ensure_ledger(conn)
+            try:
+                conn.executescript(script)
+            except Exception:
+                conn.rollback()
+                raise
+        return RollbackPlan(current, target, versions, backup_path)
+
+    @staticmethod
+    def _validate_down_sql(sql: str, *, version: int) -> None:
+        if not sql.strip():
+            raise MigrationSafetyError(f"down migration {version:04d} is empty")
+        if _DROP_TABLE_RE.search(sql) or _TRUNCATE_RE.search(sql) or _DANGEROUS_ADMIN_RE.search(sql):
+            raise MigrationSafetyError(f"down migration {version:04d} contains destructive SQL")
+        for match in _DELETE_RE.finditer(sql):
+            table = match.group("table").casefold()
+            if table in _EVIDENCE_TABLES:
+                raise MigrationSafetyError(
+                    f"down migration {version:04d} cannot delete evidence table rows: {table}"
+                )
+        for match in _ALTER_RE.finditer(sql):
+            table = match.group("table").casefold()
+            if table in _EVIDENCE_TABLES:
+                raise MigrationSafetyError(
+                    f"down migration {version:04d} cannot alter evidence table: {table}"
+                )
 
     def backup(self) -> Path:
         """Create a consistent SQLite online backup and return its path."""

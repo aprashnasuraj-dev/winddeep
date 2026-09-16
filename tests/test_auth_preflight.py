@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from app.security.audit import AuditLog
@@ -49,11 +51,17 @@ def test_preflight_authorizes_live_signed_consent(tmp_path) -> None:
     assert audit.verify_chain()[1] == 1
 
 
-def test_preflight_rejects_out_of_scope_even_with_consent(tmp_path) -> None:
-    _, consent, _, scope, guard = _parts(tmp_path)
+def test_preflight_rejects_out_of_scope_even_with_consent_and_audits_denial(tmp_path) -> None:
+    _, consent, audit, scope, guard = _parts(tmp_path)
     record = consent.issue(scope, authorized_by="owner", purpose="authorized bug bounty", ttl_seconds=600)
     with pytest.raises(ScopeViolation):
         guard.authorize_scan(target="https://outside.test", consent_id=record.id)
+    valid, count = audit.verify_chain()
+    assert valid is True
+    assert count == 1
+    event = json.loads(audit.path.read_text(encoding="utf-8").strip())
+    assert event["event"] == "scan.denied"
+    assert event["data"]["reason"] == "ScopeViolation"
 
 
 def test_unhealthy_audit_blocks_preflight(tmp_path) -> None:

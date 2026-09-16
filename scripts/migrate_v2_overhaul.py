@@ -71,11 +71,16 @@ def migrate_server() -> None:
         "from app.tools.release_metadata import apply_release_metadata\n",
         "from app.tools.release_metadata import apply_release_metadata\nfrom app.v2_api import register_v2_api\n",
     )
-    replace_once(
-        path,
-        "    @app.get(\"/\")\n    def index() -> Response:\n",
-        "    register_v2_api(\n        app,\n        root=root,\n        state=state,\n        tools_dir=tools_dir,\n        crypto=crypto,\n        audit=audit,\n        consent=consent,\n        database=database,\n        wrapper_classes=wrapper_classes,\n        authenticated=authenticated,\n        broadcast=broadcast,\n        target_scope=target_scope,\n        preflight_for=preflight_for,\n    )\n\n    @app.get(\"/\")\n    def index() -> Response:\n",
-    )
+    # V3-C inserts its registration between the existing v2 registration and
+    # the index route, so the old contiguous replacement marker is no longer a
+    # reliable idempotency check. Detect the installed registrar directly.
+    server_text = path.read_text(encoding="utf-8")
+    if "    register_v2_api(\n" not in server_text:
+        replace_once(
+            path,
+            "    @app.get(\"/\")\n    def index() -> Response:\n",
+            "    register_v2_api(\n        app,\n        root=root,\n        state=state,\n        tools_dir=tools_dir,\n        crypto=crypto,\n        audit=audit,\n        consent=consent,\n        database=database,\n        wrapper_classes=wrapper_classes,\n        authenticated=authenticated,\n        broadcast=broadcast,\n        target_scope=target_scope,\n        preflight_for=preflight_for,\n    )\n\n    @app.get(\"/\")\n    def index() -> Response:\n",
+        )
     replace_once(
         path,
         "    Timer(0.8, lambda: webbrowser.open(f\"http://127.0.0.1:{port}\")).start()\n",

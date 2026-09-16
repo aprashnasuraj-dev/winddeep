@@ -67,6 +67,14 @@ class ChainBuilder:
         self.database = database
         self.max_edges = max_edges
 
+    @staticmethod
+    def _finding_id(item: Mapping[str, Any]) -> int | None:
+        raw = item.get("id") if item.get("id") is not None else item.get("finding_id")
+        try:
+            return int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
     async def build(
         self,
         findings: Sequence[Mapping[str, Any]],
@@ -76,7 +84,7 @@ class ChainBuilder:
     ) -> list[ChainEdge]:
         """Build a validated finding graph and cache edges in SQLite."""
         try:
-            compact = [self._compact(item) for item in findings if item.get("id") is not None]
+            compact = [self._compact(item) for item in findings if self._finding_id(item) is not None]
             prompt = CHAIN_BUILDER_PROMPT.replace(
                 "{context_json}",
                 json.dumps({"findings": compact}, ensure_ascii=False, separators=(",", ":")),
@@ -151,7 +159,7 @@ class ChainBuilder:
         raw: Any,
         findings: Sequence[Mapping[str, Any]],
     ) -> list[ChainEdge]:
-        known_ids = {int(item["id"]) for item in findings if item.get("id") is not None}
+        known_ids = {finding_id for item in findings if (finding_id := self._finding_id(item)) is not None}
         items = raw.get("edges", []) if isinstance(raw, Mapping) else raw if isinstance(raw, list) else []
         if not isinstance(items, list):
             return []
@@ -179,19 +187,23 @@ class ChainBuilder:
                 break
         return result
 
-    @staticmethod
-    def _compact(item: Mapping[str, Any]) -> dict[str, Any]:
-        return {
+    def _compact(self, item: Mapping[str, Any]) -> dict[str, Any]:
+        result = {
             key: item.get(key)
-            for key in ("id", "title", "severity", "vuln_type", "endpoint", "description", "verified", "confidence")
+            for key in ("title", "severity", "vuln_type", "endpoint", "description", "verified", "confidence")
             if key in item
         }
+        finding_id = self._finding_id(item)
+        if finding_id is not None:
+            result["id"] = finding_id
+        return result
 
     def _rule_based_edges(self, findings: Sequence[Mapping[str, Any]]) -> dict[str, list[dict[str, Any]]]:
         edges: list[dict[str, Any]] = []
         normalized: list[tuple[int, str]] = []
         for item in findings:
-            if item.get("id") is None:
+            finding_id = self._finding_id(item)
+            if finding_id is None:
                 continue
             text = " ".join(
                 [
@@ -200,7 +212,7 @@ class ChainBuilder:
                     str(item.get("description") or ""),
                 ]
             ).casefold()
-            normalized.append((int(item["id"]), text))
+            normalized.append((finding_id, text))
 
         def ids_matching(*tokens: str) -> list[int]:
             return [finding_id for finding_id, text in normalized if any(token in text for token in tokens)]

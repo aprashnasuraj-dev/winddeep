@@ -1,4 +1,4 @@
-"""Scope enforcement for authorized Windeep security testing."""
+"""Fail-closed scope enforcement for authorized Windeep testing."""
 
 from __future__ import annotations
 
@@ -43,6 +43,16 @@ def _ip(value: str) -> ipaddress._BaseAddress | None:  # type: ignore[attr-defin
         return None
     try:
         return ipaddress.ip_address(host)
+    except ValueError:
+        return None
+
+
+def _network(value: str) -> ipaddress._BaseNetwork | None:  # type: ignore[attr-defined]
+    candidate = value.strip()
+    if "://" in candidate or "/" not in candidate:
+        return None
+    try:
+        return ipaddress.ip_network(candidate, strict=False)
     except ValueError:
         return None
 
@@ -119,13 +129,21 @@ class ScopeEnforcer:
     @staticmethod
     def _matches(candidate: str, rule: str) -> bool:
         rule = rule.strip()
-        if not rule:
+        candidate = candidate.strip()
+        if not rule or not candidate:
             return False
+        # Exact declarations are authoritative for v3 target classes, including
+        # CIDRs and explicit service/range strings; deny rules still run first.
+        if candidate.casefold() == rule.casefold():
+            return True
         try:
             network = ipaddress.ip_network(rule, strict=False)
         except ValueError:
             network = None
         if network is not None:
+            candidate_network = _network(candidate)
+            if candidate_network is not None:
+                return candidate_network.version == network.version and candidate_network.subnet_of(network)
             candidate_ip = _ip(candidate)
             return candidate_ip is not None and candidate_ip in network
         try:
