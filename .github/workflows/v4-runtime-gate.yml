@@ -1,0 +1,135 @@
+name: Windeep v4 Runtime Gate
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'docker/**'
+      - 'tests/test_v4_runtime.py'
+      - 'tools_config.json'
+      - 'requirements*.txt'
+      - '.github/workflows/v4-runtime-gate.yml'
+  push:
+    branches: [main, v4.0-dev]
+    tags: ['v4.*']
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    name: Contract ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install runtime and test dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Compile v4 runtime
+        run: python -m compileall -q app launcher.py
+      - name: Enforce catalog route and resolver contracts
+        run: python -m pytest -q tests/test_v4_runtime.py
+      - name: Show host backend capabilities
+        run: python launcher.py doctor --backends --json
+
+  container:
+    name: Container backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build versioned Windeep tools image
+        run: docker build -f docker/tools.Dockerfile -t winddeep/tools:v3 .
+      - name: Probe heavy and mobile tools in image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm winddeep/tools:v3 nmap --version >/dev/null
+          docker run --rm winddeep/tools:v3 masscan --version >/dev/null
+          docker run --rm winddeep/tools:v3 tshark --version >/dev/null
+          docker run --rm winddeep/tools:v3 nikto -Version >/dev/null
+          docker run --rm winddeep/tools:v3 sqlmap --version >/dev/null
+          docker run --rm winddeep/tools:v3 msfconsole --version >/dev/null
+          docker run --rm winddeep/tools:v3 wpscan --version >/dev/null
+          docker run --rm winddeep/tools:v3 r2 -v >/dev/null
+          docker run --rm winddeep/tools:v3 apktool --version >/dev/null
+          docker run --rm winddeep/tools:v3 jadx --version >/dev/null
+          docker run --rm winddeep/tools:v3 frida --version >/dev/null
+          docker run --rm winddeep/tools:v3 objection version >/dev/null
+
+  wsl-contract:
+    name: Windows WSL backend contract
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify WSL executable and backend code path
+        shell: pwsh
+        run: |
+          if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { throw 'wsl.exe is unavailable on runner' }
+          python -m compileall -q app
+          Select-String -Path app/tools/backends.py -Pattern 'class WslBackend' -Quiet | ForEach-Object { if (-not $_) { throw 'WslBackend missing' } }
+
+  full-heal:
+    name: Full catalog heal ${{ matrix.os }}
+    if: startsWith(github.ref, 'refs/tags/v4.')
+    needs: [contract, container, wsl-contract]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install runtime, tests and pipx
+        run: |
+          python -m pip install -r requirements.txt -r requirements-dev.txt pipx
+          python -m pipx ensurepath
+      - name: Heal and probe complete catalog
+        shell: bash
+        if: runner.os != 'Windows'
+        run: |
+          python launcher.py doctor --heal --yes --json > v4-doctor-${{ runner.os }}.json
+          python - <<'PY'
+          import json
+          data=json.load(open('v4-doctor-${{ runner.os }}.json', encoding='utf-8'))
+          if data['unavailable']:
+              missing=[row['tool'] for row in data['tools'] if row['tier']=='unavailable']
+              raise SystemExit('unavailable tools: '+', '.join(missing))
+          failed=[row['tool'] for row in data['tools'] if row['probe'].get('status')=='failed']
+          if failed:
+              raise SystemExit('probe failures: '+', '.join(failed))
+          PY
+      - name: Heal and probe complete catalog (Windows)
+        shell: pwsh
+        if: runner.os == 'Windows'
+        run: |
+          python launcher.py doctor --heal --yes --json | Out-File -Encoding utf8 v4-doctor-Windows.json
+          $data = Get-Content v4-doctor-Windows.json -Raw | ConvertFrom-Json
+          if ($data.unavailable -ne 0) { throw "Unavailable tools remain: $($data.unavailable)" }
+          $failed = @($data.tools | Where-Object { $_.probe.status -eq 'failed' })
+          if ($failed.Count -ne 0) { throw "Probe failures: $($failed.tool -join ', ')" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v4-doctor-${{ runner.os }}
+          path: v4-doctor-*.json
