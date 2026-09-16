@@ -1,9 +1,7 @@
 """Execution backends and ordered resolver for Windeep v4.
 
-A catalog entry is never assumed to be locally executable.  Each run resolves
-through explicit backends and records the backend that actually served it.
-Normal scans do not install software; provisioning is a separate, consented
-operation handled by :mod:`app.tools.provisioning`.
+Resolution is read-only: no backend installs software. Provisioning is explicit
+and consented through :mod:`app.tools.provisioning` / ``winddeep doctor --heal``.
 """
 from __future__ import annotations
 
@@ -22,7 +20,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from app.tools import builtin_integrations
+from app.tools import builtin_fallbacks, builtin_integrations
 
 
 class BackendUnavailableError(RuntimeError):
@@ -34,24 +32,16 @@ class BackendExecutionError(RuntimeError):
 
 
 class ExecutionBackend(ABC):
-    """Common contract implemented by all execution backends."""
-
     key: str
     tier: str
 
     @abstractmethod
     def can_run(self, tool: Any) -> bool:
-        """Return whether this backend can currently serve ``tool``."""
+        pass
 
     @abstractmethod
-    async def exec(
-        self,
-        tool: Any,
-        argv: Sequence[str],
-        stdin: bytes | None,
-        timeout: float,
-    ) -> tuple[str, str, int]:
-        """Execute ``argv`` and return stdout, stderr and process-style rc."""
+    async def exec(self, tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
+        pass
 
     async def probe(self, tool: Any, probe: Sequence[str], timeout: float = 15.0) -> tuple[str, str, int]:
         return await self.exec(tool, [str(item) for item in probe], None, timeout)
@@ -84,11 +74,11 @@ async def _exec_process(
             process.kill()
             await process.wait()
         raise
-    return (
-        stdout.decode("utf-8", errors="replace"),
-        stderr.decode("utf-8", errors="replace"),
-        int(process.returncode or 0),
-    )
+    return stdout.decode("utf-8", errors="replace"), stderr.decode("utf-8", errors="replace"), int(process.returncode or 0)
+
+
+def _required_env_present(tool: Any) -> bool:
+    return all(str(tool.environment.get(name) or "").strip() for name in getattr(tool, "required_env", ()))
 
 
 class LocalBinaryBackend(ExecutionBackend):
@@ -98,7 +88,7 @@ class LocalBinaryBackend(ExecutionBackend):
     def can_run(self, tool: Any) -> bool:
         if str(getattr(tool, "requires_host", "")).lower() in {"linux", "macos", "device"}:
             return False
-        return tool.resolve_local_binary() is not None
+        return _required_env_present(tool) and tool.resolve_local_binary() is not None
 
     async def exec(self, tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
         binary = tool.resolve_local_binary()
@@ -112,7 +102,7 @@ class ProvisionedBinaryBackend(ExecutionBackend):
     tier = "provisioned"
 
     def can_run(self, tool: Any) -> bool:
-        return tool.resolve_provisioned_binary() is not None
+        return _required_env_present(tool) and tool.resolve_provisioned_binary() is not None
 
     async def exec(self, tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
         binary = tool.resolve_provisioned_binary()
@@ -125,6 +115,7 @@ class ContainerBackend(ExecutionBackend):
     key = "container"
     tier = "container"
     _health_cache: dict[str, tuple[float, bool]] = {}
+    _image_cache: dict[tuple[str, str], tuple[float, bool]] = {}
 
     def _runtime(self, tool: Any) -> str | None:
         requested = str(getattr(tool, "container_runtime", "") or "").strip()
@@ -140,25 +131,33 @@ class ContainerBackend(ExecutionBackend):
         if cached and now - cached[0] < 15.0:
             return cached[1]
         try:
-            completed = subprocess.run(
-                [runtime, "info"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=3,
-                check=False,
-            )
+            completed = subprocess.run([runtime, "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3, check=False)
             ok = completed.returncode == 0
         except (OSError, subprocess.SubprocessError):
             ok = False
         self._health_cache[runtime] = (now, ok)
         return ok
 
+    def _image_present(self, runtime: str, image: str) -> bool:
+        key = (runtime, image)
+        cached = self._image_cache.get(key)
+        now = time.monotonic()
+        if cached and now - cached[0] < 15.0:
+            return cached[1]
+        try:
+            completed = subprocess.run([runtime, "image", "inspect", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False)
+            ok = completed.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+        self._image_cache[key] = (now, ok)
+        return ok
+
     def can_run(self, tool: Any) -> bool:
         image = str(getattr(tool, "container_image", "") or "").strip()
-        if not image:
+        if not image or not _required_env_present(tool):
             return False
         runtime = self._runtime(tool)
-        return bool(runtime and self._healthy(runtime))
+        return bool(runtime and self._healthy(runtime) and self._image_present(runtime, image))
 
     @staticmethod
     def _rewrite_host_paths(argv: Sequence[str]) -> tuple[list[str], list[tuple[Path, str]]]:
@@ -183,14 +182,16 @@ class ContainerBackend(ExecutionBackend):
     async def exec(self, tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
         runtime = self._runtime(tool)
         image = str(getattr(tool, "container_image", "") or "").strip()
-        if not runtime or not image or not self._healthy(runtime):
-            raise BackendUnavailableError(f"container runtime unavailable for {tool.tool_name}")
+        if not runtime or not image or not self._healthy(runtime) or not self._image_present(runtime, image):
+            raise BackendUnavailableError(f"container runtime/image unavailable for {tool.tool_name}")
         rewritten, mounts = self._rewrite_host_paths(argv)
         with tempfile.TemporaryDirectory(prefix="windeep-container-") as scratch:
-            command = [runtime, "run", "--rm", "-i", "--network", "host"]
-            command.extend(["-v", f"{Path(scratch).resolve()}:/windeep/scratch"])
+            command = [runtime, "run", "--rm", "-i", "--network", "host", "-v", f"{Path(scratch).resolve()}:/windeep/scratch"]
             for host, guest in mounts:
                 command.extend(["-v", f"{host.resolve()}:{guest}:ro"])
+            for name in getattr(tool, "required_env", ()):
+                if tool.environment.get(name):
+                    command.extend(["-e", str(name)])
             command.append(image)
             binary = str(getattr(tool, "container_command", "") or getattr(tool, "execution_name", "") or tool.binary)
             command.extend([binary, *rewritten])
@@ -234,11 +235,7 @@ class WslBackend(ExecutionBackend):
         launcher = self._launcher()
         if not launcher:
             return value
-        stdout, _stderr, rc = await _exec_process(
-            [launcher, *self._distro_args(tool), "--", "wslpath", "-a", str(candidate)],
-            None,
-            5.0,
-        )
+        stdout, _stderr, rc = await _exec_process([launcher, *self._distro_args(tool), "--", "wslpath", "-a", str(candidate)], None, 5.0)
         return stdout.strip() if rc == 0 and stdout.strip() else value
 
     async def exec(self, tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
@@ -247,12 +244,16 @@ class WslBackend(ExecutionBackend):
             raise BackendUnavailableError(f"WSL unavailable for {tool.tool_name}")
         translated = [await self._translate(tool, str(item)) for item in argv]
         binary = str(getattr(tool, "execution_name", "") or tool.binary)
-        return await _exec_process(
-            [launcher, *self._distro_args(tool), "--", binary, *translated],
-            stdin,
-            timeout,
-            env=tool.environment,
-        )
+        env_args: list[str] = []
+        for name in getattr(tool, "required_env", ()):
+            value = str(tool.environment.get(name) or "")
+            if value:
+                env_args.append(f"{name}={value}")
+        command = [launcher, *self._distro_args(tool), "--"]
+        if env_args:
+            command.extend(["env", *env_args])
+        command.extend([binary, *translated])
+        return await _exec_process(command, stdin, timeout, env=tool.environment)
 
 
 class RemoteWorkerBackend(ExecutionBackend):
@@ -260,9 +261,10 @@ class RemoteWorkerBackend(ExecutionBackend):
     tier = "remote"
 
     def _settings(self, tool: Any) -> tuple[str, str]:
-        url = str(tool.environment.get("WINDEEP_REMOTE_WORKER_URL", "")).strip().rstrip("/")
-        token = str(tool.environment.get("WINDEEP_REMOTE_WORKER_TOKEN", "")).strip()
-        return url, token
+        return (
+            str(tool.environment.get("WINDEEP_REMOTE_WORKER_URL", "")).strip().rstrip("/"),
+            str(tool.environment.get("WINDEEP_REMOTE_WORKER_TOKEN", "")).strip(),
+        )
 
     def can_run(self, tool: Any) -> bool:
         url, token = self._settings(tool)
@@ -285,11 +287,7 @@ class RemoteWorkerBackend(ExecutionBackend):
             "requires_host": str(getattr(tool, "requires_host", "") or ""),
         }
         async with httpx.AsyncClient(timeout=timeout + 10.0) as client:
-            response = await client.post(
-                f"{url}/v1/exec",
-                headers={"Authorization": f"Bearer {token}"},
-                json=payload,
-            )
+            response = await client.post(f"{url}/v1/exec", headers={"Authorization": f"Bearer {token}"}, json=payload)
             response.raise_for_status()
             data = response.json()
         if not isinstance(data, dict):
@@ -301,40 +299,37 @@ class BuiltinFallbackBackend(ExecutionBackend):
     key = "builtin_fallback"
     tier = "builtin-fallback"
 
+    def _adapter(self, tool: Any) -> str:
+        return str(getattr(tool, "builtin_fallback", "") or getattr(tool, "execution_name", "") or tool.tool_name)
+
     def can_run(self, tool: Any) -> bool:
-        adapter = str(getattr(tool, "builtin_fallback", "") or getattr(tool, "execution_name", "") or tool.tool_name)
-        return builtin_integrations.supports(adapter) or builtin_integrations.supports_fallback(adapter)
+        adapter = self._adapter(tool)
+        supported = builtin_integrations.supports(adapter) or builtin_fallbacks.supports(adapter)
+        required = (*builtin_integrations.required_env(adapter), *builtin_fallbacks.required_env(adapter))
+        return supported and all(str(tool.environment.get(name) or "").strip() for name in required)
 
     async def exec(self, tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
         del argv, stdin
-        adapter = str(getattr(tool, "builtin_fallback", "") or getattr(tool, "execution_name", "") or tool.tool_name)
+        adapter = self._adapter(tool)
         target = str(getattr(tool, "current_target", "") or "")
         if not target:
             raise BackendExecutionError("builtin fallback requires the active target")
-        rows = await asyncio.wait_for(
-            builtin_integrations.run_adapter(adapter, target, environment=tool.environment, requested_name=tool.tool_name),
-            timeout=timeout,
-        )
+        if builtin_integrations.supports(adapter):
+            awaitable = builtin_integrations.run(adapter, target, environment=tool.environment)
+        elif builtin_fallbacks.supports(adapter):
+            awaitable = builtin_fallbacks.run_adapter(adapter, target, environment=tool.environment, requested_name=tool.tool_name)
+        else:
+            raise BackendUnavailableError(f"builtin adapter unavailable: {adapter}")
+        rows = await asyncio.wait_for(awaitable, timeout=timeout)
         return "\n".join(json.dumps(row, separators=(",", ":"), default=str) for row in rows), "", 0
 
 
 def shlex_quote(value: str) -> str:
-    """Small POSIX quote helper kept local to avoid shell execution elsewhere."""
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
 class ExecutionResolver:
-    """Resolve one tool against its runtime strategy and ordered preferences."""
-
-    DEFAULT_ORDER = (
-        "local_binary",
-        "provisioned_binary",
-        "container",
-        "wsl",
-        "remote_worker",
-        "builtin_fallback",
-    )
-
+    DEFAULT_ORDER = ("local_binary", "provisioned_binary", "container", "wsl", "remote_worker", "builtin_fallback")
     STRATEGY_KEYS = {
         "process": {"local_binary", "provisioned_binary"},
         "builtin": {"builtin_fallback"},
@@ -345,14 +340,7 @@ class ExecutionResolver:
     }
 
     def __init__(self, backends: Iterable[ExecutionBackend] | None = None) -> None:
-        items = list(backends or [
-            LocalBinaryBackend(),
-            ProvisionedBinaryBackend(),
-            ContainerBackend(),
-            WslBackend(),
-            RemoteWorkerBackend(),
-            BuiltinFallbackBackend(),
-        ])
+        items = list(backends or [LocalBinaryBackend(), ProvisionedBinaryBackend(), ContainerBackend(), WslBackend(), RemoteWorkerBackend(), BuiltinFallbackBackend()])
         self.backends = {item.key: item for item in items}
 
     def ordered_keys(self, tool: Any) -> list[str]:
@@ -360,15 +348,9 @@ class ExecutionResolver:
         if strategy not in self.STRATEGY_KEYS:
             raise ValueError(f"unknown runtime_strategy for {tool.tool_name}: {strategy}")
         preference = list(getattr(tool, "execution_preference", ()) or self.DEFAULT_ORDER)
-        normalized = []
-        aliases = {
-            "local": "local_binary",
-            "provision": "provisioned_binary",
-            "provisioned": "provisioned_binary",
-            "remote": "remote_worker",
-            "builtin": "builtin_fallback",
-        }
+        aliases = {"local": "local_binary", "provision": "provisioned_binary", "provisioned": "provisioned_binary", "remote": "remote_worker", "builtin": "builtin_fallback"}
         allowed = self.STRATEGY_KEYS[strategy]
+        normalized: list[str] = []
         for raw in preference:
             key = aliases.get(str(raw), str(raw))
             if key in allowed and key in self.backends and key not in normalized:
@@ -383,9 +365,7 @@ class ExecutionResolver:
             if backend.can_run(tool):
                 return backend
         attempted = ", ".join(self.ordered_keys(tool)) or "none"
-        raise BackendUnavailableError(
-            f"no execution backend available for {tool.tool_name}; attempted: {attempted}"
-        )
+        raise BackendUnavailableError(f"no execution backend available for {tool.tool_name}; attempted: {attempted}")
 
     def status(self, tool: Any) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
@@ -405,6 +385,16 @@ class ExecutionResolver:
         }
 
 
+def _runtime_healthy(name: str) -> bool:
+    executable = shutil.which(name)
+    if not executable:
+        return False
+    try:
+        return subprocess.run([executable, "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3, check=False).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 def backend_capabilities(environment: Mapping[str, str] | None = None) -> dict[str, Any]:
     env = {**os.environ, **dict(environment or {})}
     remote_url = str(env.get("WINDEEP_REMOTE_WORKER_URL", "")).strip()
@@ -415,8 +405,8 @@ def backend_capabilities(environment: Mapping[str, str] | None = None) -> dict[s
         "pipx": bool(shutil.which("pipx")),
         "cargo": bool(shutil.which("cargo")),
         "npm": bool(shutil.which("npm")),
-        "docker": bool(shutil.which("docker")),
-        "podman": bool(shutil.which("podman")),
+        "docker": _runtime_healthy("docker"),
+        "podman": _runtime_healthy("podman"),
         "wsl": bool(os.name == "nt" and shutil.which("wsl.exe")),
         "remote": bool(remote_url and remote_token),
     }
