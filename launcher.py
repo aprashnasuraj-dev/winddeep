@@ -1,9 +1,8 @@
-"""Windows entry point for Windeep.
+"""Windows/package entry point for Windeep.
 
-The launcher imports the application server lazily so PyInstaller can package a
-stable executable while the server implementation evolves independently.
+With no management subcommand the launcher starts the local dashboard.  Runtime
+management commands (doctor, bundle, remote-worker) are routed to the v4 CLI.
 """
-
 from __future__ import annotations
 
 import importlib
@@ -14,27 +13,22 @@ from pathlib import Path
 
 
 def _application_root() -> Path:
-    """Return the source root or the directory containing packaged Windeep.exe."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 
 
 def _configure_packaged_environment() -> None:
-    """Expose bundled tools/browser/runtime paths without modifying machine PATH."""
     root = _application_root()
     os.chdir(root)
     os.environ.setdefault("WINDEEP_APP_ROOT", str(root))
-
-    path_entries = [root / "tools", root / "runtime" / "python"]
+    path_entries = [root / "tools", root / "tools" / "provisioned" / "bin", root / "runtime" / "python"]
     existing = os.environ.get("PATH", "")
     os.environ["PATH"] = os.pathsep.join([*(str(path) for path in path_entries if path.exists()), existing])
-
     browsers = root / "runtime" / "playwright-browsers"
     if browsers.exists():
         os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", str(browsers))
         os.environ.setdefault("PLAYWRIGHT_SKIP_BROWSER_GC", "1")
-
     if os.name == "nt":
         local = Path(os.environ.get("LOCALAPPDATA", root)) / "Windeep"
         state = local / "state"
@@ -43,17 +37,12 @@ def _configure_packaged_environment() -> None:
 
 
 def _resolve_main() -> Callable[[], int | None]:
-    """Resolve the application main function or fail with an actionable error."""
     try:
         module = importlib.import_module("app.server")
     except ModuleNotFoundError as exc:
         if exc.name != "app.server":
             raise
-        raise RuntimeError(
-            "Windeep server is not installed in this build. Run from a complete "
-            "release or install the application package before launching."
-        ) from exc
-
+        raise RuntimeError("Windeep server is not installed in this build.") from exc
     main = getattr(module, "main", None)
     if not callable(main):
         raise RuntimeError("app.server must expose a callable main() entry point")
@@ -61,9 +50,11 @@ def _resolve_main() -> Callable[[], int | None]:
 
 
 def main() -> int:
-    """Launch Windeep and return a process exit code."""
     try:
         _configure_packaged_environment()
+        if len(sys.argv) > 1 and sys.argv[1] in {"doctor", "bundle", "remote-worker"}:
+            from app.tools.cli import main as cli_main
+            return int(cli_main(sys.argv[1:]) or 0)
         result = _resolve_main()()
     except KeyboardInterrupt:
         return 130
