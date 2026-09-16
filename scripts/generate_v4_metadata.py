@@ -11,6 +11,9 @@ from app.tools.release_metadata import effective_definitions
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "tools_config.json"
+README = ROOT / "README.md"
+README_START = "<!-- v4-runtime-counts:start -->"
+README_END = "<!-- v4-runtime-counts:end -->"
 
 
 def compute(registry: Path = REGISTRY) -> dict[str, int]:
@@ -47,6 +50,41 @@ def compute(registry: Path = REGISTRY) -> dict[str, int]:
     }
 
 
+def _readme_block(generated: dict[str, int]) -> str:
+    return "\n".join(
+        [
+            README_START,
+            f"- **{generated['registered_tool_count']} registered integrations** are retained for historical scan/template compatibility.",
+            f"- **{generated['active_tool_count']} route-covered integrations** have at least one declared v4 execution route.",
+            README_END,
+        ]
+    )
+
+
+def _replace_readme_block(text: str, block: str) -> str:
+    start = text.find(README_START)
+    end = text.find(README_END)
+    if start >= 0 and end >= start:
+        end += len(README_END)
+        return text[:start] + block + text[end:]
+
+    anchor = "## Catalog counts"
+    anchor_at = text.find(anchor)
+    if anchor_at < 0:
+        raise ValueError("README is missing the '## Catalog counts' section")
+    first = text.find("- **", anchor_at)
+    if first < 0:
+        raise ValueError("README catalog-count bullets are missing")
+    second = text.find("\n- **", first)
+    if second < 0:
+        raise ValueError("README route-covered count bullet is missing")
+    second += 1
+    second_end = text.find("\n", second)
+    if second_end < 0:
+        second_end = len(text)
+    return text[:first] + block + text[second_end:]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
@@ -60,14 +98,41 @@ def main() -> int:
         "registered_tool_count": generated["registered_tool_count"],
         "active_tool_count": generated["active_tool_count"],
     }
+
+    # README generation is authoritative only for the repository's canonical
+    # registry. Custom registries used by tooling/tests should not rewrite docs.
+    manage_readme = registry == REGISTRY.resolve()
+    readme_block = _readme_block(generated)
+
     if args.check:
-        failures = [f"{key}: expected {value!r}, found {current.get(key)!r}" for key, value in expected.items() if current.get(key) != value]
+        failures = [
+            f"{key}: expected {value!r}, found {current.get(key)!r}"
+            for key, value in expected.items()
+            if current.get(key) != value
+        ]
+        if manage_readme:
+            readme_text = README.read_text(encoding="utf-8")
+            start = readme_text.find(README_START)
+            end = readme_text.find(README_END)
+            actual_block = ""
+            if start >= 0 and end >= start:
+                actual_block = readme_text[start : end + len(README_END)]
+            if actual_block != readme_block:
+                failures.append("README v4 runtime count block does not match resolver-generated counts")
         if failures:
-            raise SystemExit("v4 generated metadata drift:\n- " + "\n- ".join(failures))
+            raise SystemExit(
+                "v4 generated metadata drift:\n- "
+                + "\n- ".join(failures)
+                + "\nRegenerate with: python scripts/generate_v4_metadata.py"
+            )
         print(json.dumps({"authoritative": expected, "route_diagnostics": generated}, indent=2, sort_keys=True))
         return 0
+
     current.update(expected)
     registry.write_text(json.dumps(current, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    if manage_readme:
+        readme_text = README.read_text(encoding="utf-8")
+        README.write_text(_replace_readme_block(readme_text, readme_block), encoding="utf-8")
     print(json.dumps({"authoritative": expected, "route_diagnostics": generated}, indent=2, sort_keys=True))
     return 0
 

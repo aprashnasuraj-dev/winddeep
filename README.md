@@ -22,8 +22,10 @@ All scan modes schedule only resolver-ready and target-compatible integrations. 
 
 `tools_config.json` distinguishes static catalog facts from dynamic host facts:
 
+<!-- v4-runtime-counts:start -->
 - **137 registered integrations** are retained for historical scan/template compatibility.
 - **137 route-covered integrations** have at least one declared v4 execution route.
+<!-- v4-runtime-counts:end -->
 - **Host-runnable counts are dynamic** and are reported by `winddeep doctor`, `/api/v2/tools`, and `/api/v2/status`.
 
 CI verifies the static counts with `scripts/generate_v4_metadata.py --check` and aggregates doctor evidence across supported runtime environments before release.

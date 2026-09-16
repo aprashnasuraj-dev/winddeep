@@ -5,11 +5,13 @@ on:
     paths:
       - 'app/**'
       - 'docker/**'
+      - 'scripts/generate_v4_metadata.py'
       - 'scripts/probe_v4_container.py'
       - 'scripts/validate_v4_doctor_report.py'
       - 'scripts/validate_v4_runtime_matrix.py'
       - 'tests/test_v4_*.py'
       - 'tools_config.json'
+      - 'README.md'
       - 'requirements*.txt'
       - '.gitattributes'
       - '.github/workflows/v4-runtime-gate.yml'
@@ -42,7 +44,7 @@ jobs:
       - name: Install runtime and test dependencies
         run: python -m pip install -r requirements.txt -r requirements-dev.txt
       - name: Compile v4 runtime
-        run: python -m compileall -q app launcher.py scripts/probe_v4_container.py scripts/validate_v4_doctor_report.py scripts/validate_v4_runtime_matrix.py
+        run: python -m compileall -q app launcher.py scripts/generate_v4_metadata.py scripts/probe_v4_container.py scripts/validate_v4_doctor_report.py scripts/validate_v4_runtime_matrix.py
       - name: Enforce catalog route and resolver contracts
         run: python -m pytest -q tests/test_v4_runtime.py tests/test_v4_alias_rejection_fallback.py tests/test_v4_legacy_scan_filtering.py
       - name: Show host backend capabilities
@@ -172,3 +174,12 @@ jobs:
         with:
           name: v4-runtime-matrix
           path: v4-runtime-matrix.json
+      - name: Require generated v4 metadata to match resolver
+        shell: bash
+        run: |
+          if ! python scripts/generate_v4_metadata.py --check; then
+            echo "::error::Generated v4 metadata drifted."
+            echo "Regenerate with:"
+            echo "python scripts/generate_v4_metadata.py"
+            exit 1
+          fi
