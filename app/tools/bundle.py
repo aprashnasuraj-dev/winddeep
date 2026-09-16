@@ -30,12 +30,7 @@ def _container_runtime() -> str | None:
 
 
 def _safe_extract(tar: tarfile.TarFile, destination: Path) -> None:
-    """Extract regular files/directories only after canonical path validation.
-
-    This avoids relying on interpreter-version-specific tar extraction filters
-    while retaining the same fail-closed traversal/link guarantees on Python
-    3.11 and later.
-    """
+    """Extract regular files/directories only after canonical path validation."""
     root = destination.resolve()
     members = tar.getmembers()
     for member in members:
@@ -121,6 +116,7 @@ def import_bundle(bundle: str | Path, tools_dir: str | Path, *, load_container: 
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         if manifest.get("schema") != "windeep.bundle.v4" or not isinstance(manifest.get("files"), dict):
             raise BundleError("unsupported bundle manifest")
+        verified_files = 0
         for relative, expected in manifest["files"].items():
             path = (extract_root / str(relative)).resolve()
             if not path.is_relative_to(extract_root.resolve()) or not path.is_file():
@@ -128,6 +124,7 @@ def import_bundle(bundle: str | Path, tools_dir: str | Path, *, load_container: 
             actual = _sha256(path)
             if actual != str(expected):
                 raise BundleError(f"bundle checksum mismatch: {relative}")
+            verified_files += 1
         staged_tools = extract_root / "tools"
         if staged_tools.exists():
             shutil.copytree(staged_tools, destination, dirs_exist_ok=True)
@@ -140,4 +137,11 @@ def import_bundle(bundle: str | Path, tools_dir: str | Path, *, load_container: 
             if loaded.returncode != 0:
                 raise BundleError(f"container image import failed: {(loaded.stdout or '')[-2000:]}")
             container_loaded = True
-    return {"bundle": str(archive), "sha256": _sha256(archive), "imported_to": str(destination), "container_loaded": container_loaded}
+    return {
+        "bundle": str(archive),
+        "sha256": _sha256(archive),
+        "imported_to": str(destination),
+        "verified": True,
+        "verified_files": verified_files,
+        "container_loaded": container_loaded,
+    }
