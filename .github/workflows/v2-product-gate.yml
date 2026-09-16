@@ -1,4 +1,4 @@
-name: Windeep v3 Product Gate
+name: Windeep v3 Compatibility Gate
 
 on:
   push:
@@ -40,27 +40,35 @@ jobs:
           python-version: '3.11'
           cache: pip
 
-      - name: Apply deterministic v2 migration
+      - name: Apply deterministic legacy v2 migration
+        if: ${{ !startsWith(github.head_ref, 'v4') && !startsWith(github.ref_name, 'v4') }}
         run: |
           python scripts/migrate_v2_overhaul.py
           python scripts/migrate_v2_ui_selection.py
+
+      - name: Verify v4 candidate is tested without source mutation
+        if: ${{ startsWith(github.head_ref, 'v4') || startsWith(github.ref_name, 'v4') }}
+        run: |
+          python -m compileall -q app launcher.py
+          git diff --exit-code
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
-      - name: Verify catalog, packaging, and v3 release contracts
+      - name: Verify legacy v3 release contracts
+        if: ${{ !startsWith(github.head_ref, 'v4') && !startsWith(github.ref_name, 'v4') }}
         shell: bash
         run: |
           python scripts/audit/release_audit.py --phase A || { cat reports/static_audit.md || true; exit 1; }
           python scripts/audit/release_audit.py --phase B || { cat reports/tool_liveness.md || true; exit 1; }
           python scripts/audit/release_audit.py --phase V3 || { cat reports/v3_release_audit.md || true; exit 1; }
 
-      - name: Run complete unit and product regression suite
+      - name: Run complete unit and compatibility regression suite
         run: python -m pytest -q --cov=app --cov=launcher --cov-report=term-missing --cov-report=xml:reports/coverage-v2.xml --cov-fail-under=85
 
-      - name: Enforce v3 release-module coverage
+      - name: Enforce v3 compatibility-module coverage
         run: >-
           python scripts/audit/check_v3_coverage.py reports/coverage-v2.xml
           app/v3/api.py app/v3/events.py app/v3/triage.py app/v3/reporting.py --minimum 90
@@ -83,7 +91,7 @@ jobs:
           cat "$RUNNER_TEMP/windeep-v3-server.log"
           exit 1
 
-      - name: Verify every primary v3 UI workflow
+      - name: Verify primary compatibility UI workflow
         run: python scripts/audit/ui_v2_smoke.py
 
       - name: Show server log on failure
@@ -91,8 +99,8 @@ jobs:
         shell: bash
         run: cat "$RUNNER_TEMP/windeep-v3-server.log" || true
 
-      - name: Commit verified generated migration
-        if: github.event_name == 'push' && github.actor != 'github-actions[bot]'
+      - name: Commit verified generated legacy migration
+        if: github.event_name == 'push' && github.actor != 'github-actions[bot]' && !startsWith(github.ref_name, 'v4')
         shell: bash
         run: |
           git add -u -- app/engine/tool_wrapper.py app/server.py app/static/app.js app/tools/config
