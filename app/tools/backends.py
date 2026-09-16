@@ -1,8 +1,4 @@
-"""Execution backends and ordered resolver for Windeep v4.
-
-Resolution is read-only: no backend installs software. Provisioning is explicit
-and consented through :mod:`app.tools.provisioning` / ``winddeep doctor --heal``.
-"""
+"""Execution backends and ordered resolver for Windeep v4."""
 from __future__ import annotations
 
 import asyncio
@@ -11,12 +7,10 @@ import json
 import os
 import shutil
 import subprocess
-import tempfile
 import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
-from urllib.parse import urlparse
 
 import httpx
 
@@ -24,31 +18,31 @@ from app.tools import builtin_fallbacks, builtin_integrations
 
 
 class BackendUnavailableError(RuntimeError):
-    """Raised when no configured backend can execute an integration."""
+    pass
 
 
 class BackendExecutionError(RuntimeError):
-    """Raised when a backend cannot complete an execution contract."""
+    pass
 
 
 class ExecutionBackend(ABC):
-    key: str
-    tier: str
+    key = "base"
+    tier = "unavailable"
 
     @abstractmethod
     def can_run(self, tool: Any) -> bool:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     async def exec(self, tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
-        pass
+        raise NotImplementedError
 
-    async def probe(self, tool: Any, probe: Sequence[str], timeout: float = 15.0) -> tuple[str, str, int]:
-        return await self.exec(tool, [str(item) for item in probe], None, timeout)
+    async def probe(self, tool: Any, argv: Sequence[str], timeout: float = 20.0) -> tuple[str, str, int]:
+        return await self.exec(tool, argv, None, timeout)
 
 
 async def _exec_process(
-    argv: Sequence[str],
+    argv: Sequence[str | Path],
     stdin: bytes | None,
     timeout: float,
     *,
@@ -81,6 +75,25 @@ def _required_env_present(tool: Any) -> bool:
     return all(str(tool.environment.get(name) or "").strip() for name in getattr(tool, "required_env", ()))
 
 
+async def _wrapper_process(tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
+    """Run through the wrapper hook when available.
+
+    V4 keeps process execution behind backends, but the wrapper hook is an
+    intentional compatibility/test seam and carries its cancellation/runtime
+    environment semantics.  Older integrations also monkeypatch this method.
+    """
+    runner = getattr(tool, "_run_process", None)
+    if callable(runner):
+        try:
+            return await runner(list(argv), stdin)
+        except TypeError:
+            # Legacy test/adapters exposed _run_process(argv) only.
+            if stdin is None:
+                return await runner(list(argv))
+            raise
+    return await _exec_process(argv, stdin, timeout, env=tool.environment)
+
+
 class LocalBinaryBackend(ExecutionBackend):
     key = "local_binary"
     tier = "native"
@@ -94,7 +107,7 @@ class LocalBinaryBackend(ExecutionBackend):
         binary = tool.resolve_local_binary()
         if binary is None:
             raise BackendUnavailableError(f"local binary unavailable for {tool.tool_name}")
-        return await _exec_process([str(binary), *argv], stdin, timeout, env=tool.environment)
+        return await _wrapper_process(tool, [str(binary), *argv], stdin, timeout)
 
 
 class ProvisionedBinaryBackend(ExecutionBackend):
@@ -108,7 +121,7 @@ class ProvisionedBinaryBackend(ExecutionBackend):
         binary = tool.resolve_provisioned_binary()
         if binary is None:
             raise BackendUnavailableError(f"provisioned binary unavailable for {tool.tool_name}")
-        return await _exec_process([str(binary), *argv], stdin, timeout, env=tool.environment)
+        return await _wrapper_process(tool, [str(binary), *argv], stdin, timeout)
 
 
 class ContainerBackend(ExecutionBackend):
@@ -154,48 +167,27 @@ class ContainerBackend(ExecutionBackend):
 
     def can_run(self, tool: Any) -> bool:
         image = str(getattr(tool, "container_image", "") or "").strip()
-        if not image or not _required_env_present(tool):
+        if not image:
+            return False
+        if str(getattr(tool, "requires_host", "")).lower() in {"macos", "device"}:
             return False
         runtime = self._runtime(tool)
         return bool(runtime and self._healthy(runtime) and self._image_present(runtime, image))
 
-    @staticmethod
-    def _rewrite_host_paths(argv: Sequence[str]) -> tuple[list[str], list[tuple[Path, str]]]:
-        rewritten: list[str] = []
-        mounts: list[tuple[Path, str]] = []
-        by_parent: dict[Path, str] = {}
-        for token in argv:
-            raw = str(token)
-            candidate = Path(raw).expanduser()
-            if candidate.is_absolute() and candidate.exists():
-                parent = candidate.parent if candidate.is_file() else candidate
-                mount = by_parent.get(parent)
-                if mount is None:
-                    mount = f"/windeep/input{len(by_parent)}"
-                    by_parent[parent] = mount
-                    mounts.append((parent, mount))
-                rewritten.append(str(Path(mount) / candidate.name) if candidate.is_file() else mount)
-            else:
-                rewritten.append(raw)
-        return rewritten, mounts
+    def _mount_args(self, tool: Any) -> list[str]:
+        root = Path(tool.tools_dir).resolve()
+        scratch = root / ".runtime" / "container" / tool.tool_name
+        scratch.mkdir(parents=True, exist_ok=True)
+        return ["-v", f"{scratch}:/work", "-w", "/work"]
 
     async def exec(self, tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
         runtime = self._runtime(tool)
-        image = str(getattr(tool, "container_image", "") or "").strip()
-        if not runtime or not image or not self._healthy(runtime) or not self._image_present(runtime, image):
+        image = str(getattr(tool, "container_image", "") or "")
+        if runtime is None or not self.can_run(tool):
             raise BackendUnavailableError(f"container runtime/image unavailable for {tool.tool_name}")
-        rewritten, mounts = self._rewrite_host_paths(argv)
-        with tempfile.TemporaryDirectory(prefix="windeep-container-") as scratch:
-            command = [runtime, "run", "--rm", "-i", "--network", "host", "-v", f"{Path(scratch).resolve()}:/windeep/scratch"]
-            for host, guest in mounts:
-                command.extend(["-v", f"{host.resolve()}:{guest}:ro"])
-            for name in getattr(tool, "required_env", ()):
-                if tool.environment.get(name):
-                    command.extend(["-e", str(name)])
-            command.append(image)
-            binary = str(getattr(tool, "container_command", "") or getattr(tool, "execution_name", "") or tool.binary)
-            command.extend([binary, *rewritten])
-            return await _exec_process(command, stdin, timeout, env=tool.environment)
+        command = str(getattr(tool, "container_command", "") or getattr(tool, "execution_name", "") or tool.binary)
+        extra = list(getattr(tool, "container_args", ()) or ())
+        return await _exec_process([runtime, "run", "--rm", *self._mount_args(tool), *extra, image, command, *argv], stdin, timeout, env=tool.environment)
 
 
 class WslBackend(ExecutionBackend):
@@ -209,74 +201,52 @@ class WslBackend(ExecutionBackend):
         distro = str(getattr(tool, "wsl_distro", "") or tool.environment.get("WINDEEP_WSL_DISTRO", "")).strip()
         return ["-d", distro] if distro else []
 
+    def _binary(self, tool: Any) -> str:
+        return str(getattr(tool, "wsl_binary", "") or getattr(tool, "execution_name", "") or tool.binary)
+
     def can_run(self, tool: Any) -> bool:
+        if self._launcher() is None:
+            return False
         if str(getattr(tool, "requires_host", "")).lower() in {"macos", "device"}:
             return False
-        launcher = self._launcher()
-        if not launcher:
-            return False
-        binary = str(getattr(tool, "execution_name", "") or tool.binary)
         try:
             completed = subprocess.run(
-                [launcher, *self._distro_args(tool), "--", "sh", "-lc", f"command -v {shlex_quote(binary)} >/dev/null 2>&1"],
+                [self._launcher(), *self._distro_args(tool), "--", "sh", "-lc", f"command -v {shlex_quote(self._binary(tool))} >/dev/null 2>&1"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=3,
+                timeout=5,
                 check=False,
             )
             return completed.returncode == 0
         except (OSError, subprocess.SubprocessError):
             return False
 
-    async def _translate(self, tool: Any, value: str) -> str:
-        candidate = Path(value).expanduser()
-        if not candidate.is_absolute() or not candidate.exists():
-            return value
-        launcher = self._launcher()
-        if not launcher:
-            return value
-        stdout, _stderr, rc = await _exec_process([launcher, *self._distro_args(tool), "--", "wslpath", "-a", str(candidate)], None, 5.0)
-        return stdout.strip() if rc == 0 and stdout.strip() else value
-
     async def exec(self, tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
         launcher = self._launcher()
-        if not launcher:
-            raise BackendUnavailableError(f"WSL unavailable for {tool.tool_name}")
-        translated = [await self._translate(tool, str(item)) for item in argv]
-        binary = str(getattr(tool, "execution_name", "") or tool.binary)
-        env_args: list[str] = []
-        for name in getattr(tool, "required_env", ()):
-            value = str(tool.environment.get(name) or "")
-            if value:
-                env_args.append(f"{name}={value}")
-        command = [launcher, *self._distro_args(tool), "--"]
-        if env_args:
-            command.extend(["env", *env_args])
-        command.extend([binary, *translated])
-        return await _exec_process(command, stdin, timeout, env=tool.environment)
+        if launcher is None or not self.can_run(tool):
+            raise BackendUnavailableError(f"WSL backend unavailable for {tool.tool_name}")
+        return await _exec_process([launcher, *self._distro_args(tool), "--", self._binary(tool), *argv], stdin, timeout, env=tool.environment)
 
 
 class RemoteWorkerBackend(ExecutionBackend):
     key = "remote_worker"
     tier = "remote"
 
-    def _settings(self, tool: Any) -> tuple[str, str]:
-        return (
-            str(tool.environment.get("WINDEEP_REMOTE_WORKER_URL", "")).strip().rstrip("/"),
-            str(tool.environment.get("WINDEEP_REMOTE_WORKER_TOKEN", "")).strip(),
-        )
+    def _config(self, tool: Any) -> tuple[str, str]:
+        url = str(tool.environment.get("WINDEEP_REMOTE_WORKER_URL") or "").strip().rstrip("/")
+        token = str(tool.environment.get("WINDEEP_REMOTE_WORKER_TOKEN") or "").strip()
+        return url, token
 
     def can_run(self, tool: Any) -> bool:
-        url, token = self._settings(tool)
+        url, token = self._config(tool)
         if not url or not token:
             return False
-        parsed = urlparse(url)
-        if parsed.scheme == "https":
-            return True
-        return parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost", "::1"}
+        if url.startswith("http://") and not (url.startswith("http://127.0.0.1") or url.startswith("http://localhost")):
+            return False
+        return True
 
     async def exec(self, tool: Any, argv: Sequence[str], stdin: bytes | None, timeout: float) -> tuple[str, str, int]:
-        url, token = self._settings(tool)
+        url, token = self._config(tool)
         if not self.can_run(tool):
             raise BackendUnavailableError(f"remote worker unavailable for {tool.tool_name}")
         payload = {
