@@ -16,10 +16,11 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from app.tools import builtin_integrations
-from app.tools.backends import BackendUnavailableError, ExecutionResolver
+from app.tools import builtin_fallbacks, builtin_integrations
+from app.tools.backends import BackendExecutionError, BackendUnavailableError, ExecutionResolver
 from app.tools.provisioning import provisioned_candidates, restore_cached_binary
 
 
@@ -27,7 +28,6 @@ class Finding(BaseModel):
     """Normalized external-tool result consumed by database, UI, and Brain."""
 
     model_config = ConfigDict(extra="allow")
-
     title: str
     severity: str = "info"
     vuln_type: str = "informational"
@@ -110,6 +110,7 @@ _TYPE_MAP: dict[str, Any] = {
     "dict": dict[str, Any],
 }
 _ALLOWED_RUNTIME_STRATEGIES = {"process", "builtin", "container", "wsl", "remote", "auto"}
+_ALIAS_NOTICE_EMITTED: set[str] = set()
 
 
 class ToolExecutionError(RuntimeError):
@@ -121,8 +122,6 @@ class ToolCancelledError(ToolExecutionError):
 
 
 class ToolWrapperBase:
-    """Base implementation inherited by dynamically generated wrappers."""
-
     tool_name: ClassVar[str]
     execution_name: ClassVar[str]
     binary: ClassVar[str]
@@ -173,7 +172,6 @@ class ToolWrapperBase:
         return "WINDEEP_TOOL_" + "".join(ch if ch.isalnum() else "_" for ch in self.tool_name.upper()) + "_BINARY"
 
     def resolve_local_binary(self) -> Path | None:
-        """Resolve only explicitly local/tool-dir/PATH executables."""
         execution_binary = str(self.environment.get(self._binary_env_key()) or self.binary or self.execution_name)
         configured = Path(execution_binary)
         if configured.is_absolute() and configured.is_file():
@@ -201,7 +199,6 @@ class ToolWrapperBase:
         return None
 
     def resolve_binary(self) -> Path | None:
-        """Compatibility helper: local first, then Windeep-provisioned binary."""
         return self.resolve_local_binary() or self.resolve_provisioned_binary()
 
     def runtime_status(self) -> dict[str, Any]:
@@ -219,13 +216,15 @@ class ToolWrapperBase:
         return status
 
     def validate_installed(self) -> bool:
-        """Return whether at least one backend currently resolves."""
         return self.runtime_status()["tier"] != "unavailable"
 
     def missing_environment(self) -> tuple[str, ...]:
-        """Return credentials required by the tool or builtin fallback."""
         adapter = self.builtin_fallback or self.execution_name or self.tool_name
-        required = (*self.required_env, *builtin_integrations.required_env(adapter))
+        required = (
+            *self.required_env,
+            *builtin_integrations.required_env(adapter),
+            *builtin_fallbacks.required_env(adapter),
+        )
         return tuple(sorted({name for name in required if not self.environment.get(name)}))
 
     def parse_output(self, raw: str, target: str, *, builtin: bool = False) -> list[Finding]:
@@ -233,13 +232,18 @@ class ToolWrapperBase:
         return parser(raw, self.tool_name, target)
 
     def _annotate_findings(self, findings: list[Finding], *, backend: Any, attempted: list[dict[str, str]]) -> list[Finding]:
-        for finding in findings:
+        first_alias_notice = bool(self.alias_to and self.tool_name not in _ALIAS_NOTICE_EMITTED)
+        if first_alias_notice:
+            _ALIAS_NOTICE_EMITTED.add(self.tool_name)
+        for index, finding in enumerate(findings):
             evidence = dict(finding.evidence or {})
             evidence["backend"] = backend.key
             evidence["backend_tier"] = backend.tier
             if self.alias_to:
                 evidence["served_by"] = self.execution_name
                 evidence["deprecated_alias"] = True
+                if first_alias_notice and index == 0:
+                    evidence["deprecation_notice"] = f"'{self.tool_name}' is an alias served by '{self.execution_name}'"
             if attempted:
                 evidence["backend_fallbacks"] = list(attempted)
             finding.evidence = evidence
@@ -247,7 +251,6 @@ class ToolWrapperBase:
         return findings
 
     async def run(self, target: str, options: Mapping[str, Any] | None = None) -> list[Finding]:
-        """Validate, resolve an execution backend, execute, then normalize output."""
         if self._cancel_requested():
             raise ToolCancelledError(f"{self.tool_name} cancelled before execution")
         if self.requires_scope and self.scope_validator is None:
@@ -261,16 +264,11 @@ class ToolWrapperBase:
         attempted: list[dict[str, str]] = []
         self.current_target = target
         try:
-            available = []
-            for key in self.resolver.ordered_keys(self):
-                backend = self.resolver.backends[key]
-                if backend.can_run(self):
-                    available.append(backend)
+            available = [self.resolver.backends[key] for key in self.resolver.ordered_keys(self) if self.resolver.backends[key].can_run(self)]
             if not available:
                 raise BackendUnavailableError(
-                    f"no execution backend available for {self.tool_name}; doctor --heal can provision declared dependencies"
+                    f"no execution backend available for {self.tool_name}; run 'winddeep doctor --heal' or configure WSL/remote worker"
                 )
-
             last_error: BaseException | None = None
             for backend in available:
                 for attempt in range(self.retries + 1):
@@ -290,7 +288,7 @@ class ToolWrapperBase:
                         return self._annotate_findings(findings, backend=backend, attempted=attempted)
                     except (ToolCancelledError, asyncio.CancelledError):
                         raise
-                    except (ToolExecutionError, BackendUnavailableError, asyncio.TimeoutError, OSError, httpx.HTTPError if False else OSError) as exc:  # type: ignore[misc]
+                    except (ToolExecutionError, BackendExecutionError, BackendUnavailableError, asyncio.TimeoutError, OSError, httpx.HTTPError) as exc:
                         last_error = exc
                         if attempt < self.retries:
                             await asyncio.sleep(min(8.0, 0.5 * (2**attempt)))
@@ -298,8 +296,7 @@ class ToolWrapperBase:
                         attempted.append({"backend": backend.key, "error": str(exc)[:1000]})
                         break
             raise ToolExecutionError(
-                f"{self.tool_name} failed across {len(available)} backend(s): {last_error}; "
-                f"attempted={', '.join(item['backend'] for item in attempted)}"
+                f"{self.tool_name} failed across {len(available)} backend(s): {last_error}; attempted={', '.join(item['backend'] for item in attempted)}"
             )
         finally:
             self.current_target = ""
@@ -345,10 +342,7 @@ class ToolWrapperBase:
 
     @staticmethod
     def _string_values(values: Mapping[str, Any]) -> dict[str, str]:
-        return {
-            key: json.dumps(value, separators=(",", ":")) if isinstance(value, (dict, list)) else str(value)
-            for key, value in values.items()
-        }
+        return {key: json.dumps(value, separators=(",", ":")) if isinstance(value, (dict, list)) else str(value) for key, value in values.items()}
 
     async def _respect_rate_limit(self) -> None:
         if self.rate_limit <= 0:
@@ -361,12 +355,15 @@ class ToolWrapperBase:
             self._last_started = time.monotonic()
 
     async def _run_process(self, argv: Sequence[str], stdin_data: bytes | None = None) -> tuple[str, str, int]:
-        """Legacy direct-process helper retained for compatibility tests."""
+        creationflags = 0
+        if os.name == "nt":
+            creationflags = getattr(__import__("subprocess"), "CREATE_NO_WINDOW", 0)
         process = await asyncio.create_subprocess_exec(
             *argv,
             stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            creationflags=creationflags,
             env=self.environment,
         )
         try:
@@ -391,7 +388,7 @@ class ToolWrapperFactory:
         definitions = self._load_definitions(self.config_path.resolve(), set())
         if not definitions:
             raise ValueError("tools_config.json does not define any tools")
-        defaults, overlays, aliases = self._load_runtime_overlays()
+        defaults, overlays, aliases = self._load_runtime_overlays(definitions)
         merged: dict[str, Mapping[str, Any]] = {}
         for name, original in definitions.items():
             alias_to = str(aliases.get(name) or "")
@@ -404,7 +401,9 @@ class ToolWrapperFactory:
                 base["execution_name"] = alias_to
             else:
                 base["execution_name"] = name
-            base = {**defaults, **base, **dict(overlays.get(name, {}))}
+            target_overlay = dict(overlays.get(alias_to, {})) if alias_to else {}
+            own_overlay = dict(overlays.get(name, {}))
+            base = {**base, **defaults, **target_overlay, **own_overlay}
             if alias_to:
                 base["alias_to"] = alias_to
                 base["execution_name"] = alias_to
@@ -421,7 +420,7 @@ class ToolWrapperFactory:
         except KeyError as exc:
             raise KeyError(f"unknown tool wrapper: {name}") from exc
 
-    def _load_runtime_overlays(self) -> tuple[dict[str, Any], dict[str, Any], dict[str, str]]:
+    def _load_runtime_overlays(self, definitions: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, str]]:
         root = self.config_path.resolve().parent
         root_config = json.loads(self.config_path.resolve().read_text(encoding="utf-8"))
         relative = str(root_config.get("runtime_overlays") or "app/tools/config/v4_runtime.json")
@@ -433,17 +432,12 @@ class ToolWrapperFactory:
         raw = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(raw, dict):
             raise ValueError("v4 runtime overlay must be an object")
-        defaults = raw.get("defaults", {})
-        tools = raw.get("tools", {})
-        aliases = raw.get("aliases", {})
+        defaults, tools, aliases = raw.get("defaults", {}), raw.get("tools", {}), raw.get("aliases", {})
         if not isinstance(defaults, dict) or not isinstance(tools, dict) or not isinstance(aliases, dict):
             raise ValueError("v4 runtime overlay requires object defaults/tools/aliases")
-        unknown = sorted(set(tools).difference(self._load_definitions(self.config_path.resolve(), set())))
-        if unknown:
-            # Overlay can be prepared ahead of a catalog addition, but it must not
-            # mutate the active registry until that tool exists.
-            tools = {name: value for name, value in tools.items() if name not in unknown}
-        return dict(defaults), dict(tools), {str(k): str(v) for k, v in aliases.items()}
+        tools = {str(name): value for name, value in tools.items() if name in definitions and isinstance(value, dict)}
+        aliases = {str(k): str(v) for k, v in aliases.items() if k in definitions}
+        return dict(defaults), tools, aliases
 
     def _load_definitions(self, path: Path, visited: set[Path]) -> dict[str, Mapping[str, Any]]:
         if path in visited:
@@ -560,8 +554,4 @@ class ToolWrapperFactory:
                 default = definition.get("default", None)
                 field_type = field_type | None
             fields[field_name] = (field_type, default)
-        return create_model(
-            f"{name.title().replace('_', '')}Input",
-            __config__=ConfigDict(extra="forbid"),
-            **fields,
-        )
+        return create_model(f"{name.title().replace('_', '')}Input", __config__=ConfigDict(extra="forbid"), **fields)
