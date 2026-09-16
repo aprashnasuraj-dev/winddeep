@@ -12,6 +12,7 @@ from typing import Any, Mapping
 from app.engine.tool_wrapper import ToolWrapperFactory
 from app.tools.backends import BackendUnavailableError, backend_capabilities
 from app.tools.provisioning import Provisioner, ProvisioningError
+from app.tools.wsl_provisioning import WslProvisioningError, provision_wsl
 
 
 def _root_from_registry(registry: Path) -> Path:
@@ -46,10 +47,6 @@ async def _probe(wrapper: Any) -> dict[str, Any]:
     except BackendUnavailableError as exc:
         return {"status": "unavailable", "error": str(exc)}
 
-    # Builtin fallbacks are Python adapters, not command-line programs. Their
-    # non-invasive liveness contract is successful resolver registration plus
-    # required-environment validation performed by can_run(). Calling exec()
-    # here would require a scan target and would create a false doctor failure.
     if backend.key == "builtin_fallback":
         return {
             "status": "pass",
@@ -66,9 +63,6 @@ async def _probe(wrapper: Any) -> dict[str, Any]:
     except Exception as exc:
         return {"status": "failed", "backend": backend.key, "tier": backend.tier, "error": str(exc)}
 
-    # Security CLIs are inconsistent about help/version exit codes. For a
-    # liveness probe, 0/1/2 all prove the executable started; timeout, backend
-    # failures and exec-not-found remain hard failures before this point.
     accepted = tuple(getattr(wrapper, "probe_success_codes", (0, 1, 2)) or (0, 1, 2))
     return {
         "status": "pass" if rc in accepted else "failed",
@@ -110,6 +104,17 @@ def doctor(
                     actions.append({"action": "provision", "status": result.status, "ecosystem": result.ecosystem, "binary": result.binary, "sha256": result.sha256})
                 except (ProvisioningError, PermissionError, OSError, subprocess.SubprocessError) as exc:
                     actions.append({"action": "provision", "status": "failed", "error": str(exc)})
+
+            # On Windows, a failed/unavailable host install can be recovered in
+            # the Linux environment using the same declared recipe. This is
+            # explicitly consented and installs into WSL /usr/local/bin.
+            if os.name == "nt" and wrapper.runtime_status()["tier"] == "unavailable" and consent:
+                try:
+                    result = provision_wsl(wrapper, consent=True)
+                    actions.append({"action": "wsl-provision", "status": result.status, "ecosystem": result.ecosystem, "binary": result.binary})
+                except (WslProvisioningError, PermissionError, OSError, subprocess.SubprocessError) as exc:
+                    actions.append({"action": "wsl-provision", "status": "failed", "error": str(exc)})
+
             image = str(getattr(cls, "container_image", "") or "")
             if image and wrapper.runtime_status()["tier"] == "unavailable" and consent:
                 if image not in container_results:
