@@ -1,8 +1,9 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "tool_count": 137,
   "active_tool_count": 137,
-  "release_policy": "All 137 catalog integrations are runtime-addressable. Windows v0.1.x packaging certification remains a separate six-binary payload contract enforced by app/tools/release-policy.json and installer/tools-manifest.json.",
+  "runtime_overlays": "app/tools/config/v4_runtime.json",
+  "release_policy": "Windeep v4 keeps all catalog integrations addressable, but runtime readiness is resolved per host through native, provisioned, container, WSL, remote-worker, and builtin-fallback backends. Counts are generated from resolver evidence rather than catalog presence.",
   "catalog_includes": [
     "app/tools/config/recon_passive.json",
     "app/tools/config/recon_active.json",
