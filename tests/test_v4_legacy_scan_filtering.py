@@ -195,7 +195,9 @@ def test_legacy_scan_preserves_immediate_202_then_poll_complete(monkeypatch: pyt
     )
     assert started.status_code == 202
     assert entered.wait(1.0)
-    assert started.get_json()["status"] in {"queued", "running"}
+    # Preserve the compatibility API's established response snapshot exactly:
+    # create_scan returns pending even if the worker has already started.
+    assert started.get_json()["status"] == "pending"
     release.set()
     row = _poll(client, int(started.get_json()["id"]), {"completed", "failed"})
     assert row["status"] == "completed"
