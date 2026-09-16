@@ -121,6 +121,15 @@ class ToolCancelledError(ToolExecutionError):
     """Raised when a user-requested scan stop terminates tool execution."""
 
 
+def _failure_outcome(exc: BaseException) -> str:
+    """Classify a backend miss separately from a backend that rejected input."""
+    if isinstance(exc, (BackendUnavailableError, FileNotFoundError)):
+        return "MISSING"
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) == 2:
+        return "MISSING"
+    return "REJECTED"
+
+
 class ToolWrapperBase:
     tool_name: ClassVar[str]
     execution_name: ClassVar[str]
@@ -239,6 +248,7 @@ class ToolWrapperBase:
             evidence = dict(finding.evidence or {})
             evidence["backend"] = backend.key
             evidence["backend_tier"] = backend.tier
+            evidence["backend_outcome"] = "OK"
             if self.alias_to:
                 evidence["served_by"] = self.execution_name
                 evidence["deprecated_alias"] = True
@@ -293,7 +303,7 @@ class ToolWrapperBase:
                         if attempt < self.retries:
                             await asyncio.sleep(min(8.0, 0.5 * (2**attempt)))
                             continue
-                        attempted.append({"backend": backend.key, "error": str(exc)[:1000]})
+                        attempted.append({"backend": backend.key, "outcome": _failure_outcome(exc), "error": str(exc)[:1000]})
                         break
             raise ToolExecutionError(
                 f"{self.tool_name} failed across {len(available)} backend(s): {last_error}; attempted={', '.join(item['backend'] for item in attempted)}"
@@ -407,6 +417,8 @@ class ToolWrapperFactory:
             if alias_to:
                 base["alias_to"] = alias_to
                 base["execution_name"] = alias_to
+                if not base.get("builtin_fallback") and (builtin_integrations.supports(name) or builtin_fallbacks.supports(name)):
+                    base["builtin_fallback"] = name
             merged[name] = base
         generated = {name: self._create_wrapper(name, definition) for name, definition in merged.items()}
         self._classes = generated
