@@ -12,11 +12,58 @@ from typing import Any, Mapping
 from app.engine.tool_wrapper import ToolWrapperFactory
 from app.tools.backends import BackendUnavailableError, backend_capabilities
 from app.tools.provisioning import Provisioner, ProvisioningError
+from app.tools.release_metadata import effective_definitions
 from app.tools.wsl_provisioning import WslProvisioningError, provision_wsl
 
 
 def _root_from_registry(registry: Path) -> Path:
     return registry.resolve().parent
+
+
+def _load_release_contracts(root: Path) -> dict[str, dict[str, str]]:
+    path = root / "app" / "tools" / "config" / "v4_release_contracts.json"
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    contracts = raw.get("contract_only", {}) if isinstance(raw, dict) else {}
+    if not isinstance(contracts, dict):
+        return {}
+    return {
+        str(name): {"kind": str(item.get("kind") or ""), "reason": str(item.get("reason") or "")}
+        for name, item in contracts.items()
+        if isinstance(item, dict)
+    }
+
+
+def _skip_heal_reason(
+    name: str,
+    cls: type[Any],
+    definition: Mapping[str, Any],
+    contracts: Mapping[str, Mapping[str, str]],
+    env: Mapping[str, str],
+) -> str | None:
+    release_support = str(definition.get("release_support") or "").strip().lower()
+    unsupported_reason = str(definition.get("unsupported_reason") or "").strip()
+    if release_support == "unsupported" and unsupported_reason:
+        return "catalog-unsupported:" + unsupported_reason
+
+    declared = contracts.get(name)
+    if declared:
+        kind = str(declared.get("kind") or "contract-only")
+        reason = str(declared.get("reason") or "explicit v4 release contract")
+        return f"{kind}:{reason}"
+
+    missing_env = [
+        str(key)
+        for key in getattr(cls, "required_env", ())
+        if not str(env.get(str(key)) or "").strip()
+    ]
+    if missing_env:
+        return "credentials:" + ",".join(sorted(missing_env))
+    return None
 
 
 def _build_container(image: str, root: Path) -> dict[str, Any]:
@@ -89,6 +136,8 @@ def doctor(
     root = _root_from_registry(registry_path)
     env = {**os.environ, **dict(environment or {})}
     classes = ToolWrapperFactory(registry_path).load()
+    definitions = effective_definitions(registry_path)
+    release_contracts = _load_release_contracts(root)
     provisioner = Provisioner(tools_dir, environment=env)
     container_results: dict[str, dict[str, Any]] = {}
     rows: list[dict[str, Any]] = []
@@ -98,28 +147,32 @@ def doctor(
         before = wrapper.runtime_status()
         actions: list[dict[str, Any]] = []
         if heal and before["tier"] == "unavailable":
-            if getattr(cls, "provision", None):
-                try:
-                    result = provisioner.provision(wrapper, consent=consent)
-                    actions.append({"action": "provision", "status": result.status, "ecosystem": result.ecosystem, "binary": result.binary, "sha256": result.sha256})
-                except (ProvisioningError, PermissionError, OSError, subprocess.SubprocessError) as exc:
-                    actions.append({"action": "provision", "status": "failed", "error": str(exc)})
+            skip_reason = _skip_heal_reason(name, cls, definitions[name], release_contracts, env)
+            if skip_reason:
+                actions.append({"action": "contract-only", "status": "skipped", "reason": skip_reason})
+            else:
+                if getattr(cls, "provision", None):
+                    try:
+                        result = provisioner.provision(wrapper, consent=consent)
+                        actions.append({"action": "provision", "status": result.status, "ecosystem": result.ecosystem, "binary": result.binary, "sha256": result.sha256})
+                    except (ProvisioningError, PermissionError, OSError, subprocess.SubprocessError) as exc:
+                        actions.append({"action": "provision", "status": "failed", "error": str(exc)})
 
-            # On Windows, a failed/unavailable host install can be recovered in
-            # the Linux environment using the same declared recipe. This is
-            # explicitly consented and installs into WSL /usr/local/bin.
-            if os.name == "nt" and wrapper.runtime_status()["tier"] == "unavailable" and consent:
-                try:
-                    result = provision_wsl(wrapper, consent=True)
-                    actions.append({"action": "wsl-provision", "status": result.status, "ecosystem": result.ecosystem, "binary": result.binary})
-                except (WslProvisioningError, PermissionError, OSError, subprocess.SubprocessError) as exc:
-                    actions.append({"action": "wsl-provision", "status": "failed", "error": str(exc)})
+                # On Windows, a failed/unavailable host install can be recovered in
+                # the Linux environment using the same declared recipe. This is
+                # explicitly consented and installs into WSL /usr/local/bin.
+                if os.name == "nt" and wrapper.runtime_status()["tier"] == "unavailable" and consent:
+                    try:
+                        result = provision_wsl(wrapper, consent=True)
+                        actions.append({"action": "wsl-provision", "status": result.status, "ecosystem": result.ecosystem, "binary": result.binary})
+                    except (WslProvisioningError, PermissionError, OSError, subprocess.SubprocessError) as exc:
+                        actions.append({"action": "wsl-provision", "status": "failed", "error": str(exc)})
 
-            image = str(getattr(cls, "container_image", "") or "")
-            if image and wrapper.runtime_status()["tier"] == "unavailable" and consent:
-                if image not in container_results:
-                    container_results[image] = _build_container(image, root)
-                actions.append({"action": "container", "image": image, **container_results[image]})
+                image = str(getattr(cls, "container_image", "") or "")
+                if image and wrapper.runtime_status()["tier"] == "unavailable" and consent:
+                    if image not in container_results:
+                        container_results[image] = _build_container(image, root)
+                    actions.append({"action": "container", "image": image, **container_results[image]})
         after = wrapper.runtime_status()
         probe_result = asyncio.run(_probe(wrapper)) if probe and after["tier"] != "unavailable" else {"status": "skipped"}
         rows.append(
