@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "contract_only": {
+    "findomain": {
+      "kind": "upstream-packaging",
+      "reason": "The crates.io release currently selected by the catalog is not installable on the generic CI toolchain. Keep the integration addressable while a reviewed pinned/portable package is prepared."
+    },
+    "forge": {
+      "kind": "bundle-required",
+      "reason": "Foundry Forge is a bundled-release integration, not a generic apt/pip/npm package. Runtime proof belongs to the release bundle/package gate rather than the generic host-heal matrix."
+    },
+    "ghauri": {
+      "kind": "upstream-packaging",
+      "reason": "No compatible package-manager distribution is currently exposed by the declared pipx recipe on generic CI."
+    },
+    "graphql_cop": {
+      "kind": "upstream-packaging",
+      "reason": "No compatible package-manager distribution is currently exposed by the declared pipx recipe on generic CI."
+    },
+    "jwt_tool": {
+      "kind": "upstream-packaging",
+      "reason": "The upstream repository is not installable as a standard pip package through the declared generic-CI route."
+    },
+    "knockpy": {
+      "kind": "upstream-packaging",
+      "reason": "The available Python package does not expose the expected console launcher through the declared pipx route."
+    },
+    "nuclei": {
+      "kind": "provisioning-route-pending",
+      "reason": "Nuclei remains a supported integration, but its reviewed Go provisioning route is not yet represented in the generic host-heal overlay. Do not misreport it as runtime-proven."
+    },
+    "paramspider": {
+      "kind": "upstream-packaging",
+      "reason": "No compatible package-manager distribution is currently exposed by the declared pipx recipe on generic CI."
+    },
+    "recon_ng": {
+      "kind": "upstream-packaging",
+      "reason": "No compatible package-manager distribution is currently exposed by the declared pipx recipe on generic CI."
+    },
+    "theharvester": {
+      "kind": "upstream-packaging",
+      "reason": "The available Python package does not expose the expected console launcher through the declared pipx route."
+    },
+    "xsstrike": {
+      "kind": "upstream-packaging",
+      "reason": "The upstream repository is not installable as a standard pip package through the declared generic-CI route."
+    }
+  }
+}
