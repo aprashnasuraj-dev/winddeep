@@ -16,9 +16,10 @@ def _factory(tmp_path: Path, root: dict | None = None) -> ToolWrapperFactory:
     return ToolWrapperFactory(config)
 
 
-def test_windows_provisioning_prefers_native_launchers_before_posix_shims() -> None:
-    assert _candidate_names("surya", windows=True) == ["surya.exe", "surya.cmd", "surya.bat", "surya"]
+def test_windows_provisioning_prefers_only_native_launchers_over_posix_shims() -> None:
+    assert _candidate_names("surya", windows=True) == ["surya.exe", "surya.cmd", "surya.bat"]
     assert _candidate_names("solcjs", windows=True)[0:2] == ["solcjs.exe", "solcjs.cmd"]
+    assert "inql" not in _candidate_names("inql", windows=True)
     assert _candidate_names("tool", windows=False) == ["tool"]
     assert _candidate_names("already.exe", windows=True) == ["already.exe"]
 
