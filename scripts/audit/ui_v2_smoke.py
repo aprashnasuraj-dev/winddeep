@@ -70,7 +70,14 @@ def main() -> int:
             page.locator("#scanMode").select_option("selected")
             page.locator("#scanToolSelect").select_option(["assetfinder"])
             page.locator("#previewPlan").click()
-            wait_text(page, "#scanPlan", "1 selected")
+            # V3 server-side planning labels this "selected" while the additive
+            # V4 resolver overlay labels the same planned tool "resolver-ready".
+            # Assert the stable contract carried in the DOM instead of product copy.
+            page.wait_for_function(
+                "JSON.parse(document.querySelector('#scanPlan').dataset.selectedTools || '[]').includes('assetfinder')",
+                timeout=10_000,
+            )
+            assert "assetfinder" in page.locator("#scanPlan").inner_text()
             with page.expect_response(
                 lambda response: response.url.endswith("/api/v2/scans") and response.request.method == "POST",
                 timeout=10_000,
