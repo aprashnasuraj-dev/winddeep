@@ -161,6 +161,7 @@ def validate(registry: Path, reports: list[Path]) -> dict[str, Any]:
         else:
             unproven.append(name)
 
+    stale_contracts = sorted(name for name in contracts if proven.get(name))
     summary = {
         "schema": "windeep.v4.runtime-matrix.v1",
         "catalog": len(expected),
@@ -170,6 +171,7 @@ def validate(registry: Path, reports: list[Path]) -> dict[str, Any]:
         "reports": report_summaries,
         "contract_only_tools": contract_only,
         "declared_release_contracts": contracts,
+        "stale_release_contracts": stale_contracts,
         "unproven_tools": unproven,
         "routes": {name: proven[name] for name in runtime_proven},
     }
