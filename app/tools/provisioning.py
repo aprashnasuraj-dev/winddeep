@@ -44,11 +44,18 @@ def _safe_name(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in value)
 
 
-def _candidate_names(binary: str) -> list[str]:
-    names = [binary]
-    if os.name == "nt" and not Path(binary).suffix:
-        names.extend([binary + suffix for suffix in (".exe", ".cmd", ".bat")])
-    return names
+def _candidate_names(binary: str, *, windows: bool | None = None) -> list[str]:
+    """Return executable candidates in host-native launch order.
+
+    npm and pipx commonly create both a POSIX shim without a suffix and a
+    Windows-native ``.cmd``/``.exe`` launcher.  CreateProcess cannot execute
+    the POSIX shim on Windows (WinError 193), so prefer native launchers there
+    and retain the historical bare-name-first behavior on POSIX hosts.
+    """
+    use_windows = os.name == "nt" if windows is None else bool(windows)
+    if use_windows and not Path(binary).suffix:
+        return [binary + suffix for suffix in (".exe", ".cmd", ".bat")] + [binary]
+    return [binary]
 
 
 def provisioned_candidates(tool: Any) -> list[Path]:
