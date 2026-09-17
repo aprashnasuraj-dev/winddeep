@@ -20,7 +20,7 @@
     "naabu": {"provision":{"ecosystem":"go","package":"github.com/projectdiscovery/naabu/v2/cmd/naabu","version":"latest","binary":"naabu"},"probe":["-version"]},
     "katana": {"provision":{"ecosystem":"go","package":"github.com/projectdiscovery/katana/cmd/katana","version":"latest","binary":"katana"},"probe":["-version"]},
     "ffuf": {"provision":{"ecosystem":"go","package":"github.com/ffuf/ffuf/v2","version":"latest","binary":"ffuf"},"probe":["-V"]},
-    "gobuster": {"provision":{"ecosystem":"go","package":"github.com/OJ/gobuster/v3","version":"latest","binary":"gobuster"},"probe":["version"]},
+    "gobuster": {"provision":{"ecosystem":"go","package":"github.com/OJ/gobuster/v3","version":"latest","binary":"gobuster"},"probe":["--help"]},
     "dalfox": {"provision":{"ecosystem":"go","package":"github.com/hahwul/dalfox/v2","version":"latest","binary":"dalfox"},"probe":["version"]},
     "gau": {"provision":{"ecosystem":"go","package":"github.com/lc/gau/v2/cmd/gau","version":"latest","binary":"gau"},"builtin_fallback":"wayback_cdx","probe":["--version"]},
     "waybackurls": {"provision":{"ecosystem":"go","package":"github.com/tomnomnom/waybackurls","version":"latest","binary":"waybackurls"},"builtin_fallback":"wayback_cdx","probe":["-h"]},
