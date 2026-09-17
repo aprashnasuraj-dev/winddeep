@@ -37,7 +37,9 @@ def main() -> int:
             page.on("pageerror", lambda exc: errors.append(str(exc)))
             page.goto(BASE, wait_until="networkidle", timeout=30_000)
             page.locator("#sessionState").filter(has_text="Local session protected").wait_for(timeout=15_000)
-            assert "Windeep v3" in page.title()
+            title = page.title()
+            assert title.startswith("Windeep v")
+            assert "Authorized Security Workspace" in title
 
             views = ["overview", "targets", "scans", "tools", "testpacks", "findings", "reports", "intelligence", "settings"]
             for view in views:
