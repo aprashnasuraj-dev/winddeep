@@ -10,8 +10,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+# Running this file directly makes Python put ``scripts/`` on sys.path rather
+# than the repository root. Add the root explicitly so repo-local ``app``
+# imports work in CI and for direct operator invocation without PYTHONPATH.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.engine.tool_wrapper import ToolWrapperFactory
 from app.tools import builtin_fallbacks, builtin_integrations
