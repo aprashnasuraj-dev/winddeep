@@ -10,6 +10,7 @@ from app.v3.events import V3EventPublisher
 from app.v3.release_migration import apply_v3_release_migration
 from app.v3.reporting import V3ReportGenerator
 from app.v3.triage import ManualTriage, TriageError
+from app.v4.api import register_v4_api
 
 
 def register_v3_api(
@@ -22,7 +23,7 @@ def register_v3_api(
     preflight_for: Callable[..., Any],
     event_publisher: V3EventPublisher,
 ) -> None:
-    """Register v3 read/triage/report routes on the existing local auth boundary."""
+    """Register v3 compatibility plus the additive v4 runtime-management API."""
     apply_v3_release_migration(database.path)
     triage = ManualTriage(database, audit)
     reports = V3ReportGenerator(database, crypto, triage=triage)
@@ -75,7 +76,7 @@ def register_v3_api(
     def v3_status() -> Response:
         return jsonify(
             {
-                "version": "3.0.0",
+                "version": "3.0.0-compat",
                 "sse_schema": "windeep.sse.v1",
                 "handling": "tester-first",
                 "report_inclusion": "all-findings",
@@ -179,6 +180,9 @@ def register_v3_api(
         except PermissionError as exc:
             audit.append("v3.api.denied", {"scan_id": scan_id, "path": request.path, "reason": str(exc)})
             return jsonify({"error": str(exc)}), 403
+
+    if "windeep.tool_factory" in app.extensions:
+        register_v4_api(app, authenticated=authenticated, audit=audit)
 
 
 __all__ = ["register_v3_api"]

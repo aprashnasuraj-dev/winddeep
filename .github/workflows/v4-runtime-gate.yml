@@ -1,0 +1,185 @@
+name: Windeep v4 Runtime Gate
+
+on:
+  pull_request:
+    paths:
+      - 'app/**'
+      - 'docker/**'
+      - 'scripts/generate_v4_metadata.py'
+      - 'scripts/probe_v4_container.py'
+      - 'scripts/validate_v4_doctor_report.py'
+      - 'scripts/validate_v4_runtime_matrix.py'
+      - 'tests/test_v4_*.py'
+      - 'tools_config.json'
+      - 'README.md'
+      - 'requirements*.txt'
+      - '.gitattributes'
+      - '.github/workflows/v4-runtime-gate.yml'
+  push:
+    branches: [main, v4.0-dev]
+    tags: ['v4.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windeep-v4-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: Contract ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install runtime and test dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Compile v4 runtime
+        run: python -m compileall -q app launcher.py scripts/generate_v4_metadata.py scripts/probe_v4_container.py scripts/validate_v4_doctor_report.py scripts/validate_v4_runtime_matrix.py
+      - name: Enforce catalog route and resolver contracts
+        run: python -m pytest -q tests/test_v4_runtime.py tests/test_v4_alias_rejection_fallback.py tests/test_v4_legacy_scan_filtering.py
+      - name: Show host backend capabilities
+        run: python launcher.py doctor --backends --json
+
+  container:
+    name: Container backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build versioned Windeep tools image
+        run: docker build -f docker/tools.Dockerfile -t winddeep/tools:v3 .
+      - name: Probe every declared shared-container route
+        run: python scripts/probe_v4_container.py --image winddeep/tools:v3
+
+  wsl-contract:
+    name: Windows WSL backend contract
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify WSL executable and backend code path
+        shell: pwsh
+        run: |
+          if (-not (Get-Command wsl.exe -ErrorAction SilentlyContinue)) { throw 'wsl.exe is unavailable on runner' }
+          python -m compileall -q app
+          Select-String -Path app/tools/backends.py -Pattern 'class WslBackend' -Quiet | ForEach-Object { if (-not $_) { throw 'WslBackend missing' } }
+          Select-String -Path app/tools/wsl_provisioning.py -Pattern 'def provision_wsl' -Quiet | ForEach-Object { if (-not $_) { throw 'WSL provisioning path missing' } }
+
+  full-heal:
+    name: Full catalog heal ${{ matrix.os }}
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/v4.0-dev' || startsWith(github.ref, 'refs/tags/v4.')
+    needs: [contract, container, wsl-contract]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 'lts/*'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install runtime, tests and pipx
+        run: |
+          python -m pip install -r requirements.txt -r requirements-dev.txt pipx
+          python -m pipx ensurepath
+      - name: Heal, recheck and require clean resolved routes
+        shell: bash
+        if: runner.os != 'Windows'
+        run: |
+          set +e
+          python launcher.py doctor --heal --yes --json > v4-heal-${{ runner.os }}.json
+          heal_rc=$?
+          set -e
+          if [[ $heal_rc -ne 0 && $heal_rc -ne 3 ]]; then
+            echo "doctor --heal failed unexpectedly with rc=$heal_rc"
+            exit "$heal_rc"
+          fi
+
+          set +e
+          python launcher.py doctor --json > v4-doctor-${{ runner.os }}.json
+          check_rc=$?
+          set -e
+          if [[ $check_rc -ne 0 && $check_rc -ne 3 ]]; then
+            echo "post-heal doctor failed unexpectedly with rc=$check_rc"
+            exit "$check_rc"
+          fi
+
+          python scripts/validate_v4_doctor_report.py \
+            v4-doctor-${{ runner.os }}.json \
+            --healed-from v4-heal-${{ runner.os }}.json
+      - name: Heal, recheck and require clean resolved routes (Windows)
+        shell: pwsh
+        if: runner.os == 'Windows'
+        run: |
+          python launcher.py doctor --heal --yes --json | Out-File -Encoding utf8 v4-heal-Windows.json
+          $healRc = $LASTEXITCODE
+          if ($healRc -ne 0 -and $healRc -ne 3) { throw "Doctor --heal failed unexpectedly with rc=$healRc" }
+
+          python launcher.py doctor --json | Out-File -Encoding utf8 v4-doctor-Windows.json
+          $checkRc = $LASTEXITCODE
+          if ($checkRc -ne 0 -and $checkRc -ne 3) { throw "Post-heal doctor failed unexpectedly with rc=$checkRc" }
+
+          python scripts/validate_v4_doctor_report.py v4-doctor-Windows.json --healed-from v4-heal-Windows.json
+          if ($LASTEXITCODE -ne 0) { throw "Post-heal doctor report is not clean" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v4-doctor-${{ runner.os }}
+          path: v4-*.json
+          if-no-files-found: error
+
+  catalog-union:
+    name: Catalog runtime union
+    needs: [full-heal]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install runtime dependencies
+        run: python -m pip install -r requirements.txt
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: v4-doctor-*
+          path: v4-doctor-reports
+          merge-multiple: true
+      - name: Require every catalog tool to have runtime or explicit host/credential contract
+        shell: bash
+        run: |
+          python scripts/validate_v4_runtime_matrix.py v4-doctor-reports/v4-doctor-*.json --output v4-runtime-matrix.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: v4-runtime-matrix
+          path: v4-runtime-matrix.json
+      - name: Require generated v4 metadata to match resolver
+        shell: bash
+        run: |
+          if ! python scripts/generate_v4_metadata.py --check; then
+            echo "::error::Generated v4 metadata drifted."
+            echo "Regenerate with:"
+            echo "python scripts/generate_v4_metadata.py"
+            exit 1
+          fi

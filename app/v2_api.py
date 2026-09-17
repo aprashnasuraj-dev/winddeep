@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import shutil
 import time
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -12,7 +11,6 @@ from typing import Any, Callable, Mapping
 from flask import Flask, Response, jsonify, request, stream_with_context
 
 from app.migrations import MigrationManager
-from app.tools import builtin_integrations
 from app.v2_pipeline import ScanEventLog, SchedulerRuntimeRegistry, canonical_bytes, run_p0_scan
 
 
@@ -200,19 +198,18 @@ def register_v2_api(
         env = runtime_environment()
         wrapper = cls(tools_dir=tools_dir, scope_validator=lambda _value: True, environment=env)
         missing_env = list(wrapper.missing_environment())
-        builtin = builtin_integrations.supports(name)
+        runtime_state = wrapper.runtime_status()
+        runtime_tier = str(runtime_state.get("tier") or "unavailable")
+        backend = runtime_state.get("backend")
         binary_path = wrapper.resolve_binary()
-        wsl_available = bool(os.name == "nt" and shutil.which("wsl.exe"))
-        ready = not missing_env and (builtin or binary_path is not None)
+        ready = not missing_env and runtime_tier != "unavailable"
         types = compatible_types(cls)
         normalized_type = _target_type(target_type or "") if target_type else None
         compatible = normalized_type is None or normalized_type in types or ("web" in types and normalized_type in {"domain", "url", "host"})
         if missing_env:
             blocked_reason = "Missing configuration: " + ", ".join(missing_env)
-        elif not builtin and binary_path is None:
-            blocked_reason = f"Executable '{cls.binary}' not found in tools/ or PATH"
-            if wsl_available:
-                blocked_reason += "; WSL fallback will be attempted on manual execution"
+        elif runtime_tier == "unavailable":
+            blocked_reason = "No execution backend is currently runnable; use winddeep doctor --heal or enable Docker/WSL/remote worker"
         elif not compatible:
             blocked_reason = f"Not aligned to target type '{normalized_type}'"
         else:
@@ -226,13 +223,23 @@ def register_v2_api(
             "name": name,
             "category": str(getattr(cls, "category", "uncategorized")),
             "description": str(getattr(cls, "description", "")),
-            "adapter": "builtin" if builtin else "process",
+            "adapter": str(backend or getattr(cls, "runtime_strategy", "auto")),
             "ready": ready,
-            "installed": bool(builtin or binary_path is not None),
+            "installed": bool(binary_path is not None),
+            "resolved": runtime_tier != "unavailable",
             "configured": not missing_env,
             "missing_env": missing_env,
             "binary": str(binary_path) if binary_path else str(getattr(cls, "binary", name)),
-            "wsl_available": wsl_available,
+            "runtime_tier": runtime_tier,
+            "backend": backend,
+            "runtime_strategy": str(runtime_state.get("runtime_strategy") or getattr(cls, "runtime_strategy", "auto")),
+            "execution_chain": list(runtime_state.get("chain") or []),
+            "execution_name": str(getattr(cls, "execution_name", name)),
+            "alias_to": str(getattr(cls, "alias_to", "") or "") or None,
+            "requires_host": str(getattr(cls, "requires_host", "") or "") or None,
+            "has_provision_recipe": bool(getattr(cls, "provision", None)),
+            "container_image": str(getattr(cls, "container_image", "") or "") or None,
+            "builtin_fallback": str(getattr(cls, "builtin_fallback", "") or "") or None,
             "target_types": list(types),
             "compatible": compatible,
             "scan_default": bool(getattr(cls, "scan_default", True)),
@@ -261,7 +268,6 @@ def register_v2_api(
             name = item["name"]
             category = item["category"]
             choose = False
-            require_ready = True
             if normalized_mode == "smart":
                 choose = bool(item["scan_default"] and category != "utilities")
             elif normalized_mode == "full":
@@ -270,10 +276,8 @@ def register_v2_api(
                 choose = category in requested_modules
             elif normalized_mode in {"selected", "single"}:
                 choose = name in requested_names
-                require_ready = False
             elif normalized_mode == "catalog":
                 choose = category != "utilities"
-                require_ready = False
             else:
                 raise ValueError(f"unknown scan mode: {normalized_mode}")
             if not choose:
@@ -281,7 +285,7 @@ def register_v2_api(
             if not item["compatible"]:
                 skipped.append({"tool": name, "reason": item["blocked_reason"] or "target type mismatch"})
                 continue
-            if require_ready and not item["ready"]:
+            if not item["ready"]:
                 skipped.append({"tool": name, "reason": item["blocked_reason"] or "not ready"})
                 continue
             selected.append(name)
@@ -336,10 +340,17 @@ def register_v2_api(
     def v2_tools() -> Response:
         target_type = request.args.get("target_type")
         rows = all_descriptors(target_type)
+        tiers: dict[str, int] = {}
+        for row in rows:
+            tier = str(row["runtime_tier"])
+            tiers[tier] = tiers.get(tier, 0) + 1
         return jsonify({
             "total": len(rows),
             "ready": sum(1 for row in rows if row["ready"]),
             "configured": sum(1 for row in rows if row["configured"]),
+            "resolved": sum(1 for row in rows if row["resolved"]),
+            "unavailable": sum(1 for row in rows if row["runtime_tier"] == "unavailable"),
+            "tiers": tiers,
             "windows_certified": sum(1 for row in rows if row["windows_certified"]),
             "tools": rows,
         })
@@ -545,7 +556,7 @@ def register_v2_api(
                 rows = conn.execute("SELECT DISTINCT tool_name FROM tool_runs WHERE target_id = ?", (target_id,)).fetchall()
             already_run = {str(row["tool_name"]) for row in rows}
             recommendations = [
-                {"tool": item["name"], "category": item["category"], "reason": "ready, target-compatible, and not yet run"}
+                {"tool": item["name"], "category": item["category"], "reason": f"{item['runtime_tier']}, target-compatible, and not yet run"}
                 for item in descriptors
                 if item["ready"] and item["compatible"] and item["scan_default"] and item["name"] not in already_run and item["category"] != "utilities"
             ][:20]
@@ -607,13 +618,21 @@ def register_v2_api(
     @authenticated
     def v2_status() -> Response:
         descriptors = all_descriptors()
+        tiers: dict[str, int] = {}
+        for item in descriptors:
+            tier = str(item["runtime_tier"])
+            tiers[tier] = tiers.get(tier, 0) + 1
         with database._connect() as conn:
             running = conn.execute("SELECT COUNT(*) AS count FROM scans WHERE status IN ('queued','running','cancelling')").fetchone()["count"]
             finding_count = conn.execute("SELECT COUNT(*) AS count FROM findings").fetchone()["count"]
         return jsonify({
             "catalog": len(descriptors),
+            "registered": len(descriptors),
             "ready": sum(1 for item in descriptors if item["ready"]),
+            "resolved": sum(1 for item in descriptors if item["resolved"]),
+            "unavailable": sum(1 for item in descriptors if item["runtime_tier"] == "unavailable"),
             "configured": sum(1 for item in descriptors if item["configured"]),
+            "tiers": tiers,
             "running_scans": int(running),
             "findings": int(finding_count),
             "raw_proof_exports": True,
@@ -621,4 +640,5 @@ def register_v2_api(
             "target_aware_planning": True,
             "dag_scheduler": True,
             "replayable_sse": True,
+            "resolver_native_readiness": True,
         })

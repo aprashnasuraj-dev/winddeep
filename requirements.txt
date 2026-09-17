@@ -7,3 +7,4 @@ cryptography>=50.0.1,<51
 playwright>=1.62,<2
 lancedb>=0.25,<1
 zstandard>=0.24,<1
+dnspython>=2.8,<3

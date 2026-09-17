@@ -1,0 +1,18 @@
+[run]
+branch = True
+source = app
+omit =
+    app/v4/*
+    app/tools/backends.py
+    app/tools/builtin_fallbacks.py
+    app/tools/bundle.py
+    app/tools/cli.py
+    app/tools/doctor.py
+    app/tools/provisioning.py
+    app/tools/remote_worker.py
+    app/tools/wsl_provisioning.py
+
+[report]
+show_missing = True
+skip_covered = False
+precision = 2

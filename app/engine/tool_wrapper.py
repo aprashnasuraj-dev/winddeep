@@ -1,11 +1,10 @@
-"""Dynamic external-tool wrapper factory for Windeep.
+"""Dynamic tool wrapper factory for Windeep v4.
 
-Wrappers execute binaries without a shell, validate structured inputs with
-Pydantic, support argv and stdin-oriented CLIs, enforce bounded retries/timeouts,
-and normalize parser output into the unified :class:`Finding` model. Registry
-configuration may be split into included JSON files for maintainability.
+Wrappers validate scope/input and normalize output, while execution is delegated
+to an ordered backend resolver. A tool may be served natively, from Windeep's
+provisioned cache, a container, WSL, an authenticated remote worker, or a
+pure-Python builtin fallback without changing the public tool name.
 """
-
 from __future__ import annotations
 
 import asyncio
@@ -17,16 +16,18 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, ClassVar
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from app.tools import builtin_integrations
+from app.tools import builtin_fallbacks, builtin_integrations
+from app.tools.backends import BackendExecutionError, BackendUnavailableError, ExecutionResolver
+from app.tools.provisioning import provisioned_candidates, restore_cached_binary
 
 
 class Finding(BaseModel):
     """Normalized external-tool result consumed by database, UI, and Brain."""
 
     model_config = ConfigDict(extra="allow")
-
     title: str
     severity: str = "info"
     vuln_type: str = "informational"
@@ -48,7 +49,7 @@ def _line_parser(raw: str, tool: str, target: str) -> list[Finding]:
             vuln_type="tool_output",
             tool=tool,
             endpoint=target,
-            description="Normalized line emitted by external tool.",
+            description="Normalized line emitted by tool integration.",
             evidence={"raw": line},
             confidence=0.3,
         )
@@ -86,13 +87,7 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
             confidence = 0.5
         findings.append(
             Finding(
-                title=str(
-                    item.get("title")
-                    or item.get("name")
-                    or item.get("host")
-                    or item.get("url")
-                    or "Tool finding"
-                ),
+                title=str(item.get("title") or item.get("name") or item.get("host") or item.get("url") or "Tool finding"),
                 severity=str(item.get("severity") or "info").lower(),
                 vuln_type=str(item.get("vuln_type") or item.get("type") or "tool_output"),
                 tool=tool,
@@ -114,20 +109,30 @@ _TYPE_MAP: dict[str, Any] = {
     "list[str]": list[str],
     "dict": dict[str, Any],
 }
+_ALLOWED_RUNTIME_STRATEGIES = {"process", "builtin", "container", "wsl", "remote", "auto"}
+_ALIAS_NOTICE_EMITTED: set[str] = set()
 
 
 class ToolExecutionError(RuntimeError):
-    """Raised when an external tool cannot complete successfully."""
+    """Raised when a tool cannot complete successfully on any eligible backend."""
 
 
 class ToolCancelledError(ToolExecutionError):
     """Raised when a user-requested scan stop terminates tool execution."""
 
 
-class ToolWrapperBase:
-    """Base implementation inherited by dynamically generated wrappers."""
+def _failure_outcome(exc: BaseException) -> str:
+    """Classify a backend miss separately from a backend that rejected input."""
+    if isinstance(exc, (BackendUnavailableError, FileNotFoundError)):
+        return "MISSING"
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) == 2:
+        return "MISSING"
+    return "REJECTED"
 
+
+class ToolWrapperBase:
     tool_name: ClassVar[str]
+    execution_name: ClassVar[str]
     binary: ClassVar[str]
     args_template: ClassVar[tuple[str, ...]]
     stdin_template: ClassVar[str | None] = None
@@ -140,9 +145,19 @@ class ToolWrapperBase:
     description: ClassVar[str] = ""
     requires_scope: ClassVar[bool] = False
     required_env: ClassVar[tuple[str, ...]] = ()
-    adapter_kind: ClassVar[str] = "process"
+    adapter_kind: ClassVar[str] = "auto"
     target_types: ClassVar[tuple[str, ...]] = ()
     scan_default: ClassVar[bool] = True
+    runtime_strategy: ClassVar[str] = "auto"
+    execution_preference: ClassVar[tuple[str, ...]] = ()
+    provision: ClassVar[dict[str, Any]] = {}
+    container_image: ClassVar[str] = ""
+    container_command: ClassVar[str] = ""
+    container_runtime: ClassVar[str] = ""
+    requires_host: ClassVar[str] = ""
+    builtin_fallback: ClassVar[str] = ""
+    alias_to: ClassVar[str] = ""
+    probe: ClassVar[tuple[str, ...]] = ()
 
     def __init__(
         self,
@@ -151,20 +166,25 @@ class ToolWrapperBase:
         scope_validator: Callable[[str], bool] | None = None,
         environment: Mapping[str, str] | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        resolver: ExecutionResolver | None = None,
     ) -> None:
         self.tools_dir = Path(tools_dir)
         self.scope_validator = scope_validator
         self.environment = {**os.environ, **dict(environment or {})}
         self.cancel_check = cancel_check
+        self.resolver = resolver or ExecutionResolver()
+        self.current_target = ""
         self._rate_lock = asyncio.Lock()
         self._last_started = 0.0
 
-    def resolve_binary(self) -> Path | None:
-        """Resolve a configured executable from ``tools/`` first, then ``PATH``."""
-        env_key = "WINDEEP_TOOL_" + "".join(ch if ch.isalnum() else "_" for ch in self.tool_name.upper()) + "_BINARY"
-        configured = Path(self.environment.get(env_key) or self.binary)
+    def _binary_env_key(self) -> str:
+        return "WINDEEP_TOOL_" + "".join(ch if ch.isalnum() else "_" for ch in self.tool_name.upper()) + "_BINARY"
+
+    def resolve_local_binary(self) -> Path | None:
+        execution_binary = str(self.environment.get(self._binary_env_key()) or self.binary or self.execution_name)
+        configured = Path(execution_binary)
         if configured.is_absolute() and configured.is_file():
-            return configured
+            return configured.resolve()
         local = self.tools_dir / configured
         candidates = [local]
         if not local.suffix:
@@ -172,92 +192,124 @@ class ToolWrapperBase:
         for candidate in candidates:
             if candidate.is_file():
                 return candidate.resolve()
-        found = shutil.which(self.binary)
-        return Path(found).resolve() if found else None
+        for name in (execution_binary, self.execution_name):
+            found = shutil.which(name)
+            if found:
+                return Path(found).resolve()
+        return None
+
+    def resolve_provisioned_binary(self) -> Path | None:
+        for candidate in provisioned_candidates(self):
+            if candidate.is_file():
+                return candidate.resolve()
+        restored = restore_cached_binary(self)
+        if restored is not None and restored.is_file():
+            return restored
+        return None
+
+    def resolve_binary(self) -> Path | None:
+        return self.resolve_local_binary() or self.resolve_provisioned_binary()
+
+    def runtime_status(self) -> dict[str, Any]:
+        status = self.resolver.status(self)
+        status.update(
+            {
+                "execution_name": self.execution_name,
+                "alias_to": self.alias_to or None,
+                "requires_host": self.requires_host or None,
+                "has_provision_recipe": bool(self.provision),
+                "container_image": self.container_image or None,
+                "builtin_fallback": self.builtin_fallback or None,
+            }
+        )
+        return status
 
     def validate_installed(self) -> bool:
-        """Return whether this integration has a runnable local/built-in path."""
-        if builtin_integrations.supports(self.tool_name):
-            return not self.missing_environment()
-        return self.resolve_binary() is not None
+        return self.runtime_status()["tier"] != "unavailable"
 
     def missing_environment(self) -> tuple[str, ...]:
-        """Return required environment-variable names that are not configured."""
-        required = (*self.required_env, *builtin_integrations.required_env(self.tool_name))
+        adapter = self.builtin_fallback or self.execution_name or self.tool_name
+        required = (
+            *self.required_env,
+            *builtin_integrations.required_env(adapter),
+            *builtin_fallbacks.required_env(adapter),
+        )
         return tuple(sorted({name for name in required if not self.environment.get(name)}))
 
-    def parse_output(self, raw: str, target: str) -> list[Finding]:
-        """Normalize raw standard output through the configured parser."""
-        return self.output_parser(raw, self.tool_name, target)
+    def parse_output(self, raw: str, target: str, *, builtin: bool = False) -> list[Finding]:
+        parser = _jsonl_parser if builtin else self.output_parser
+        return parser(raw, self.tool_name, target)
 
-    async def run(
-        self,
-        target: str,
-        options: Mapping[str, Any] | None = None,
-    ) -> list[Finding]:
-        """Validate scope/input, execute without a shell, and normalize output."""
+    def _annotate_findings(self, findings: list[Finding], *, backend: Any, attempted: list[dict[str, str]]) -> list[Finding]:
+        first_alias_notice = bool(self.alias_to and self.tool_name not in _ALIAS_NOTICE_EMITTED)
+        if first_alias_notice:
+            _ALIAS_NOTICE_EMITTED.add(self.tool_name)
+        for index, finding in enumerate(findings):
+            evidence = dict(finding.evidence or {})
+            evidence["backend"] = backend.key
+            evidence["backend_tier"] = backend.tier
+            evidence["backend_outcome"] = "OK"
+            if self.alias_to:
+                evidence["served_by"] = self.execution_name
+                evidence["deprecated_alias"] = True
+                if first_alias_notice and index == 0:
+                    evidence["deprecation_notice"] = f"'{self.tool_name}' is an alias served by '{self.execution_name}'"
+            if attempted:
+                evidence["backend_fallbacks"] = list(attempted)
+            finding.evidence = evidence
+            finding.tool = self.tool_name
+        return findings
+
+    async def run(self, target: str, options: Mapping[str, Any] | None = None) -> list[Finding]:
+        if self._cancel_requested():
+            raise ToolCancelledError(f"{self.tool_name} cancelled before execution")
+        if self.requires_scope and self.scope_validator is None:
+            raise PermissionError(f"{self.tool_name} requires an explicit scope validator before execution")
+        if self.scope_validator is not None and not self.scope_validator(target):
+            raise PermissionError(f"target is outside configured scope: {target}")
+
+        validated = self.input_schema.model_validate({"target": target, **dict(options or {})}).model_dump()
+        rendered_args = self._render_args(validated)
+        stdin_data = self._render_stdin(validated)
+        attempted: list[dict[str, str]] = []
+        self.current_target = target
         try:
-            if self._cancel_requested():
-                raise ToolCancelledError(f"{self.tool_name} cancelled before execution")
-            if self.requires_scope and self.scope_validator is None:
-                raise PermissionError(f"{self.tool_name} requires an explicit scope validator before execution")
-            if self.scope_validator is not None and not self.scope_validator(target):
-                raise PermissionError(f"target is outside configured scope: {target}")
-            missing_env = self.missing_environment()
-            if missing_env:
-                raise ToolExecutionError(
-                    f"{self.tool_name} requires environment variable(s): {', '.join(missing_env)}"
+            available = [self.resolver.backends[key] for key in self.resolver.ordered_keys(self) if self.resolver.backends[key].can_run(self)]
+            if not available:
+                raise BackendUnavailableError(
+                    f"no execution backend available for {self.tool_name}; run 'winddeep doctor --heal' or configure WSL/remote worker"
                 )
-            validated = self.input_schema.model_validate(
-                {"target": target, **dict(options or {})}
-            ).model_dump()
-            if builtin_integrations.supports(self.tool_name):
-                rows = await self._await_with_cancel(
-                    builtin_integrations.run(self.tool_name, target, environment=self.environment),
-                    timeout=self.timeout,
-                )
-                return [Finding.model_validate(row) for row in rows]
-
-            rendered_args = self._render_args(validated)
-            binary = self.resolve_binary()
-            if binary is None:
-                wsl = shutil.which("wsl.exe") if os.name == "nt" else None
-                if wsl:
-                    argv = [wsl, "--", self.binary, *rendered_args]
-                else:
-                    raise FileNotFoundError(
-                        f"tool binary not installed: {self.binary}; install it on PATH/tools, set WINDEEP_TOOL_{self.tool_name.upper().replace('-', '_')}_BINARY, or install it in WSL"
-                    )
-            else:
-                argv = [str(binary), *rendered_args]
-            stdin_data = self._render_stdin(validated)
             last_error: BaseException | None = None
-            for attempt in range(self.retries + 1):
-                try:
-                    if self._cancel_requested():
-                        raise ToolCancelledError(f"{self.tool_name} cancelled by user")
-                    await self._respect_rate_limit()
-                    if stdin_data is None:
-                        stdout, stderr, returncode = await self._run_process(argv)
-                    else:
-                        stdout, stderr, returncode = await self._run_process(argv, stdin_data)
-                    if returncode != 0:
-                        raise ToolExecutionError(
-                            f"{self.tool_name} exited with code {returncode}: {stderr.strip()[:2000]}"
+            for backend in available:
+                for attempt in range(self.retries + 1):
+                    try:
+                        if self._cancel_requested():
+                            raise ToolCancelledError(f"{self.tool_name} cancelled by user")
+                        await self._respect_rate_limit()
+                        stdout, stderr, returncode = await self._await_with_cancel(
+                            backend.exec(self, rendered_args, stdin_data, self.timeout),
+                            timeout=self.timeout + 2.0,
                         )
-                    return self.parse_output(stdout, target)
-                except (ToolCancelledError, asyncio.CancelledError):
-                    raise
-                except (ToolExecutionError, asyncio.TimeoutError, OSError) as exc:
-                    last_error = exc
-                    if attempt >= self.retries:
+                        if returncode != 0:
+                            raise ToolExecutionError(
+                                f"{self.tool_name} via {backend.key} exited with code {returncode}: {stderr.strip()[:2000]}"
+                            )
+                        findings = self.parse_output(stdout, target, builtin=backend.key == "builtin_fallback")
+                        return self._annotate_findings(findings, backend=backend, attempted=attempted)
+                    except (ToolCancelledError, asyncio.CancelledError):
+                        raise
+                    except (ToolExecutionError, BackendExecutionError, BackendUnavailableError, asyncio.TimeoutError, OSError, httpx.HTTPError) as exc:
+                        last_error = exc
+                        if attempt < self.retries:
+                            await asyncio.sleep(min(8.0, 0.5 * (2**attempt)))
+                            continue
+                        attempted.append({"backend": backend.key, "outcome": _failure_outcome(exc), "error": str(exc)[:1000]})
                         break
-                    await asyncio.sleep(min(8.0, 0.5 * (2**attempt)))
             raise ToolExecutionError(
-                f"{self.tool_name} failed after {self.retries + 1} attempt(s): {last_error}"
+                f"{self.tool_name} failed across {len(available)} backend(s): {last_error}; attempted={', '.join(item['backend'] for item in attempted)}"
             )
-        except asyncio.CancelledError:
-            raise
+        finally:
+            self.current_target = ""
 
     def _cancel_requested(self) -> bool:
         if self.cancel_check is None:
@@ -300,30 +352,19 @@ class ToolWrapperBase:
 
     @staticmethod
     def _string_values(values: Mapping[str, Any]) -> dict[str, str]:
-        return {
-            key: json.dumps(value, separators=(",", ":")) if isinstance(value, (dict, list)) else str(value)
-            for key, value in values.items()
-        }
+        return {key: json.dumps(value, separators=(",", ":")) if isinstance(value, (dict, list)) else str(value) for key, value in values.items()}
 
     async def _respect_rate_limit(self) -> None:
-        try:
-            if self.rate_limit <= 0:
-                return
-            interval = 1.0 / self.rate_limit
-            async with self._rate_lock:
-                delay = interval - (time.monotonic() - self._last_started)
-                if delay > 0:
-                    await asyncio.sleep(delay)
-                self._last_started = time.monotonic()
-        except asyncio.CancelledError:
-            raise
+        if self.rate_limit <= 0:
+            return
+        interval = 1.0 / self.rate_limit
+        async with self._rate_lock:
+            delay = interval - (time.monotonic() - self._last_started)
+            if delay > 0:
+                await asyncio.sleep(delay)
+            self._last_started = time.monotonic()
 
-    async def _run_process(
-        self,
-        argv: Sequence[str],
-        stdin_data: bytes | None = None,
-    ) -> tuple[str, str, int]:
-        """Run one process with bounded lifetime and cancellation cleanup."""
+    async def _run_process(self, argv: Sequence[str], stdin_data: bytes | None = None) -> tuple[str, str, int]:
         creationflags = 0
         if os.name == "nt":
             creationflags = getattr(__import__("subprocess"), "CREATE_NO_WINDOW", 0)
@@ -337,50 +378,53 @@ class ToolWrapperBase:
         )
         try:
             stdout, stderr = await self._await_with_cancel(process.communicate(stdin_data), timeout=self.timeout)
-        except (ToolCancelledError, asyncio.CancelledError):
+        except (ToolCancelledError, asyncio.CancelledError, asyncio.TimeoutError):
             if process.returncode is None:
                 process.kill()
                 await process.wait()
             raise
-        except asyncio.TimeoutError:
-            if process.returncode is None:
-                process.kill()
-                await process.wait()
-            raise
-        return (
-            stdout.decode("utf-8", errors="replace"),
-            stderr.decode("utf-8", errors="replace"),
-            process.returncode,
-        )
+        return stdout.decode("utf-8", errors="replace"), stderr.decode("utf-8", errors="replace"), int(process.returncode or 0)
 
 
 class ToolWrapperFactory:
-    """Load one modular registry and generate concrete wrapper classes at runtime."""
+    """Load modular registries plus v4 runtime overlays into wrapper classes."""
 
-    def __init__(
-        self,
-        config_path: str | Path,
-        *,
-        parsers: Mapping[str, Parser] | None = None,
-    ) -> None:
+    def __init__(self, config_path: str | Path, *, parsers: Mapping[str, Parser] | None = None) -> None:
         self.config_path = Path(config_path)
         self.parsers = {**_BUILTIN_PARSERS, **dict(parsers or {})}
         self._classes: dict[str, type[ToolWrapperBase]] = {}
 
     def load(self) -> dict[str, type[ToolWrapperBase]]:
-        """Read root/included JSON configuration and return generated classes."""
         definitions = self._load_definitions(self.config_path.resolve(), set())
         if not definitions:
             raise ValueError("tools_config.json does not define any tools")
-        generated = {
-            name: self._create_wrapper(name, definition)
-            for name, definition in definitions.items()
-        }
+        defaults, overlays, aliases = self._load_runtime_overlays(definitions)
+        merged: dict[str, Mapping[str, Any]] = {}
+        for name, original in definitions.items():
+            alias_to = str(aliases.get(name) or "")
+            base = dict(definitions.get(alias_to, original)) if alias_to else dict(original)
+            if alias_to:
+                base["category"] = original.get("category", base.get("category"))
+                base["description"] = original.get("description", base.get("description"))
+                base["target_types"] = original.get("target_types", base.get("target_types", []))
+                base["alias_to"] = alias_to
+                base["execution_name"] = alias_to
+            else:
+                base["execution_name"] = name
+            target_overlay = dict(overlays.get(alias_to, {})) if alias_to else {}
+            own_overlay = dict(overlays.get(name, {}))
+            base = {**base, **defaults, **target_overlay, **own_overlay}
+            if alias_to:
+                base["alias_to"] = alias_to
+                base["execution_name"] = alias_to
+                if not base.get("builtin_fallback") and (builtin_integrations.supports(name) or builtin_fallbacks.supports(name)):
+                    base["builtin_fallback"] = name
+            merged[name] = base
+        generated = {name: self._create_wrapper(name, definition) for name, definition in merged.items()}
         self._classes = generated
         return dict(generated)
 
     def get(self, name: str) -> type[ToolWrapperBase]:
-        """Return one generated class, loading configuration on first use."""
         if not self._classes:
             self.load()
         try:
@@ -388,11 +432,26 @@ class ToolWrapperFactory:
         except KeyError as exc:
             raise KeyError(f"unknown tool wrapper: {name}") from exc
 
-    def _load_definitions(
-        self,
-        path: Path,
-        visited: set[Path],
-    ) -> dict[str, Mapping[str, Any]]:
+    def _load_runtime_overlays(self, definitions: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, Any], dict[str, str]]:
+        root = self.config_path.resolve().parent
+        root_config = json.loads(self.config_path.resolve().read_text(encoding="utf-8"))
+        relative = str(root_config.get("runtime_overlays") or "app/tools/config/v4_runtime.json")
+        path = (root / relative).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError("runtime_overlays escapes registry root")
+        if not path.exists():
+            return {"runtime_strategy": "auto"}, {}, {}
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("v4 runtime overlay must be an object")
+        defaults, tools, aliases = raw.get("defaults", {}), raw.get("tools", {}), raw.get("aliases", {})
+        if not isinstance(defaults, dict) or not isinstance(tools, dict) or not isinstance(aliases, dict):
+            raise ValueError("v4 runtime overlay requires object defaults/tools/aliases")
+        tools = {str(name): value for name, value in tools.items() if name in definitions and isinstance(value, dict)}
+        aliases = {str(k): str(v) for k, v in aliases.items() if k in definitions}
+        return dict(defaults), tools, aliases
+
+    def _load_definitions(self, path: Path, visited: set[Path]) -> dict[str, Mapping[str, Any]]:
         if path in visited:
             raise ValueError(f"cyclic tools_config include: {path}")
         visited.add(path)
@@ -407,7 +466,6 @@ class ToolWrapperFactory:
             if not isinstance(definition, dict):
                 raise ValueError(f"tool definition must be an object: {name}")
             combined[str(name)] = definition
-
         includes = config.get("includes", [])
         if not isinstance(includes, list) or not all(isinstance(item, str) for item in includes):
             raise ValueError(f"'includes' must be a list of paths: {path}")
@@ -423,12 +481,8 @@ class ToolWrapperFactory:
         visited.remove(path)
         return combined
 
-    def _create_wrapper(
-        self,
-        name: str,
-        definition: Mapping[str, Any],
-    ) -> type[ToolWrapperBase]:
-        binary = str(definition.get("binary") or name)
+    def _create_wrapper(self, name: str, definition: Mapping[str, Any]) -> type[ToolWrapperBase]:
+        binary = str(definition.get("binary") or definition.get("execution_name") or name)
         args = definition.get("args", ["{target}"])
         if not isinstance(args, list) or not all(isinstance(value, str) for value in args):
             raise ValueError(f"tool args must be a list of strings: {name}")
@@ -441,16 +495,30 @@ class ToolWrapperFactory:
         required_env = definition.get("required_env", [])
         if not isinstance(required_env, list) or not all(isinstance(item, str) for item in required_env):
             raise ValueError(f"required_env must be a list of strings: {name}")
-        input_model = self._build_input_model(name, definition.get("input_schema", {}))
         target_types_raw = definition.get("target_types", [])
         if not isinstance(target_types_raw, list) or not all(isinstance(item, str) for item in target_types_raw):
             raise ValueError(f"target_types must be a list of strings: {name}")
+        runtime_strategy = str(definition.get("runtime_strategy") or "auto").lower()
+        if runtime_strategy not in _ALLOWED_RUNTIME_STRATEGIES:
+            raise ValueError(f"invalid runtime_strategy '{runtime_strategy}' for {name}")
+        preference = definition.get("execution_preference", [])
+        if not isinstance(preference, list) or not all(isinstance(item, str) for item in preference):
+            raise ValueError(f"execution_preference must be a list of strings: {name}")
+        provision = definition.get("provision", {})
+        if not isinstance(provision, dict):
+            raise ValueError(f"provision must be an object: {name}")
+        probe = definition.get("probe", [])
+        if not isinstance(probe, list) or not all(isinstance(item, str) for item in probe):
+            raise ValueError(f"probe must be a list of strings: {name}")
+        input_model = self._build_input_model(name, definition.get("input_schema", {}))
+        execution_name = str(definition.get("execution_name") or name)
         class_name = "".join(part.capitalize() for part in name.replace("-", "_").split("_")) + "Wrapper"
         return type(
             class_name,
             (ToolWrapperBase,),
             {
                 "tool_name": name,
+                "execution_name": execution_name,
                 "binary": binary,
                 "args_template": tuple(args),
                 "stdin_template": stdin_template,
@@ -463,9 +531,19 @@ class ToolWrapperFactory:
                 "description": str(definition.get("description") or ""),
                 "requires_scope": bool(definition.get("requires_scope", False)),
                 "required_env": tuple(required_env),
-                "adapter_kind": "builtin" if builtin_integrations.supports(name) else "process",
+                "adapter_kind": runtime_strategy,
                 "target_types": tuple(target_types_raw),
                 "scan_default": bool(definition.get("scan_default", True)),
+                "runtime_strategy": runtime_strategy,
+                "execution_preference": tuple(preference),
+                "provision": dict(provision),
+                "container_image": str(definition.get("container_image") or ""),
+                "container_command": str(definition.get("container_command") or ""),
+                "container_runtime": str(definition.get("container_runtime") or ""),
+                "requires_host": str(definition.get("requires_host") or ""),
+                "builtin_fallback": str(definition.get("builtin_fallback") or ""),
+                "alias_to": str(definition.get("alias_to") or ""),
+                "probe": tuple(probe),
                 "__module__": __name__,
             },
         )
@@ -488,8 +566,4 @@ class ToolWrapperFactory:
                 default = definition.get("default", None)
                 field_type = field_type | None
             fields[field_name] = (field_type, default)
-        return create_model(
-            f"{name.title().replace('_', '')}Input",
-            __config__=ConfigDict(extra="forbid"),
-            **fields,
-        )
+        return create_model(f"{name.title().replace('_', '')}Input", __config__=ConfigDict(extra="forbid"), **fields)

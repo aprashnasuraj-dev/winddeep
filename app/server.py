@@ -22,6 +22,7 @@ from app.tools.release_metadata import apply_release_metadata
 from app.v2_api import register_v2_api
 from app.v3.api import register_v3_api
 from app.v3.events import V3EventPublisher
+from app.v4.api import filter_resolver_tools
 from app.security.audit import AuditLog
 from app.security.auth import AuthenticationError, LocalAuthManager, SessionClaims, is_loopback_remote
 from app.security.consent import ConsentAuthority, ConsentError
@@ -214,15 +215,27 @@ def create_app() -> Flask:
             database.finish_tool_run(run_id, status="failed", error=str(exc))
             raise
 
-    def scan_worker(scan_id: int, target_row: dict[str, Any], tool_names: list[str], consent_id: str) -> None:
+    def scan_worker(scan_id: int, target_row: dict[str, Any], scan_type: str, modules: list[str], consent_id: str) -> None:
         errors: list[dict[str, str]] = []
         total_findings = 0
         database.update_scan(scan_id, status="running", started_at=time.time(), progress=0.0)
-        broadcast("log", {"level": "info", "module": "orchestrator", "message": f"Authorized scan starting with {len(tool_names)} tool(s)."}, scan_id)
         try:
             preflight_for(target_row, consent_id)
+            candidates = select_tools(scan_type, modules)
+            tool_names, skipped = filter_resolver_tools(
+                wrapper_classes,
+                tools_dir=tools_dir,
+                target_type=str(target_row.get("type") or ""),
+                candidate_names=candidates,
+                environment=os.environ,
+            )
+            broadcast("log", {"level": "info", "module": "orchestrator", "message": f"Authorized scan starting with {len(tool_names)} resolver-ready tool(s)."}, scan_id)
+            if skipped:
+                database.add_scan_log(scan_id, json.dumps({"resolver_skipped": skipped}, separators=(",", ":"), default=str), "info", "orchestrator")
             if not tool_names:
-                raise ValueError("no tool integrations matched the requested scan selection")
+                detail = "; ".join(f"{item.get('tool')}: {item.get('reason')}" for item in skipped[:10])
+                suffix = f" ({detail})" if detail else ""
+                raise ValueError(f"no resolver-ready tool integrations matched the requested scan selection{suffix}")
             for index, tool_name in enumerate(tool_names, start=1):
                 if scan_id in scan_cancel:
                     database.update_scan(scan_id, status="cancelled", finished_at=time.time())
@@ -381,9 +394,9 @@ def create_app() -> Flask:
             preflight_for(target_row, consent_id, rps=float(data.get("global_rps", 5.0)))
             scan_type = str(data.get("scan_type") or "full")
             modules = [str(v) for v in data.get("modules", [])]
-            tool_names = select_tools(scan_type, modules)
-            scan_id = database.create_scan(target_id, scan_type, modules or tool_names)
-            threading.Thread(target=scan_worker, args=(scan_id, target_row, tool_names, consent_id), daemon=True, name=f"windeep-scan-{scan_id}").start()
+            candidates = select_tools(scan_type, modules)
+            scan_id = database.create_scan(target_id, scan_type, modules or candidates)
+            threading.Thread(target=scan_worker, args=(scan_id, target_row, scan_type, modules, consent_id), daemon=True, name=f"windeep-scan-{scan_id}").start()
             return jsonify(scan_row(scan_id)), 202
         except (KeyError, TypeError, ValueError, ScopeViolation, ConsentError, PermissionError) as exc:
             return jsonify({"error": str(exc)}), 403
