@@ -3,13 +3,20 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
+
+# Keep direct script execution import-safe. ``python scripts/...`` otherwise
+# puts only the scripts directory on sys.path, which breaks repository-local
+# ``app`` imports in clean CI jobs.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.engine.tool_wrapper import ToolWrapperFactory
 from app.tools import builtin_integrations
 from app.tools.release_metadata import effective_definitions
 
-ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "tools_config.json"
 README = ROOT / "README.md"
 README_START = "<!-- v4-runtime-counts:start -->"
