@@ -73,8 +73,8 @@ def main() -> int:
             raise RuntimeError("one or more offline integrations lack target compatibility metadata")
 
         root_registry = json.loads(archive.read(f"{root}/Windeep/tools_config.json"))
-        if root_registry.get("tool_count") != 137 or root_registry.get("active_tool_count") != 137:
-            raise RuntimeError("packaged root registry does not declare 137 active integrations")
+        if root_registry.get("tool_count") != 137 or root_registry.get("active_tool_count") != 109:
+            raise RuntimeError("packaged root registry must declare 137 registered integrations and 109 active v4.1 launch integrations")
 
         manifest = json.loads(archive.read(f"{root}/Windeep/installer/tools-manifest.json")) if f"{root}/Windeep/installer/tools-manifest.json" in names else None
         # PyInstaller currently embeds the staged tools themselves, while the repository
