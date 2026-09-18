@@ -37,7 +37,7 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
-          if ($version -ne '4.0.0') { throw "This release trigger is pinned to VERSION 4.0.0; found $version" }
+          if ($version -ne '4.1.0') { throw "This release trigger is pinned to VERSION 4.1.0; found $version" }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -88,12 +88,18 @@ jobs:
         shell: pwsh
         run: |
           $notes = @'
-          # Windeep v4.0.0
+          # Windeep v4.1.0
 
-          Windeep 4.0 introduces the multi-backend execution runtime while retaining the complete 137-integration catalog.
+          Windeep 4.1 keeps the multi-backend execution runtime, opens in a native desktop window by default, fixes report/evidence exports, surfaces Brain audit reasoning, and removes dead/deprecated catalog entries from the active launch surface.
 
           ## Highlights
 
+          - Native desktop window launch by default, with browser and headless server modes still available through `WINDEEP_UI`.
+          - Real app icon assets for browser favicon, desktop window, PyInstaller, and installer packaging.
+          - Stored report generation fixed, including no-scan fallback for all-findings reports.
+          - Evidence/PoC bundle export endpoint and UI buttons.
+          - Human-like Brain audit endpoint/panel plus encrypted Anthropic/OpenAI key settings.
+          - 137 registered integrations retained for compatibility; 109 active v4.1 launch integrations remain after excluding 28 dead/deprecated/catalog-only tools.
           - Ordered resolver across native, Windeep-managed provisioned, container, WSL, authenticated remote-worker and builtin-fallback routes.
           - `winddeep doctor --heal` for explicit, consented dependency recovery and post-heal liveness checks.
           - Windows-native launcher handling plus WSL recovery for Linux-oriented tools.
@@ -155,7 +161,7 @@ jobs:
           subject-path: dist/Windeep-Setup.exe
           sbom-path: dist/SBOM.json
 
-      - name: Publish Windeep v4.0.0
+      - name: Publish Windeep v${{ steps.version.outputs.version }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
@@ -178,7 +184,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: Windeep-v4.0.0-release-output
+          name: Windeep-v${{ steps.version.outputs.version }}-release-output
           if-no-files-found: warn
           path: |
             dist/*.exe

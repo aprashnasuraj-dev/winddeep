@@ -6,6 +6,23 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 Post-freeze changes to the public v3 contracts are released as `3.0.x` patches unless they require a new major/minor compatibility window.
 
+## [4.1.0] - 2026-09-18
+
+### Added
+- Native desktop launch mode using `pywebview`, with browser and headless server modes still available through `WINDEEP_UI`.
+- Windeep icon assets for browser favicon, desktop window, PyInstaller, and installer packaging.
+- Evidence/PoC bundle export endpoint and UI buttons for stored reports.
+- Human-like audit endpoint and Intelligence panel surfacing Brain hypotheses, attack chains, critiques, and active reasoner.
+- Settings fields for encrypted Anthropic/OpenAI keys plus provider/model selection.
+
+### Fixed
+- Restored report generation ownership to `app.js` so the v3 preview logic no longer overrides persisted report generation.
+- Added fallback report generation for targets with findings but no prior scan authorization.
+- Wired Brain runtime configuration to configured LLM providers while preserving deterministic rule-based fallback when no key is available.
+
+### Release
+- Prepared the release version as `4.1.0`.
+
 ## [3.0.0] - 2026-09-15
 
 ### Phase map

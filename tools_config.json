@@ -2,7 +2,7 @@
   "schema_version": 4,
   "tool_count": 137,
   "registered_tool_count": 137,
-  "active_tool_count": 137,
+  "active_tool_count": 109,
   "runtime_overlays": "app/tools/config/v4_runtime.json",
   "count_semantics": {
     "tool_count": "registered catalog integrations",

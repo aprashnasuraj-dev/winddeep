@@ -1,10 +1,13 @@
 """Windeep v2 product API with a guardrail-first DAG scan runtime."""
 from __future__ import annotations
 
+import asyncio
+import io
 import json
 import os
 import re
 import time
+import zipfile
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -54,7 +57,12 @@ _SETTINGS_ENV = {
     "corellium_api_token": "CORELLIUM_API_TOKEN",
     "mobsf_url": "MOBSF_URL",
     "mobsf_api_key": "MOBSF_API_KEY",
+    "anthropic_api_key": "ANTHROPIC_API_KEY",
+    "openai_api_key": "OPENAI_API_KEY",
 }
+
+# Non-secret brain settings stored as plain values (returned verbatim, not masked).
+_SETTINGS_PLAIN = ("brain_llm_provider", "brain_llm_model")
 
 _SEVERITY_WEIGHT = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
 _TERMINAL_SCAN_STATUSES = {"completed", "completed_with_errors", "cancelled", "failed"}
@@ -137,6 +145,55 @@ def _proof_markdown(target: Mapping[str, Any], findings: list[dict[str, Any]], t
         if remediation:
             lines.extend(["#### Remediation", "", remediation, ""])
         lines.extend(["---", ""])
+    return "\n".join(lines)
+
+
+def _poc_markdown(target: Mapping[str, Any], finding: Mapping[str, Any]) -> str:
+    """Render one readable proof-of-concept file for a single finding."""
+    severity = str(finding.get("severity") or "info").upper()
+    endpoint = str(finding.get("endpoint") or target.get("target") or "")
+    steps = str(finding.get("steps") or "").strip() or (
+        f"1. Use `{finding.get('tool', 'the recorded tool')}` against the authorized target `{endpoint}`.\n"
+        "2. Keep the same scope and authentication context used by the recorded scan.\n"
+        "3. Compare the output with the raw evidence below."
+    )
+    lines = [
+        f"# [{severity}] {finding.get('title', 'Finding')}",
+        "",
+        f"- Finding ID: `{finding.get('id', '')}`",
+        f"- Tool: `{finding.get('tool', '')}`",
+        f"- Type: `{finding.get('vuln_type', '')}`",
+        f"- Endpoint: `{endpoint}`",
+        f"- Confidence: `{finding.get('confidence', 0.5)}`",
+        f"- CVSS: `{finding.get('cvss_score') if finding.get('cvss_score') is not None else 'not scored'}`",
+        "",
+        "## Description",
+        "",
+        str(finding.get("description") or "No description recorded."),
+        "",
+        "## Proof of concept / reproduction",
+        "",
+        steps,
+        "",
+        "## Raw evidence",
+        "",
+        "```json",
+        json.dumps(finding.get("evidence") or {}, indent=2, ensure_ascii=False, default=str),
+        "```",
+        "",
+    ]
+    raw_request = str(finding.get("request") or "").strip()
+    raw_response = str(finding.get("response") or "").strip()
+    if raw_request:
+        lines.extend(["## Raw request", "", "```http", raw_request, "```", ""])
+    if raw_response:
+        lines.extend(["## Raw response", "", "```http", raw_response, "```", ""])
+    impact = str(finding.get("impact") or "").strip()
+    remediation = str(finding.get("remediation") or "").strip()
+    if impact:
+        lines.extend(["## Impact", "", impact, ""])
+    if remediation:
+        lines.extend(["## Remediation", "", remediation, ""])
     return "\n".join(lines)
 
 
@@ -539,6 +596,163 @@ def register_v2_api(
         response.headers["Content-Disposition"] = f'attachment; filename="{_safe_filename(title)}.md"'
         return response
 
+    @app.get("/api/v2/reports/<int:report_id>/evidence")
+    @authenticated
+    def v2_reports_evidence(report_id: int) -> tuple[Response, int] | Response:
+        """Export a readable, self-contained evidence / PoC bundle as a .zip.
+
+        The bundle contains the human-readable report, machine-readable findings,
+        and one Markdown PoC file per finding (steps, raw request/response, and
+        captured evidence). Authorization is re-checked via live preflight before
+        any evidence-bearing content is read.
+        """
+        with database._connect() as conn:
+            auth_row = conn.execute("SELECT target_id FROM reports WHERE id = ?", (report_id,)).fetchone()
+        if auth_row is None:
+            return jsonify({"error": "report not found"}), 404
+        # The report row is an artifact the operator already generated and can
+        # already preview/download; exporting it uses the same authenticated
+        # local-session gate as /api/reports, not a fresh scan authorization.
+        target_row = database.get_target(int(auth_row["target_id"])) or {}
+        with database._connect() as conn:
+            row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
+        if row is None:
+            return jsonify({"error": "report not found"}), 404
+        item = dict(row)
+        title = str(item.get("title") or f"windeep-report-{report_id}")
+        try:
+            finding_ids = [int(value) for value in json.loads(str(item.get("finding_ids") or "[]"))]
+        except Exception:
+            finding_ids = []
+        findings = [finding for fid in finding_ids if (finding := database.get_finding(fid)) is not None]
+        try:
+            report_markdown = crypto.decrypt_text(str(item["content"]), aad=b"windeep:report.content")
+        except Exception:
+            report_markdown = "# Report\n\n(Stored report content could not be decrypted.)\n"
+
+        generated = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
+        readme = "\n".join([
+            f"# Windeep evidence bundle — {title}",
+            "",
+            f"- Report ID: {report_id}",
+            f"- Target: {target_row.get('target', '')}",
+            f"- Findings: {len(findings)}",
+            f"- Exported: {generated}",
+            "",
+            "## Authorization",
+            "",
+            "This bundle contains evidence from authorized security testing only. Handle,",
+            "store, and share it in line with the target program's rules and your NDA.",
+            "",
+            "## Contents",
+            "",
+            "- `report.md` — full human-readable report (all findings).",
+            "- `findings.json` — machine-readable findings for import/automation.",
+            "- `poc/` — one Markdown proof-of-concept per finding (reproduction steps,",
+            "  raw request/response, and captured evidence).",
+            "",
+        ])
+
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("README.md", readme)
+            archive.writestr("report.md", report_markdown)
+            archive.writestr("findings.json", json.dumps(findings, indent=2, ensure_ascii=False, default=str))
+            for finding in findings:
+                fid = finding.get("id")
+                slug = _safe_filename(str(finding.get("title") or f"finding-{fid}"))[:60] or f"finding-{fid}"
+                poc = _poc_markdown(target_row, finding)
+                archive.writestr(f"poc/{fid}-{slug}.md", poc)
+
+        buffer.seek(0)
+        audit.append("v2.report.evidence_exported", {"report_id": report_id, "findings": len(findings)})
+        response = Response(buffer.getvalue(), mimetype="application/zip")
+        response.headers["Content-Disposition"] = f'attachment; filename="{_safe_filename(title)}-evidence.zip"'
+        return response
+
+    @app.get("/api/v2/audit")
+    @authenticated
+    def v2_audit() -> tuple[Response, int] | Response:
+        """Human-like audit: evidence-grounded hypotheses, chains, and self-critique.
+
+        Uses the configured brain LLM when an API key is present (Settings or
+        environment); otherwise the deterministic rule-based reasoner is used, so
+        this endpoint always returns useful output.
+        """
+        from app.brain.finding_ranker import FindingRanker
+        from app.brain.hypothesis_engine import HypothesisEngine
+        from app.brain.runtime_config import brain_reasoner_name, build_llm_client
+        from app.brain.self_critic import SelfCritic
+        from app.engine.event_bus import EventBus
+        from app.engine.scan_context import ScanContext
+
+        try:
+            target_id = int(request.args["target_id"])
+            # Reasons over findings that are already readable via /api/findings
+            # (authenticated local session), so no separate scan authorization
+            # is required to view the human-like audit.
+            target_row = database.get_target(target_id)
+            if target_row is None:
+                return jsonify({"error": "target not found"}), 404
+            findings = database.list_findings(target_id=target_id, limit=5000)
+            settings = read_settings()
+            context = ScanContext(
+                target=str(target_row.get("target") or ""),
+                scope=[str(x) for x in (target_row.get("scope") or [])] or [str(target_row.get("target") or "")],
+                out_of_scope=[str(x) for x in (target_row.get("out_of_scope") or [])],
+                target_id=target_id,
+            )
+
+            async def _run() -> dict[str, Any]:
+                event_bus = EventBus()
+                llm = build_llm_client(settings)
+                engine = HypothesisEngine(llm, event_bus, database=None)
+                hypotheses = await engine.generate(findings, context)
+                hypothesis_rows = [item.model_dump() for item in hypotheses]
+                critic = SelfCritic(llm, event_bus=event_bus)
+                critique: list[dict[str, Any]] = []
+                for finding in sorted(findings, key=lambda f: _SEVERITY_WEIGHT.get(str(f.get("severity") or "info").lower(), 0), reverse=True)[:8]:
+                    result = await critic.evaluate(finding, context)
+                    critique.append({
+                        "finding_id": finding.get("id"),
+                        "finding_title": finding.get("title"),
+                        "verdict": result.decision,
+                        "rationale": "; ".join(result.reasons) or ("Evidence supports this finding." if result.decision == "PASS" else ""),
+                        "missing_evidence": result.missing_evidence,
+                    })
+                return {"hypotheses": hypothesis_rows, "critique": critique}
+
+            result = asyncio.run(_run())
+            # Derive simple attack chains from shared hypothesis chain hints.
+            chains: list[dict[str, Any]] = []
+            grouped: dict[str, list[str]] = {}
+            for hyp in result["hypotheses"]:
+                for hint in hyp.get("chain_hints") or []:
+                    grouped.setdefault(str(hint), []).append(hyp.get("test_class") or hyp.get("id") or "step")
+            for hint, steps in sorted(grouped.items()):
+                if len(steps) >= 1:
+                    chains.append({"title": f"Chain: {hint}", "narrative": " → ".join(dict.fromkeys(steps))})
+
+            ranked = FindingRanker().rank(findings)
+            audit.append("v2.audit.run", {"target_id": target_id, "findings": len(findings), "hypotheses": len(result["hypotheses"])})
+            return jsonify({
+                "target_id": target_id,
+                "reasoner": brain_reasoner_name(settings),
+                "finding_count": len(findings),
+                "hypotheses": result["hypotheses"],
+                "chains": chains,
+                "critique": result["critique"],
+                "ranked_top": [
+                    {"finding_id": int(item.finding.get("id") or item.finding.get("finding_id") or 0), "score": round(item.score, 3)}
+                    for item in ranked[:10]
+                ],
+            })
+        except (KeyError, TypeError, ValueError, PermissionError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        except Exception as exc:  # brain is best-effort; never 500 the workspace
+            audit.append("v2.audit.error", {"error": str(exc)})
+            return jsonify({"error": f"audit unavailable: {exc}", "reasoner": "rule-based", "hypotheses": [], "chains": [], "critique": []}), 200
+
     @app.get("/api/v2/intelligence")
     @authenticated
     def v2_intelligence() -> tuple[Response, int] | Response:
@@ -591,6 +805,8 @@ def register_v2_api(
         }
         for key in _SETTINGS_ENV:
             result[key] = "configured" if data.get(key) else ""
+        for key in _SETTINGS_PLAIN:
+            result[key] = str(data.get(key) or "")
         return jsonify(result)
 
     @app.put("/api/v2/settings")
@@ -598,7 +814,7 @@ def register_v2_api(
     def v2_settings_put() -> Response:
         incoming = request.get_json(silent=True) or {}
         current = read_settings()
-        allowed = {"global_rps", "scan_speed", "proxy", *_SETTINGS_ENV.keys()}
+        allowed = {"global_rps", "scan_speed", "proxy", *_SETTINGS_ENV.keys(), *_SETTINGS_PLAIN}
         for key in allowed:
             if key not in incoming:
                 continue

@@ -22,6 +22,7 @@ from app.brain.chain_builder import ChainBuilder
 from app.brain.finding_ranker import FindingRanker
 from app.brain.hypothesis_engine import HypothesisEngine
 from app.brain.llm_client import LLMClient
+from app.brain.runtime_config import build_llm_client
 from app.database import finding_fingerprint
 from app.duplicates import DuplicateDetector
 from app.engine.event_bus import EventBus
@@ -605,7 +606,7 @@ async def run_p0_scan(
         guard.authorize_scan(target=target, consent_id=consent_id)
         dedup = values["stage:dedup"]
         findings = dedup["findings"]
-        builder = ChainBuilder(LLMClient([]), event_bus, database=database)
+        builder = ChainBuilder(build_llm_client(), event_bus, database=database)
         edges = await builder.build(findings, target_id=target_id, scan_id=scan_id)
         edge_rows = sorted((edge.model_dump() for edge in edges), key=lambda row: (row["source_finding_id"], row["target_finding_id"], row["edge_type"]))
         for edge in edge_rows:
@@ -641,7 +642,7 @@ async def run_p0_scan(
         values = _successful_dependencies(dependencies)
         guard.authorize_scan(target=target, consent_id=consent_id)
         ranked = values["stage:rank"]
-        engine = HypothesisEngine(LLMClient([]), event_bus, database=database)
+        engine = HypothesisEngine(build_llm_client(), event_bus, database=database)
         hypotheses = await engine.generate(ranked["findings"], scan_context, target_id=target_id, scan_id=scan_id)
         hypothesis_rows = sorted((item.model_dump() for item in hypotheses), key=lambda row: row["id"])
         return {**ranked, "hypotheses": hypothesis_rows}

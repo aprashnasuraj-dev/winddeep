@@ -83,16 +83,24 @@
     } catch(error) { toast(error.message, true); }
   });
 
-  const reportButton = document.getElementById("generateReport");
-  if(reportButton){
-    reportButton.onclick = async () => {
+  /*
+   * Report generation is owned by app.js (POST /api/v2/reports/generate), which
+   * PERSISTS the report and refreshes the stored-reports list. Previously this
+   * block overwrote that handler with a scan-only preview that never saved the
+   * report, so the list always showed "No reports." The v3 scan-scoped report
+   * (/api/v3/scans/<id>/report) is still reachable and is offered as an extra,
+   * non-destructive "V3 scan report" preview action only when a scan exists.
+   */
+  const v3ScanReportButton = document.getElementById("generateV3ScanReport");
+  if(v3ScanReportButton){
+    v3ScanReportButton.onclick = async () => {
       try {
         const scan = await latestAuthorizedScan();
-        if(!scan) throw new Error("No authorized scan is available for this target");
+        if(!scan) throw new Error("No authorized scan is available for this target yet — run a scan first, or use Generate report for an all-findings report.");
         const response = await fetch(`/api/v3/scans/${scan.id}/report?format=markdown`, {headers:{"Accept":"text/markdown"}});
         if(!response.ok){ let detail={}; try{detail=await response.json()}catch{}; throw new Error(detail.error||`${response.status} ${response.statusText}`); }
         document.getElementById("reportPreview").textContent = await response.text();
-        toast("V3-compatible all-findings report generated");
+        toast("V3 scan-scoped report rendered (preview only; use Generate report to store it)");
       } catch(error) { toast(error.message, true); }
     };
   }

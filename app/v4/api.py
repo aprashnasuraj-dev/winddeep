@@ -199,7 +199,7 @@ def register_v4_api(app: Flask, *, authenticated: Callable[[Callable[..., Any]],
             tiers[row["tier"]] = tiers.get(row["tier"], 0) + 1
         runnable = sum(1 for row in rows if row["tier"] != "unavailable")
         ready = sum(1 for row in rows if row["ready"])
-        return jsonify({"version": "4.0.0", "catalog": len(rows), "runnable": runnable, "ready": ready, "unavailable": len(rows) - runnable, "tiers": tiers})
+        return jsonify({"version": "4.1.0", "catalog": len(rows), "runnable": runnable, "ready": ready, "unavailable": len(rows) - runnable, "tiers": tiers})
 
     @app.get("/api/v4/tools")
     @authenticated

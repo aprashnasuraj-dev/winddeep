@@ -24,7 +24,8 @@ All scan modes schedule only resolver-ready and target-compatible integrations. 
 
 <!-- v4-runtime-counts:start -->
 - **137 registered integrations** are retained for historical scan/template compatibility.
-- **137 route-covered integrations** have at least one declared v4 execution route.
+- **109 active v4.1 launch integrations** have a supported route, maintained fallback, host contract, or explicit external-service workflow.
+- **28 dead/deprecated/catalog-only integrations** are excluded from the active launch surface instead of appearing as runnable tools.
 <!-- v4-runtime-counts:end -->
 - **Host-runnable counts are dynamic** and are reported by `winddeep doctor`, `/api/v2/tools`, and `/api/v2/status`.
 

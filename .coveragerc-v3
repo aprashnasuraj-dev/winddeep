@@ -3,6 +3,7 @@ branch = True
 source = app
 omit =
     app/v4/*
+    app/desktop.py
     app/tools/backends.py
     app/tools/builtin_fallbacks.py
     app/tools/bundle.py

@@ -8,3 +8,5 @@ playwright>=1.62,<2
 lancedb>=0.25,<1
 zstandard>=0.24,<1
 dnspython>=2.8,<3
+# Native desktop window (no browser tab). Uses WebView2 on Windows.
+pywebview>=5,<6
