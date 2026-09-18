@@ -138,11 +138,12 @@ def test_down_validator_blocks_evidence_deletes_and_drop_columns(tmp_path: Path)
             manager.rollback(target_version=7)
 
 
-def test_p8_documentation_and_v3_version_contract() -> None:
+def test_p8_documentation_and_current_version_contract() -> None:
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     docs = (ROOT / "docs" / "schema_compatibility.md").read_text(encoding="utf-8").casefold()
-    assert version == "3.0.0"
+    assert version == "4.1.0"
+    assert "## [4.1.0]" in changelog
     assert "## [3.0.0]" in changelog
     assert "current + previous" in docs
     assert "writers" in docs and "current" in docs

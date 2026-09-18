@@ -55,7 +55,23 @@ def main() -> int:
         if len(sys.argv) > 1 and sys.argv[1] in {"doctor", "bundle", "remote-worker"}:
             from app.tools.cli import main as cli_main
             return int(cli_main(sys.argv[1:]) or 0)
-        result = _resolve_main()()
+
+        # UI mode selection (WINDEEP_UI): "desktop" (default) opens a native
+        # window with no browser tab; "browser" opens the default browser;
+        # "server" runs headless (no window, no browser).
+        mode = os.getenv("WINDEEP_UI", "desktop").strip().lower()
+        if len(sys.argv) > 1 and sys.argv[1] in {"desktop", "browser", "server"}:
+            mode = sys.argv[1]
+        if mode == "server":
+            os.environ["WINDEEP_NO_BROWSER"] = "1"
+            result = _resolve_main()()
+        elif mode == "browser":
+            result = _resolve_main()()
+        else:
+            # Native desktop window; never launch an external browser tab.
+            os.environ.setdefault("WINDEEP_NO_BROWSER", "1")
+            from app.desktop import run_desktop
+            result = run_desktop()
     except KeyboardInterrupt:
         return 130
     except Exception as exc:

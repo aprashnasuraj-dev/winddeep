@@ -22,6 +22,7 @@ MinVersion=10.0
 PrivilegesRequired=lowest
 WizardStyle=modern
 LicenseFile=..\LICENSE
+SetupIconFile=windeep.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 CloseApplications=yes
 RestartApplications=no

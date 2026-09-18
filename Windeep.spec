@@ -38,12 +38,14 @@ analysis = Analysis(
     noarchive=False,
 )
 pyz = PYZ(analysis.pure)
+_icon = ROOT / "installer" / "windeep.ico"
 exe = EXE(
     pyz,
     analysis.scripts,
     [],
     exclude_binaries=True,
     name="Windeep",
+    icon=str(_icon) if _icon.exists() else None,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

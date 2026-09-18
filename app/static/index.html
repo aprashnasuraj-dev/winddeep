@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Windeep v4 — Authorized Security Workspace</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="alternate icon" type="image/x-icon" href="/favicon.ico">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
@@ -114,7 +116,7 @@
 
     <section id="reports" class="view">
       <div class="grid2">
-        <article class="card"><h2>V4 all-findings report</h2><p>Every normalized scan finding is included, including resolver backend evidence. Evidence-backed detail is embedded when available; missing detail is stated rather than silently suppressing the finding.</p><label>Target<select id="reportTarget"></select></label><label>Title<input id="reportTitle" placeholder="Windeep v4 report"></label><button class="primary" id="generateReport">Generate v4 report</button><pre id="reportPreview" class="terminal report-preview">No report generated yet.</pre></article>
+        <article class="card"><h2>V4 all-findings report</h2><p>Every normalized scan finding is included, including resolver backend evidence. Evidence-backed detail is embedded when available; missing detail is stated rather than silently suppressing the finding.</p><label>Target<select id="reportTarget"></select></label><label>Title<input id="reportTitle" placeholder="Windeep v4 report"></label><div class="actions wrap"><button class="primary" id="generateReport">Generate report</button><button id="generateV3ScanReport">V3 scan report (preview)</button><button id="exportEvidenceBundle">Export evidence / PoC bundle (.zip)</button></div><pre id="reportPreview" class="terminal report-preview">No report generated yet.</pre></article>
         <article class="card"><div class="card-head"><div><h2>Stored reports</h2><p>Existing stored reports remain available; the current generator renders directly from the authorized scan.</p></div><button id="refreshReports">Refresh</button></div><div id="reportList" class="list"></div></article>
       </div>
     </section>
@@ -124,12 +126,19 @@
         <article class="card"><div class="card-head"><div><h2>Local next-step intelligence</h2><p>Ranks existing findings and suggests resolver-ready, compatible integrations not yet run.</p></div><button id="refreshIntelligence">Refresh</button></div><label>Target<select id="intelTarget"></select></label><div id="intelSummary" class="summary-strip"></div><h3>Top findings</h3><div id="intelFindings" class="list"></div></article>
         <article class="card"><h2>Recommended next tools</h2><div id="intelRecommendations" class="list"></div><h3>Readiness gaps</h3><div id="intelGaps" class="list compact"></div></article>
       </div>
+      <article class="card">
+        <div class="card-head"><div><h2>Human-like audit (Brain)</h2><p>Evidence-grounded hypotheses, attack-chain reasoning and self-critique over the current findings. Configure an LLM key in Settings for natural-language narratives; without a key the deterministic rule-based reasoner is used.</p></div><button class="primary" id="runAudit">Run human-like audit</button></div>
+        <div id="auditStatus" class="muted">Not run yet.</div>
+        <h3>Hypotheses</h3><div id="auditHypotheses" class="list"></div>
+        <h3>Attack chains</h3><div id="auditChains" class="list compact"></div>
+        <h3>Self-critique</h3><div id="auditCritique" class="list compact"></div>
+      </article>
     </section>
 
     <section id="settings" class="view">
       <div class="grid2">
         <article class="card"><h2>Scan settings</h2><label>Global requests/sec<input id="globalRps" type="number" min="0.1" max="20" step="0.1" value="5"></label><label>Scan speed<select id="scanSpeed"><option>slow</option><option selected>medium</option><option>fast</option></select></label><label>Proxy<input id="proxy" placeholder="Optional http://127.0.0.1:8080"></label><button class="primary" id="saveSettings">Save encrypted settings</button><p class="muted">Secrets and settings are encrypted at rest. Blank secret fields preserve existing values.</p></article>
-        <article class="card"><h2>API / service integrations</h2><label>Shodan API key<input id="shodanKey" type="password" placeholder="Leave blank to preserve"></label><div class="inline-grid"><label>Censys API ID<input id="censysId" type="password" placeholder="Leave blank to preserve"></label><label>Censys API secret<input id="censysSecret" type="password" placeholder="Leave blank to preserve"></label></div><label>Etherscan API key<input id="etherscanKey" type="password" placeholder="Leave blank to preserve"></label><label>Corellium base URL<input id="corelliumUrl" placeholder="https://…"></label><label>Corellium API token<input id="corelliumToken" type="password" placeholder="Leave blank to preserve"></label><label>MobSF URL<input id="mobsfUrl" placeholder="http://127.0.0.1:8000"></label><label>MobSF API key<input id="mobsfKey" type="password" placeholder="Leave blank to preserve"></label><div id="settingsState" class="muted"></div></article>
+        <article class="card"><h2>API / service integrations</h2><label>Shodan API key<input id="shodanKey" type="password" placeholder="Leave blank to preserve"></label><div class="inline-grid"><label>Censys API ID<input id="censysId" type="password" placeholder="Leave blank to preserve"></label><label>Censys API secret<input id="censysSecret" type="password" placeholder="Leave blank to preserve"></label></div><label>Etherscan API key<input id="etherscanKey" type="password" placeholder="Leave blank to preserve"></label><label>Corellium base URL<input id="corelliumUrl" placeholder="https://…"></label><label>Corellium API token<input id="corelliumToken" type="password" placeholder="Leave blank to preserve"></label><label>MobSF URL<input id="mobsfUrl" placeholder="http://127.0.0.1:8000"></label><label>MobSF API key<input id="mobsfKey" type="password" placeholder="Leave blank to preserve"></label><h3>Human-like audit (Brain LLM)</h3><label>LLM provider<select id="brainProvider"><option value="">Disabled (rule-based only)</option><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option></select></label><label>Anthropic API key<input id="anthropicKey" type="password" placeholder="Leave blank to preserve"></label><label>OpenAI API key<input id="openaiKey" type="password" placeholder="Leave blank to preserve"></label><label>Model (optional)<input id="brainModel" placeholder="e.g. claude-3-5-sonnet or gpt-4o"></label><div id="settingsState" class="muted"></div></article>
       </div>
     </section>
   </main>

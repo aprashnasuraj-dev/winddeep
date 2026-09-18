@@ -628,6 +628,15 @@ def create_app() -> Flask:
     def index() -> Response:
         return send_from_directory(static_dir, "index.html")
 
+    @app.get("/favicon.ico")
+    def favicon() -> Response:
+        # Serve a real app icon so browsers/native shells stop showing the
+        # generic (python-like) placeholder icon.
+        ico = static_dir / "windeep.ico"
+        if ico.exists():
+            return send_from_directory(static_dir, "windeep.ico", mimetype="image/x-icon")
+        return send_from_directory(static_dir, "favicon.svg", mimetype="image/svg+xml")
+
     @app.get("/static/<path:filename>")
     def static_files(filename: str) -> Response:
         return send_from_directory(static_dir, filename)
