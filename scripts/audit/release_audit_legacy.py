@@ -27,7 +27,7 @@ STATUS_FILE = REPORTS / "phase_status.json"
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 PLACEHOLDER_RE = re.compile(r"\b(TODO|FIXME|TBD|PLACEHOLDER)\b", re.IGNORECASE)
 EXPECTED_TOOL_COUNT = 137
-EXPECTED_ACTIVE_TOOL_COUNT = 137
+EXPECTED_ACTIVE_TOOL_COUNT = 109
 EXPECTED_CERTIFIED_TOOL_COUNT = 6
 EXPECTED_CATALOG_FILES = 8
 EXPECTED_TEST_COUNT = 160
@@ -169,9 +169,9 @@ def _catalog_and_active() -> tuple[dict[str, Any], dict[str, dict[str, Any]], di
     ))
     active_declared = root.get("active_tool_count")
     checks.append(Check(
-        "active runtime tool count",
-        "PASS" if active_declared == len(active) == EXPECTED_ACTIVE_TOOL_COUNT else "FAIL",
-        f"declared={active_declared}, actual={len(active)}, required={EXPECTED_ACTIVE_TOOL_COUNT}",
+        "active v4.1 launch route count",
+        "PASS" if active_declared == EXPECTED_ACTIVE_TOOL_COUNT and len(active) == EXPECTED_TOOL_COUNT else "FAIL",
+        f"declared_active={active_declared}, registered_runtime={len(active)}, required_active={EXPECTED_ACTIVE_TOOL_COUNT}, required_registered={EXPECTED_TOOL_COUNT}",
     ))
     return root, catalog, active, checks
 
@@ -259,7 +259,7 @@ def phase_a() -> bool:
     bundled = {name for name, value in effective.items() if value.get("release_support") == "bundled"}
     unlicensed = sorted(name for name in bundled if not effective[name].get("license") or not effective[name].get("homepage"))
     checks.append(Check("bundled license metadata", "PASS" if not unlicensed else "FAIL", f"{len(bundled)} bundled integrations have license/homepage metadata" if not unlicensed else ", ".join(unlicensed)))
-    checks.append(Check("operational runtime exposes complete catalog", "PASS" if set(active) == set(catalog) and len(active) == EXPECTED_ACTIVE_TOOL_COUNT else "FAIL", f"active={len(active)}, catalog={len(catalog)}, required={EXPECTED_ACTIVE_TOOL_COUNT}"))
+    checks.append(Check("operational runtime exposes complete catalog", "PASS" if set(active) == set(catalog) and len(active) == EXPECTED_TOOL_COUNT else "FAIL", f"registered={len(active)}, catalog={len(catalog)}, required={EXPECTED_TOOL_COUNT}, active_launch_routes={EXPECTED_ACTIVE_TOOL_COUNT}"))
     checks.append(Check("Windows-certified bundled subset", "PASS" if len(bundled) == EXPECTED_CERTIFIED_TOOL_COUNT else "FAIL", f"bundled={sorted(bundled)}, required_count={EXPECTED_CERTIFIED_TOOL_COUNT}"))
 
     try:
@@ -349,7 +349,7 @@ def phase_b(*, require_installed: bool = False) -> bool:
     checks.extend(manifest_checks)
     checks.append(Check("portable tool manifest non-empty", "PASS" if manifest else "FAIL", f"{len(manifest)} package entries" if manifest else "manifest contains no bundled tools"))
     bundled = {name for name, value in effective.items() if value.get("release_support") == "bundled"}
-    checks.append(Check("operational runtime catalog", "PASS" if set(active) == set(catalog) and len(active) == EXPECTED_ACTIVE_TOOL_COUNT else "FAIL", f"active={len(active)}, catalog={len(catalog)}"))
+    checks.append(Check("operational runtime catalog", "PASS" if set(active) == set(catalog) and len(active) == EXPECTED_TOOL_COUNT else "FAIL", f"registered={len(active)}, catalog={len(catalog)}, active_launch_routes={EXPECTED_ACTIVE_TOOL_COUNT}"))
     checks.append(Check("Windows-certified manifest subset count", "PASS" if len(bundled) == EXPECTED_CERTIFIED_TOOL_COUNT else "FAIL", f"bundled={sorted(bundled)}, required_count={EXPECTED_CERTIFIED_TOOL_COUNT}"))
 
     provided: set[str] = set()
@@ -455,7 +455,7 @@ def phase_d() -> bool:
                 health.status_code == 200
                 and body.get("status") == "ok"
                 and body.get("localhost_only") is True
-                and body.get("integrations_total") == EXPECTED_ACTIVE_TOOL_COUNT
+                and body.get("integrations_total") == EXPECTED_TOOL_COUNT
                 and body.get("windows_certified_tools") == EXPECTED_CERTIFIED_TOOL_COUNT
                 and body.get("test_count") == EXPECTED_TEST_COUNT
             )
