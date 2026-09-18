@@ -107,13 +107,19 @@ def main() -> int:
             for tab in ("actionable", "needs-review", "not-actionable"):
                 page.locator(f'#v3FindingTabs button[data-v3-tab="{tab}"]').wait_for(state="visible")
 
-            # V3 report renders directly from the authorized scan and states the all-findings contract.
+            # Persistent reports are generated and listed by the app.js owner.
             page.locator('button[data-view="reports"]').click()
             page.locator("#reportTitle").fill("UI smoke v3 report")
             page.locator("#generateReport").click()
+            wait_text(page, "#reportPreview", "UI smoke v3 report", timeout=10_000)
+            wait_text(page, "#reportPreview", "Findings", timeout=10_000)
+            wait_text(page, "#reportList", "UI smoke v3 report", timeout=10_000)
+            page.locator("[data-report-evidence]").first.wait_for(state="visible", timeout=10_000)
+
+            # The scan-scoped v3 renderer remains available as a preview only.
+            page.locator("#generateV3ScanReport").click()
             wait_text(page, "#reportPreview", "Windeep v3 scan report", timeout=10_000)
             wait_text(page, "#reportPreview", "Every normalized finding from this scan is included", timeout=10_000)
-            wait_text(page, "#reportPreview", "Findings", timeout=10_000)
 
             # Intelligence and settings surfaces must remain functional.
             page.locator('button[data-view="intelligence"]').click()
