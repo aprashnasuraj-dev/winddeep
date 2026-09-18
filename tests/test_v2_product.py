@@ -5,6 +5,8 @@ import json
 import os
 import stat
 import time
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 import pytest
@@ -94,6 +96,9 @@ def test_v2_status_tools_settings_and_plan(v2_client) -> None:
             "shodan_api_key": "qa-key",
             "censys_api_id": "qa-id",
             "censys_api_secret": "qa-secret",
+            "brain_llm_provider": "anthropic",
+            "brain_llm_model": "claude-test",
+            "anthropic_api_key": "brain-secret",
         },
         headers=headers,
     )
@@ -102,6 +107,9 @@ def test_v2_status_tools_settings_and_plan(v2_client) -> None:
     assert settings["global_rps"] == 4.5
     assert settings["shodan_api_key"] == "configured"
     assert settings["censys_api_id"] == "configured"
+    assert settings["brain_llm_provider"] == "anthropic"
+    assert settings["brain_llm_model"] == "claude-test"
+    assert settings["anthropic_api_key"] == "configured"
 
     configured_tools = client.get("/api/v2/tools?target_type=domain").get_json()["tools"]
     shodan = next(row for row in configured_tools if row["name"] == "shodan")
@@ -161,11 +169,30 @@ def test_v2_builtin_scan_creates_raw_proof_and_report_exports(v2_client) -> None
     payload = json.loads(evidence_json.data)
     assert payload["findings"][0]["tool"] == "custom_regex"
 
+    evidence_zip = client.get(f"/api/v2/reports/{report['id']}/evidence")
+    assert evidence_zip.status_code == 200
+    assert evidence_zip.mimetype == "application/zip"
+    with zipfile.ZipFile(BytesIO(evidence_zip.data)) as archive:
+        names = set(archive.namelist())
+        assert {"README.md", "report.md", "findings.json"} <= names
+        assert any(name.startswith("poc/") and name.endswith(".md") for name in names)
+        assert "Raw evidence" in archive.read("report.md").decode("utf-8")
+        exported = json.loads(archive.read("findings.json"))
+        assert exported[0]["tool"] == "custom_regex"
+
     intelligence = client.get(f"/api/v2/intelligence?target_id={target['id']}")
     assert intelligence.status_code == 200
     intel = intelligence.get_json()
     assert intel["finding_count"] >= 1
     assert intel["top_findings"]
+
+    audit = client.get(f"/api/v2/audit?target_id={target['id']}")
+    assert audit.status_code == 200
+    audit_payload = audit.get_json()
+    assert audit_payload["reasoner"]
+    assert audit_payload["finding_count"] >= 1
+    assert isinstance(audit_payload["hypotheses"], list)
+    assert isinstance(audit_payload["critique"], list)
 
 
 def test_v2_stop_terminates_active_child_process(v2_client) -> None:

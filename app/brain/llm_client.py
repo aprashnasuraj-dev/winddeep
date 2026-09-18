@@ -41,6 +41,7 @@ class ProviderConfig:
     provider: str
     model: str
     endpoint: str | None = None
+    api_key: str | None = None
     api_key_env: str | None = None
     enabled: bool = True
     max_output_tokens: int = 2048
@@ -67,6 +68,7 @@ class ProviderConfig:
             provider=provider,
             model=model,
             endpoint=str(value["endpoint"]).strip() if value.get("endpoint") else None,
+            api_key=str(value["api_key"]).strip() if value.get("api_key") else None,
             api_key_env=str(value["api_key_env"]).strip() if value.get("api_key_env") else None,
             enabled=bool(value.get("enabled", True)),
             max_output_tokens=max_output_tokens,
@@ -354,6 +356,8 @@ class LLMClient:
             raise InvalidModelResponse("provider returned invalid JSON") from exc
 
     def _api_key(self, provider: ProviderConfig) -> str | None:
+        if provider.api_key:
+            return provider.api_key
         if provider.api_key_env:
             return os.getenv(provider.api_key_env) or None
         defaults = {

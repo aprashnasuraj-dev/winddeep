@@ -75,8 +75,6 @@ def brain_provider_config(settings: Mapping[str, Any] | None = None) -> dict[str
     key = _resolve_key(provider, settings)
     if not key:
         return {"providers": []}
-    # Make the key visible to the client's env-based key resolution.
-    os.environ.setdefault(_KEY_ENV[provider], key)
     model = str(settings.get("brain_llm_model") or "").strip()
     if not model or model == "configured":
         model = _DEFAULT_MODELS[provider]
@@ -84,6 +82,7 @@ def brain_provider_config(settings: Mapping[str, Any] | None = None) -> dict[str
         "name": provider,
         "provider": provider,
         "model": model,
+        "api_key": key,
         "api_key_env": _KEY_ENV[provider],
         "enabled": True,
     }

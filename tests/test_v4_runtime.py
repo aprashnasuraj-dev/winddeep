@@ -64,11 +64,24 @@ def test_aliases_preserve_historical_names_but_route_to_maintained_contracts() -
         assert classes[alias].execution_name == target
 
 
-def test_every_catalog_entry_declares_a_v4_runnable_route() -> None:
+def _launch_excluded(definition: dict[str, Any]) -> bool:
+    release_support = str(definition.get("release_support") or "")
+    catalog_support = str(definition.get("catalog_release_support") or "")
+    return release_support in {"deprecated", "legacy"} or (
+        release_support == "unsupported" and catalog_support == "unsupported"
+    )
+
+
+def test_active_launch_entries_declare_a_v4_runnable_route() -> None:
     classes = ToolWrapperFactory(REGISTRY).load()
     effective = effective_definitions(REGISTRY)
     missing: list[str] = []
+    excluded: list[str] = []
     for name, cls in classes.items():
+        if _launch_excluded(effective[name]):
+            excluded.append(name)
+            assert effective[name].get("unsupported_reason")
+            continue
         release_support = str(effective[name].get("release_support") or "")
         has_route = bool(
             getattr(cls, "provision", None)
@@ -77,11 +90,12 @@ def test_every_catalog_entry_declares_a_v4_runnable_route() -> None:
             or getattr(cls, "alias_to", "")
             or getattr(cls, "requires_host", "")
             or builtin_integrations.supports(name)
-            or release_support == "bundled"
+            or release_support in {"bundled", "external-service"}
         )
         if not has_route:
             missing.append(name)
     assert not missing, "catalog entries without a v4 execution route: " + ", ".join(sorted(missing))
+    assert len(excluded) == 28
 
 
 def test_resolver_uses_first_available_backend_in_declared_order() -> None:
@@ -190,6 +204,8 @@ def test_offline_bundle_round_trip_preserves_and_verifies_cached_runtime(tmp_pat
 def test_v4_runtime_overlay_is_registered_from_root_config() -> None:
     root = json.loads(REGISTRY.read_text(encoding="utf-8"))
     assert root["schema_version"] == 4
+    assert root["registered_tool_count"] == 137
+    assert root["active_tool_count"] == 109
     overlay = ROOT / root["runtime_overlays"]
     assert overlay.is_file()
     data = json.loads(overlay.read_text(encoding="utf-8"))

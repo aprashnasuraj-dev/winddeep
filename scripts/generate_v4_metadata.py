@@ -32,8 +32,16 @@ def compute(registry: Path = REGISTRY) -> dict[str, int]:
     containers = 0
     builtin_routes = 0
     remote_host = 0
+    excluded_dead = 0
     for name, cls in classes.items():
         release_support = str(effective[name].get("release_support") or "")
+        catalog_support = str(effective[name].get("catalog_release_support") or "")
+        launch_excluded = release_support in {"deprecated", "legacy"} or (
+            release_support == "unsupported" and catalog_support == "unsupported"
+        )
+        if launch_excluded:
+            excluded_dead += 1
+            continue
         has_alias = bool(getattr(cls, "alias_to", ""))
         has_provision = bool(getattr(cls, "provision", None))
         has_container = bool(getattr(cls, "container_image", ""))
@@ -54,6 +62,7 @@ def compute(registry: Path = REGISTRY) -> dict[str, int]:
         "container_route_count": containers,
         "builtin_route_count": builtin_routes,
         "host_specific_route_count": remote_host,
+        "launch_excluded_count": excluded_dead,
     }
 
 
@@ -62,7 +71,8 @@ def _readme_block(generated: dict[str, int]) -> str:
         [
             README_START,
             f"- **{generated['registered_tool_count']} registered integrations** are retained for historical scan/template compatibility.",
-            f"- **{generated['active_tool_count']} route-covered integrations** have at least one declared v4 execution route.",
+            f"- **{generated['active_tool_count']} active v4.1 launch integrations** have a supported route, maintained fallback, host contract, or explicit external-service workflow.",
+            f"- **{generated['launch_excluded_count']} dead/deprecated/catalog-only integrations** are excluded from the active launch surface instead of appearing as runnable tools.",
             README_END,
         ]
     )
