@@ -1,7 +1,7 @@
 name: Windeep Hourly Release Gate
 on:
   schedule:
-    - cron: '35 * * * *' # :20 NPT
+    - cron: '38 * * * *' # :23 NPT
   workflow_dispatch:
 permissions:
   contents: read
