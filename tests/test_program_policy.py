@@ -13,9 +13,12 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "programs" / "stonikbyte_bugcrowd.json"
 
 
+def _fixture() -> dict:
+    return json.loads(FIXTURE.read_text(encoding="utf-8"))
+
+
 def _raw_policy() -> dict:
-    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    return dict(payload["testing_requirements"])
+    return dict(_fixture()["testing_requirements"])
 
 
 def _policy() -> ProgramTestingPolicy:
@@ -41,14 +44,17 @@ def test_fixture_compiles_operator_owned_instance_exactly() -> None:
     )
 
 
-def test_marketplace_listing_is_not_a_test_target() -> None:
+def test_every_listed_marketplace_url_is_reporting_only_not_a_test_target() -> None:
     policy = _policy()
-    with pytest.raises(ProgramPolicyViolation, match="reporting/listing host"):
-        policy.assert_execution(
-            "manual_interaction",
-            target="https://marketplace.atlassian.com/apps/1216564/great-gadgets-for-jira-cloud",
-            metadata=_metadata(),
-        )
+    assets = _fixture()["reporting_assets"]
+    assert len(assets) == 16
+    for asset in assets:
+        with pytest.raises(ProgramPolicyViolation, match="reporting/listing host"):
+            policy.assert_execution(
+                "manual_interaction",
+                target=asset["url"],
+                metadata=_metadata(),
+            )
 
 
 def test_other_researcher_or_customer_instance_is_not_in_scope() -> None:
