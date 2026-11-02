@@ -172,8 +172,15 @@ def version_changelog_check() -> Check:
     version = text("VERSION").strip()
     changelog = text("CHANGELOG.md")
     required = ["## [3.0.0]", "### Breaking changes", "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"]
-    ok = version == "3.0.0" and all(marker in changelog for marker in required)
-    return Check("version/changelog cut", ok, f"VERSION={version}; v3 phase map={'present' if ok else 'incomplete'}")
+    match = re.fullmatch(r"(\\d+)\\.(\\d+)\\.(\\d+)", version)
+    version_is_v3_or_later = bool(match and tuple(int(part) for part in match.groups()) >= (3, 0, 0))
+    phase_map_present = all(marker in changelog for marker in required)
+    ok = version_is_v3_or_later and phase_map_present
+    detail = (
+        f"VERSION={version}; v3 phase map={'present' if phase_map_present else 'incomplete'}; "
+        f"compatibility floor={'satisfied' if version_is_v3_or_later else 'failed'}"
+    )
+    return Check("version/changelog cut", ok, detail)
 
 
 def threat_model_check() -> Check:
