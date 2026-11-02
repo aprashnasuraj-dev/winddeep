@@ -69,20 +69,24 @@ Parser = Callable[[str, str, str], list[Finding]]
 
 
 def _line_parser(raw: str, tool: str, target: str) -> list[Finding]:
-    return [
-        Finding(
-            title=line,
-            severity="info",
-            vuln_type="tool_output",
-            tool=tool,
-            endpoint=target,
-            description="Normalized line emitted by tool integration.",
-            evidence={"raw": line},
-            confidence=0.3,
+    findings: list[Finding] = []
+    for line_number, raw_line in enumerate(raw.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        findings.append(
+            Finding(
+                title=line,
+                severity="info",
+                vuln_type="tool_output",
+                tool=tool,
+                endpoint=target,
+                description="Normalized line emitted by tool integration.",
+                evidence={"raw": line, "_windeep_line_number": line_number},
+                confidence=0.3,
+            )
         )
-        for line in (item.strip() for item in raw.splitlines())
-        if line
-    ]
+    return findings
 
 
 def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
@@ -101,7 +105,7 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
                     tool=tool,
                     endpoint=target,
                     description="Non-JSON diagnostic line emitted alongside structured output.",
-                    evidence={"raw": line, "line_number": line_number},
+                    evidence={"raw": line, "line_number": line_number, "_windeep_line_number": line_number},
                     confidence=0.2,
                 )
             )
@@ -120,7 +124,7 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
                 tool=tool,
                 endpoint=str(item.get("endpoint") or item.get("url") or item.get("host") or target),
                 description=str(item.get("description") or ""),
-                evidence=item,
+                evidence={**item, "_windeep_line_number": line_number},
                 confidence=max(0.0, min(1.0, confidence)),
             )
         )
