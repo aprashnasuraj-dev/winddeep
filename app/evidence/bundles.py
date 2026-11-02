@@ -17,6 +17,7 @@ from typing import Any
 
 BUNDLE_SCHEMA = "windeep.evidence-bundle.v1"
 _EXPLOITABILITY = {"observed", "needs-human-review"}
+_EVIDENCE_PROFILES = {"http", "artifact", "browser"}
 _FLOW_HASH_FIELDS = (
     "method",
     "url",
@@ -239,27 +240,83 @@ class EvidenceBundleStore:
         evidence = finding.get("evidence")
         return bool(isinstance(evidence, Mapping) and evidence.get("browser_observed"))
 
+    @classmethod
+    def _profile(
+        cls,
+        finding: Mapping[str, Any],
+        *,
+        flows: Sequence[Mapping[str, Any]],
+        explicit: str | None,
+    ) -> str:
+        requested = str(explicit or "").strip().casefold()
+        evidence = finding.get("evidence")
+        if not requested and isinstance(evidence, Mapping):
+            requested = str(evidence.get("evidence_profile") or "").strip().casefold()
+        if requested and requested not in _EVIDENCE_PROFILES:
+            raise ValueError(f"unsupported evidence_profile: {requested}")
+
+        endpoint = str(finding.get("endpoint") or "").strip().casefold()
+        browser_required = cls._is_browser_observable(finding)
+        http_required = endpoint.startswith(("http://", "https://")) or cls._is_reflection(finding)
+
+        if browser_required:
+            if requested and requested != "browser":
+                raise ValueError("browser-observed finding cannot downgrade evidence_profile below browser")
+            return "browser"
+        if http_required:
+            if requested == "artifact":
+                raise ValueError("HTTP/reflection finding cannot downgrade evidence_profile to artifact")
+            return requested or "http"
+        if requested:
+            return requested
+        if flows:
+            return "http"
+        return "artifact"
+
     @staticmethod
-    def _reproduction(flows: Sequence[Mapping[str, Any]], human_plan: Sequence[str]) -> dict[str, Any] | None:
-        if not flows:
-            return None
-        primary = flows[0]
-        handle = f"flow:{primary['id']}:{primary['sha256']}"
-        status = "no captured status" if primary.get("status") is None else f"HTTP {primary['status']}"
-        steps = [
-            f"Send the captured {primary['method']} request to `{primary['url']}` using the recorded authorization context (`{handle}`).",
-            f"Observe the recorded response ({status}) and compare it with flow SHA-256 `{primary['sha256']}`.",
-            "Stop at the recorded observation point; do not perform exploitation or state-changing actions.",
-        ]
-        return {
-            "replay_handle": handle,
-            "steps": steps,
-            "plan": [str(item) for item in human_plan],
-        }
+    def _reproduction(
+        flows: Sequence[Mapping[str, Any]],
+        tool_output: Mapping[str, Any] | None,
+        human_plan: Sequence[str],
+        *,
+        profile: str,
+    ) -> dict[str, Any] | None:
+        if flows:
+            primary = flows[0]
+            handle = f"flow:{primary['id']}:{primary['sha256']}"
+            status = "no captured status" if primary.get("status") is None else f"HTTP {primary['status']}"
+            steps = [
+                f"Send the captured {primary['method']} request to `{primary['url']}` using the recorded authorization context (`{handle}`).",
+                f"Observe the recorded response ({status}) and compare it with flow SHA-256 `{primary['sha256']}`.",
+                "Stop at the recorded observation point; do not perform exploitation or state-changing actions.",
+            ]
+            return {
+                "replay_handle": handle,
+                "steps": steps,
+                "plan": [str(item) for item in human_plan],
+            }
+        if profile == "artifact" and tool_output:
+            handle = (
+                f"artifact:{tool_output['artifact_sha256']}:"
+                f"{tool_output['line_start']}-{tool_output['line_end']}:"
+                f"{tool_output['slice_sha256']}"
+            )
+            steps = [
+                f"Open the immutable captured detector artifact referenced by `{handle}`.",
+                f"Review only lines `{tool_output['line_start']}-{tool_output['line_end']}` and verify slice SHA-256 `{tool_output['slice_sha256']}`.",
+                "Compare the recorded observation with the detector provenance and stop; do not perform target-side exploitation or state-changing actions.",
+            ]
+            return {
+                "replay_handle": handle,
+                "steps": steps,
+                "plan": [str(item) for item in human_plan],
+            }
+        return None
 
     @staticmethod
     def _completeness(
         *,
+        profile: str,
         flows: Sequence[Mapping[str, Any]],
         tool_output: Mapping[str, Any] | None,
         provenance: Mapping[str, Any],
@@ -271,21 +328,31 @@ class EvidenceBundleStore:
         browser_required: bool,
         browser_observation: Mapping[str, Any] | None,
     ) -> dict[str, Any]:
-        checks: list[tuple[str, bool]] = [
-            ("flow", bool(flows)),
-            ("tool_output", bool(tool_output)),
-            ("provenance", bool(provenance.get("nodes"))),
-            ("reproduction", bool(reproduction and reproduction.get("replay_handle"))),
-        ]
+        checks: list[tuple[str, bool]] = []
+        if profile in {"http", "browser"}:
+            checks.append(("flow", bool(flows)))
+        checks.extend(
+            [
+                ("tool_output", bool(tool_output)),
+                ("provenance", bool(provenance.get("nodes"))),
+                ("reproduction", bool(reproduction and reproduction.get("replay_handle"))),
+            ]
+        )
         if exploitability == "needs-human-review":
             checks.append(("human_plan", bool(human_plan)))
         if reflection_required:
             checks.append(("reflected_marker", bool(reflected_marker)))
-        if browser_required:
+        if profile == "browser" or browser_required:
             checks.append(("browser_observation", bool(browser_observation)))
         missing = [name for name, present in checks if not present]
         score = sum(1 for _name, present in checks if present) / len(checks)
-        return {"score": round(score, 6), "missing": missing, "closed": not missing}
+        return {
+            "profile": profile,
+            "required": [name for name, _present in checks],
+            "score": round(score, 6),
+            "missing": missing,
+            "closed": not missing,
+        }
 
     def build(
         self,
@@ -302,6 +369,7 @@ class EvidenceBundleStore:
         human_plan: Sequence[str] = (),
         reflected_marker: Mapping[str, Any] | None = None,
         browser_observation: Mapping[str, Any] | None = None,
+        evidence_profile: str | None = None,
         close: bool = False,
     ) -> dict[str, Any]:
         """Build a deterministic bundle and optionally require it to be complete."""
@@ -323,7 +391,8 @@ class EvidenceBundleStore:
             }
         normalized_provenance = self._normalize_provenance(provenance)
         plan = tuple(str(item) for item in human_plan if str(item).strip())
-        reproduction = self._reproduction(flows, plan)
+        profile = self._profile(finding, flows=flows, explicit=evidence_profile)
+        reproduction = self._reproduction(flows, tool_output, plan, profile=profile)
 
         screenshot: dict[str, Any] | None = None
         if browser_observation:
@@ -336,6 +405,7 @@ class EvidenceBundleStore:
 
         reflection = dict(reflected_marker) if reflected_marker else None
         completeness = self._completeness(
+            profile=profile,
             flows=flows,
             tool_output=tool_output,
             provenance=normalized_provenance,
@@ -364,6 +434,7 @@ class EvidenceBundleStore:
         payload = {
             "schema": BUNDLE_SCHEMA,
             "finding": finding_ref,
+            "evidence_profile": profile,
             "flows": flows,
             "tool_output": tool_output,
             "provenance": normalized_provenance,
@@ -463,4 +534,5 @@ class EvidenceBundleStore:
             "canonical_json": canonical_text,
             "bundle_id": int(item["id"]),
             "state": str(item["state"]),
+            "created_at": float(item["created_at"]),
         }
