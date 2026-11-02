@@ -19,9 +19,27 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  version-check:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      is_v4: ${{ steps.version.outputs.is_v4 }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: version
+        shell: bash
+        run: |
+          version="$(tr -d '\r\n' < VERSION)"
+          if [[ "$version" =~ ^4\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo 'is_v4=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'is_v4=false' >> "$GITHUB_OUTPUT"
+          fi
+
   release-v4:
     name: build-and-publish-v4
-    if: github.ref == 'refs/heads/main'
+    needs: [version-check]
+    if: needs.version-check.outputs.is_v4 == 'true'
     runs-on: windows-latest
     timeout-minutes: 150
     env:

@@ -1,6 +1,6 @@
 # Windeep
 
-Windeep is a local-first bug-bounty and security-assessment workspace for **authorized security testing**. Windeep v4 keeps the complete 137-integration catalog while resolving execution per host through native binaries, Windeep-managed provisioning, containers, WSL, authenticated remote workers, and pure-Python builtin fallbacks.
+Windeep is a local-first bug-bounty and security-assessment workspace for **authorized security testing**. Windeep v5 retains the 137-integration catalog and v4 runtime while resolving execution per host through native binaries, Windeep-managed provisioning, containers, WSL, authenticated remote workers, and pure-Python builtin fallbacks. Its submission drafts bind findings to verified evidence from the selected scan and require human review.
 
 > **Authorization required:** Use Windeep only on systems you own or are explicitly authorized to test. Scope boundaries and program rules always take precedence over automation.
 
@@ -66,7 +66,7 @@ Windeep is **not only a scanner**. Its program workspace is intended to support 
 
 ### Release build
 
-When a v4 release is published, download its Windows installer or portable archive from [GitHub Releases](https://github.com/aprashnasuraj-dev/winddeep/releases/latest).
+Download a published Windows installer or portable archive from [GitHub Releases](https://github.com/aprashnasuraj-dev/winddeep/releases/latest).
 
 ### Developer setup
 

@@ -6,6 +6,24 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 Post-freeze changes to the public v3 contracts are released as `3.0.x` patches unless they require a new major/minor compatibility window.
 
+## [5.0.0] - 2026-11-02
+
+### Added
+- Added scan-bound submission drafts with Markdown, HTML, redacted HAR, a structured platform template, and a SHA-256 attachment manifest. Drafts require human review and are never submitted automatically.
+- Connected tool execution output to encrypted, integrity-checked evidence bundles and scan-specific finding observations.
+- Added program-specific testing policies and cross-tool catalog alignment checks.
+
+### Fixed
+- Prevented per-tool options from overriding the authorized target.
+- Classified 23 target-independent catalog commands as diagnostics so they do not create target findings.
+- Preserved structured tool fields and zero confidence; strengthened handling of malformed ranking inputs.
+- Rechecked live authorization before legacy evidence ZIP exports and improved export redaction of URL credentials, fragments, form fields, and authorization headers.
+- Made Windows startup catalog discovery passive and suppressed child console windows.
+
+### Release and limitations
+- V5 retains the v4 execution resolver and its 137 registered integration contracts; actual runtime availability still depends on the host, installed backends, and credentials.
+- Closed evidence bundles verify captured artifacts, not that a vulnerability or its claimed impact is confirmed. Review all drafts and attachments before sharing.
+
 ## [4.1.2] - 2026-11-02
 
 ### Added

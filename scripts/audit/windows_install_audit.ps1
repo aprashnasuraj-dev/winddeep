@@ -189,7 +189,20 @@ function Test-WindeepHealth([string]$ExePath, [string]$StatePath, [string]$Label
             Start-Sleep -Milliseconds 500
         }
         Add-Check "$Label health" $healthy $(if ($healthy) { "loopback /api/health PASS on port $port" } elseif ($proc.HasExited) { "process exited with code $($proc.ExitCode)" } else { $lastError })
-        if ($healthy) { Test-LoopbackListener -ProcessId $proc.Id -Port $port -Label $Label }
+        if ($healthy) {
+            Test-LoopbackListener -ProcessId $proc.Id -Port $port -Label $Label
+            $smokeScript = Join-Path $repoRoot 'scripts\audit\windows_product_smoke.py'
+            $safeLabel = $Label -replace '[^A-Za-z0-9_-]', '-'
+            $fixture = Join-Path $workRoot ("$safeLabel-owned-source.txt")
+            if (Test-Path -LiteralPath $smokeScript -PathType Leaf) {
+                $smokeOutput = (& python $smokeScript --base-url "http://127.0.0.1:$port" --fixture $fixture 2>&1 | Out-String).Trim()
+                $smokeExit = $LASTEXITCODE
+                if ($smokeOutput.Length -gt 600) { $smokeOutput = $smokeOutput.Substring(0, 600) }
+                Add-Check "$Label scan and submission export" ($smokeExit -eq 0) $smokeOutput
+            } else {
+                Add-Check "$Label scan and submission export" $false "missing: $smokeScript"
+            }
+        }
         if (-not $proc.HasExited) { $proc.Kill(); $proc.WaitForExit(5000) | Out-Null }
     } finally {
         if ($null -eq $oldPort) { Remove-Item Env:WINDEEP_PORT -ErrorAction SilentlyContinue } else { $env:WINDEEP_PORT = $oldPort }
