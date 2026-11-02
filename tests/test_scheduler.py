@@ -156,3 +156,55 @@ async def test_scheduler_propagates_cancellation() -> None:
         await task
     assert scheduler.states["block"].status == "cancelled"
     await bus.close()
+
+
+@pytest.mark.asyncio
+async def test_program_policy_blocks_automated_tool_before_runner_starts() -> None:
+    bus = EventBus(heartbeat_interval=60)
+    called = False
+
+    async def runner(context: object, deps: dict[str, object]) -> None:
+        nonlocal called
+        called = True
+
+    context = SimpleNamespace(
+        target="https://example.com",
+        consent_id="signed-consent",
+        program_policy={
+            "automated_tooling_allowed": False,
+            "allowed_hosts": ["example.com"],
+        },
+        metadata={},
+    )
+    scheduler = TaskScheduler(bus, preflight=FakePreflight())
+    with pytest.raises(PreFlightError, match="program rules prohibit automated tools/scanners"):
+        await scheduler.execute(
+            [TaskSpec("scanner", runner, execution_kind="automated_tool")],
+            context,
+            scan_id="policy-block",
+        )
+    assert called is False
+    await bus.close()
+
+
+@pytest.mark.asyncio
+async def test_program_policy_keeps_local_analysis_available_when_scanners_are_forbidden() -> None:
+    bus = EventBus(heartbeat_interval=60)
+
+    async def runner(context: object, deps: dict[str, object]) -> str:
+        return "local-result"
+
+    context = SimpleNamespace(
+        target="https://example.com",
+        consent_id="signed-consent",
+        program_policy={"automated_tooling_allowed": False},
+        metadata={},
+    )
+    scheduler = TaskScheduler(bus, preflight=FakePreflight())
+    result = await scheduler.execute(
+        [TaskSpec("analysis", runner, execution_kind="local_analysis")],
+        context,
+        scan_id="policy-local",
+    )
+    assert result == {"analysis": "local-result"}
+    await bus.close()
