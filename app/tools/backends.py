@@ -15,6 +15,7 @@ from typing import Any, Iterable, Mapping, Sequence
 import httpx
 
 from app.tools import builtin_fallbacks, builtin_integrations
+from app.tools.process_utils import hidden_process_kwargs
 
 
 class BackendUnavailableError(RuntimeError):
@@ -49,15 +50,12 @@ async def _exec_process(
     env: Mapping[str, str] | None = None,
     cwd: str | Path | None = None,
 ) -> tuple[str, str, int]:
-    creationflags = 0
-    if os.name == "nt":
-        creationflags = getattr(__import__("subprocess"), "CREATE_NO_WINDOW", 0)
     process = await asyncio.create_subprocess_exec(
         *[str(item) for item in argv],
         stdin=asyncio.subprocess.PIPE if stdin is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
-        creationflags=creationflags,
+        **hidden_process_kwargs(),
         env=dict(env) if env is not None else None,
         cwd=str(cwd) if cwd is not None else None,
     )
@@ -144,7 +142,7 @@ class ContainerBackend(ExecutionBackend):
         if cached and now - cached[0] < 15.0:
             return cached[1]
         try:
-            completed = subprocess.run([runtime, "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3, check=False)
+            completed = subprocess.run([runtime, "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3, check=False, **hidden_process_kwargs())
             ok = completed.returncode == 0
         except (OSError, subprocess.SubprocessError):
             ok = False
@@ -158,12 +156,20 @@ class ContainerBackend(ExecutionBackend):
         if cached and now - cached[0] < 15.0:
             return cached[1]
         try:
-            completed = subprocess.run([runtime, "image", "inspect", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False)
+            completed = subprocess.run([runtime, "image", "inspect", image], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, check=False, **hidden_process_kwargs())
             ok = completed.returncode == 0
         except (OSError, subprocess.SubprocessError):
             ok = False
         self._image_cache[key] = (now, ok)
         return ok
+
+    def passive_can_run(self, tool: Any) -> bool | None:
+        image = str(getattr(tool, "container_image", "") or "").strip()
+        if not image:
+            return False
+        if str(getattr(tool, "requires_host", "")).lower() in {"macos", "device"}:
+            return False
+        return None if self._runtime(tool) else False
 
     def can_run(self, tool: Any) -> bool:
         image = str(getattr(tool, "container_image", "") or "").strip()
@@ -204,6 +210,13 @@ class WslBackend(ExecutionBackend):
     def _binary(self, tool: Any) -> str:
         return str(getattr(tool, "wsl_binary", "") or getattr(tool, "execution_name", "") or tool.binary)
 
+    def passive_can_run(self, tool: Any) -> bool | None:
+        if self._launcher() is None:
+            return False
+        if str(getattr(tool, "requires_host", "")).lower() in {"macos", "device"}:
+            return False
+        return None
+
     def can_run(self, tool: Any) -> bool:
         if self._launcher() is None:
             return False
@@ -216,6 +229,7 @@ class WslBackend(ExecutionBackend):
                 stderr=subprocess.DEVNULL,
                 timeout=5,
                 check=False,
+                **hidden_process_kwargs(),
             )
             return completed.returncode == 0
         except (OSError, subprocess.SubprocessError):
@@ -337,20 +351,39 @@ class ExecutionResolver:
         attempted = ", ".join(self.ordered_keys(tool)) or "none"
         raise BackendUnavailableError(f"no execution backend available for {tool.tool_name}; attempted: {attempted}")
 
-    def status(self, tool: Any) -> dict[str, Any]:
+    def status(self, tool: Any, *, active_probe: bool = True) -> dict[str, Any]:
         rows: list[dict[str, Any]] = []
         selected: ExecutionBackend | None = None
+        deferred: ExecutionBackend | None = None
         for key in self.ordered_keys(tool):
             backend = self.backends[key]
-            available = bool(backend.can_run(tool))
-            rows.append({"backend": key, "tier": backend.tier, "available": available})
+            passive = getattr(backend, "passive_can_run", None)
+            if not active_probe and callable(passive):
+                state = passive(tool)
+                available = state is True
+                is_deferred = state is None
+            else:
+                available = bool(backend.can_run(tool))
+                is_deferred = False
+            rows.append({
+                "backend": key,
+                "tier": backend.tier,
+                "available": available,
+                "deferred": is_deferred,
+                "verified": not is_deferred,
+            })
             if selected is None and available:
                 selected = backend
+            if deferred is None and is_deferred:
+                deferred = backend
+        chosen = selected or deferred
         return {
             "tool": tool.tool_name,
             "runtime_strategy": str(getattr(tool, "runtime_strategy", "auto")),
-            "tier": selected.tier if selected else "unavailable",
-            "backend": selected.key if selected else None,
+            "tier": selected.tier if selected else ("deferred" if deferred else "unavailable"),
+            "backend": chosen.key if chosen else None,
+            "verified": selected is not None,
+            "deferred": selected is None and deferred is not None,
             "chain": rows,
         }
 
@@ -360,7 +393,7 @@ def _runtime_healthy(name: str) -> bool:
     if not executable:
         return False
     try:
-        return subprocess.run([executable, "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3, check=False).returncode == 0
+        return subprocess.run([executable, "info"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3, check=False, **hidden_process_kwargs()).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
