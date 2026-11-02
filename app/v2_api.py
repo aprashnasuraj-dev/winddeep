@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import os
@@ -816,21 +817,16 @@ def register_v2_api(
     @app.get("/api/v2/reports/<int:report_id>/evidence")
     @authenticated
     def v2_reports_evidence(report_id: int) -> tuple[Response, int] | Response:
-        """Export a readable, self-contained evidence / PoC bundle as a .zip.
-
-        The bundle contains the human-readable report, machine-readable findings,
-        and one Markdown PoC file per finding (steps, raw request/response, and
-        captured evidence). Authorization is re-checked via live preflight before
-        any evidence-bearing content is read.
-        """
+        """Export an authorized report bundle without regenerating snapshot proof."""
         with database._connect() as conn:
             auth_row = conn.execute("SELECT target_id FROM reports WHERE id = ?", (report_id,)).fetchone()
         if auth_row is None:
             return jsonify({"error": "report not found"}), 404
-        # The report row is an artifact the operator already generated and can
-        # already preview/download; exporting it uses the same authenticated
-        # local-session gate as /api/reports, not a fresh scan authorization.
-        target_row = database.get_target(int(auth_row["target_id"])) or {}
+        try:
+            target_row = require_target_access(int(auth_row["target_id"]))
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+
         with database._connect() as conn:
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
         if row is None:
@@ -838,51 +834,104 @@ def register_v2_api(
         item = dict(row)
         title = str(item.get("title") or f"windeep-report-{report_id}")
         try:
-            finding_ids = [int(value) for value in json.loads(str(item.get("finding_ids") or "[]"))]
-        except Exception:
-            finding_ids = []
-        findings = [finding for fid in finding_ids if (finding := database.get_finding(fid)) is not None]
-        try:
             report_markdown = crypto.decrypt_text(str(item["content"]), aad=b"windeep:report.content")
-        except Exception:
-            report_markdown = "# Report\n\n(Stored report content could not be decrypted.)\n"
+        except Exception as exc:
+            audit.append("v2.report.export_failed", {"report_id": report_id, "reason": "stored report integrity/decryption failure"})
+            return jsonify({"error": f"stored report could not be verified: {type(exc).__name__}"}), 500
 
+        snapshot = load_snapshot(report_id)
         generated = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime())
-        readme = "\n".join([
-            f"# Windeep evidence bundle — {title}",
-            "",
-            f"- Report ID: {report_id}",
-            f"- Target: {target_row.get('target', '')}",
-            f"- Findings: {len(findings)}",
-            f"- Exported: {generated}",
-            "",
-            "## Authorization",
-            "",
-            "This bundle contains evidence from authorized security testing only. Handle,",
-            "store, and share it in line with the target program's rules and your NDA.",
-            "",
-            "## Contents",
-            "",
-            "- `report.md` — full human-readable report (all findings).",
-            "- `findings.json` — machine-readable findings for import/automation.",
-            "- `poc/` — one Markdown proof-of-concept per finding (reproduction steps,",
-            "  raw request/response, and captured evidence).",
-            "",
-        ])
-
         buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr("README.md", readme)
-            archive.writestr("report.md", report_markdown)
-            archive.writestr("findings.json", json.dumps(findings, indent=2, ensure_ascii=False, default=str))
-            for finding in findings:
-                fid = finding.get("id")
-                slug = _safe_filename(str(finding.get("title") or f"finding-{fid}"))[:60] or f"finding-{fid}"
-                poc = _poc_markdown(target_row, finding)
-                archive.writestr(f"poc/{fid}-{slug}.md", poc)
+
+        if snapshot is not None:
+            snapshot_json = json.dumps(snapshot, indent=2, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+            readme = "\n".join(
+                [
+                    f"# Windeep report snapshot — {title}",
+                    "",
+                    f"- Report ID: {report_id}",
+                    f"- Scan ID: {snapshot['scan_id']}",
+                    f"- Report SHA-256: {snapshot['report_sha256']}",
+                    f"- Evidence state: {snapshot['evidence_state']}",
+                    f"- Target: {target_row.get('target', '')}",
+                    f"- Exported: {generated}",
+                    "",
+                    "## Integrity model",
+                    "",
+                    "This export is the stored scan snapshot. It does not regenerate findings or PoCs",
+                    "from mutable current database rows. The report body is the exact encrypted report",
+                    "created for the recorded terminal scan.",
+                    "",
+                    "## Contents",
+                    "",
+                    "- report.md — stored evidence-aware scan report.",
+                    "- snapshot.json — scan ID, finding IDs, evidence states, and report hash.",
+                    "- manifest.json — SHA-256 and size for exported files.",
+                    "",
+                ]
+            ).encode("utf-8")
+            report_bytes = report_markdown.encode("utf-8")
+            files = {
+                "README.md": readme,
+                "report.md": report_bytes,
+                "snapshot.json": snapshot_json,
+            }
+            manifest = {
+                "schema": "windeep.report-snapshot-export.v1",
+                "report_id": report_id,
+                "scan_id": int(snapshot["scan_id"]),
+                "report_sha256": str(snapshot["report_sha256"]),
+                "files": [
+                    {"name": name, "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)}
+                    for name, content in sorted(files.items())
+                ],
+            }
+            files["manifest.json"] = json.dumps(
+                manifest, indent=2, ensure_ascii=False, sort_keys=True
+            ).encode("utf-8")
+            with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                for name, content in sorted(files.items()):
+                    archive.writestr(name, content)
+            finding_count = len(snapshot.get("finding_ids") or [])
+        else:
+            try:
+                finding_ids = [int(value) for value in json.loads(str(item.get("finding_ids") or "[]"))]
+            except Exception:
+                finding_ids = []
+            findings = [finding for fid in finding_ids if (finding := database.get_finding(fid)) is not None]
+            readme = "\n".join(
+                [
+                    f"# Windeep legacy evidence bundle — {title}",
+                    "",
+                    f"- Report ID: {report_id}",
+                    f"- Target: {target_row.get('target', '')}",
+                    f"- Findings: {len(findings)}",
+                    f"- Exported: {generated}",
+                    "",
+                    "Legacy reports predate immutable scan snapshots. Live authorization is required",
+                    "before current finding rows are read for this compatibility export.",
+                    "",
+                ]
+            )
+            with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("README.md", readme)
+                archive.writestr("report.md", report_markdown)
+                archive.writestr("findings.json", json.dumps(findings, indent=2, ensure_ascii=False, default=str))
+                for finding in findings:
+                    fid = finding.get("id")
+                    slug = _safe_filename(str(finding.get("title") or f"finding-{fid}"))[:60] or f"finding-{fid}"
+                    archive.writestr(f"poc/{fid}-{slug}.md", _poc_markdown(target_row, finding))
+            finding_count = len(findings)
 
         buffer.seek(0)
-        audit.append("v2.report.evidence_exported", {"report_id": report_id, "findings": len(findings)})
+        audit.append(
+            "v2.report.evidence_exported",
+            {
+                "report_id": report_id,
+                "findings": finding_count,
+                "snapshot": snapshot is not None,
+            },
+        )
         response = Response(buffer.getvalue(), mimetype="application/zip")
         response.headers["Content-Disposition"] = f'attachment; filename="{_safe_filename(title)}-evidence.zip"'
         return response
