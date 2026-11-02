@@ -251,20 +251,24 @@ def register_v2_api(
             return explicit
         return _CATEGORY_TARGET_TYPES.get(str(getattr(cls, "category", "utilities")), _CATEGORY_TARGET_TYPES["utilities"])
 
-    def tool_descriptor(name: str, cls: type[Any], *, target_type: str | None = None) -> dict[str, Any]:
+    def tool_descriptor(name: str, cls: type[Any], *, target_type: str | None = None, active_probe: bool = False) -> dict[str, Any]:
         env = runtime_environment()
         wrapper = cls(tools_dir=tools_dir, scope_validator=lambda _value: True, environment=env)
         missing_env = list(wrapper.missing_environment())
-        runtime_state = wrapper.runtime_status()
+        runtime_state = wrapper.runtime_status(active_probe=active_probe)
         runtime_tier = str(runtime_state.get("tier") or "unavailable")
         backend = runtime_state.get("backend")
         binary_path = wrapper.resolve_binary()
-        ready = not missing_env and runtime_tier != "unavailable"
+        runtime_verified = bool(runtime_state.get("verified", True))
+        runtime_deferred = bool(runtime_state.get("deferred", False))
+        ready = not missing_env and runtime_tier != "unavailable" and runtime_verified
         types = compatible_types(cls)
         normalized_type = _target_type(target_type or "") if target_type else None
         compatible = normalized_type is None or normalized_type in types or ("web" in types and normalized_type in {"domain", "url", "host"})
         if missing_env:
             blocked_reason = "Missing configuration: " + ", ".join(missing_env)
+        elif runtime_deferred:
+            blocked_reason = "External runtime route detected; readiness check is deferred until scan planning or an explicit probe"
         elif runtime_tier == "unavailable":
             blocked_reason = "No execution backend is currently runnable; use winddeep doctor --heal or enable Docker/WSL/remote worker"
         elif not compatible:
@@ -284,6 +288,8 @@ def register_v2_api(
             "ready": ready,
             "installed": bool(binary_path is not None),
             "resolved": runtime_tier != "unavailable",
+            "runtime_verified": runtime_verified,
+            "runtime_deferred": runtime_deferred,
             "configured": not missing_env,
             "missing_env": missing_env,
             "binary": str(binary_path) if binary_path else str(getattr(cls, "binary", name)),
@@ -309,12 +315,12 @@ def register_v2_api(
             "blocked_reason": blocked_reason,
         }
 
-    def all_descriptors(target_type: str | None = None) -> list[dict[str, Any]]:
-        return [tool_descriptor(name, cls, target_type=target_type) for name, cls in sorted(wrapper_classes.items())]
+    def all_descriptors(target_type: str | None = None, *, active_probe: bool = False) -> list[dict[str, Any]]:
+        return [tool_descriptor(name, cls, target_type=target_type, active_probe=active_probe) for name, cls in sorted(wrapper_classes.items())]
 
     def build_plan(target_row: dict[str, Any], mode: str, modules: list[str], names: list[str]) -> dict[str, Any]:
         normalized_target_type = _target_type(str(target_row.get("type") or "web"))
-        descriptors = all_descriptors(normalized_target_type)
+        descriptors = all_descriptors(normalized_target_type, active_probe=True)
         by_name = {item["name"]: item for item in descriptors}
         selected: list[str] = []
         skipped: list[dict[str, str]] = []
