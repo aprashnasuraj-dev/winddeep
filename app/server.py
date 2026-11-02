@@ -496,6 +496,28 @@ def create_app() -> Flask:
     def decode_report(item: dict[str, Any]) -> dict[str, Any]:
         item["content"] = crypto.decrypt_text(str(item["content"]), aad=b"windeep:report.content")
         item["finding_ids"] = _json_value(item.get("finding_ids"), [])
+        with database._connect() as conn:
+            snapshot = conn.execute(
+                """
+                SELECT scan_id, report_sha256, renderer, evidence_state,
+                       closed_findings, incomplete_findings, blocked_findings
+                FROM report_snapshots WHERE report_id = ?
+                """,
+                (int(item["id"]),),
+            ).fetchone()
+        item["snapshot"] = (
+            {
+                "scan_id": int(snapshot["scan_id"]),
+                "report_sha256": str(snapshot["report_sha256"]),
+                "renderer": str(snapshot["renderer"]),
+                "evidence_state": str(snapshot["evidence_state"]),
+                "closed_findings": int(snapshot["closed_findings"]),
+                "incomplete_findings": int(snapshot["incomplete_findings"]),
+                "blocked_findings": int(snapshot["blocked_findings"]),
+            }
+            if snapshot is not None
+            else None
+        )
         return item
 
     @app.get("/api/reports")
