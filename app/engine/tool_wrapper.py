@@ -291,6 +291,21 @@ class ToolWrapperBase:
         return findings
 
     async def run(self, target: str, options: Mapping[str, Any] | None = None) -> list[Finding]:
+        """Compatibility API returning only normalized findings."""
+        result = await self.run_with_evidence(target, options=options)
+        return list(result.findings)
+
+    async def run_with_evidence(
+        self,
+        target: str,
+        options: Mapping[str, Any] | None = None,
+    ) -> ToolExecutionResult:
+        """Execute once through the resolver while retaining the raw parser input.
+
+        Raw stdout/stderr remain in-memory here; callers decide whether to persist
+        them in Windeep's encrypted evidence store. Rendered target/options are not
+        copied into the result metadata.
+        """
         if self._cancel_requested():
             raise ToolCancelledError(f"{self.tool_name} cancelled before execution")
         if self.requires_scope and self.scope_validator is None:
@@ -302,6 +317,7 @@ class ToolWrapperBase:
         rendered_args = self._render_args(validated)
         stdin_data = self._render_stdin(validated)
         attempted: list[dict[str, str]] = []
+        last_result: ToolExecutionResult | None = None
         self.current_target = target
         try:
             available = [self.resolver.backends[key] for key in self.resolver.ordered_keys(self) if self.resolver.backends[key].can_run(self)]
@@ -312,6 +328,8 @@ class ToolWrapperBase:
             last_error: BaseException | None = None
             for backend in available:
                 for attempt in range(self.retries + 1):
+                    started_at_wall = time.time()
+                    started_at_monotonic = time.monotonic()
                     try:
                         if self._cancel_requested():
                             raise ToolCancelledError(f"{self.tool_name} cancelled by user")
@@ -320,23 +338,70 @@ class ToolWrapperBase:
                             backend.exec(self, rendered_args, stdin_data, self.timeout),
                             timeout=self.timeout + 2.0,
                         )
+                        finished_at_wall = time.time()
+                        finished_at_monotonic = time.monotonic()
+                        parser_name = "_jsonl_parser" if backend.key == "builtin_fallback" else getattr(
+                            self.output_parser, "__name__", type(self.output_parser).__name__
+                        )
+                        base_result = ToolExecutionResult(
+                            findings=(),
+                            stdout=stdout,
+                            stderr=stderr,
+                            exit_code=int(returncode),
+                            backend=str(backend.key),
+                            backend_tier=str(backend.tier),
+                            attempted_backends=tuple(dict(item) for item in attempted),
+                            started_at_wall=started_at_wall,
+                            finished_at_wall=finished_at_wall,
+                            started_at_monotonic=started_at_monotonic,
+                            finished_at_monotonic=finished_at_monotonic,
+                            argument_template=tuple(str(item) for item in self.args_template),
+                            stdin_supplied=stdin_data is not None,
+                            parser_name=str(parser_name),
+                        )
                         if returncode != 0:
                             raise ToolExecutionError(
-                                f"{self.tool_name} via {backend.key} exited with code {returncode}: {stderr.strip()[:2000]}"
+                                f"{self.tool_name} via {backend.key} exited with code {returncode}: {stderr.strip()[:2000]}",
+                                result=base_result,
                             )
-                        findings = self.parse_output(stdout, target, builtin=backend.key == "builtin_fallback")
-                        return self._annotate_findings(findings, backend=backend, attempted=attempted)
+                        try:
+                            findings = self.parse_output(stdout, target, builtin=backend.key == "builtin_fallback")
+                        except Exception as exc:
+                            raise ToolExecutionError(
+                                f"{self.tool_name} output parser failed after successful execution: {exc}",
+                                result=base_result,
+                            ) from exc
+                        annotated = self._annotate_findings(findings, backend=backend, attempted=attempted)
+                        return ToolExecutionResult(
+                            findings=tuple(annotated),
+                            stdout=stdout,
+                            stderr=stderr,
+                            exit_code=int(returncode),
+                            backend=str(backend.key),
+                            backend_tier=str(backend.tier),
+                            attempted_backends=tuple(dict(item) for item in attempted),
+                            started_at_wall=started_at_wall,
+                            finished_at_wall=finished_at_wall,
+                            started_at_monotonic=started_at_monotonic,
+                            finished_at_monotonic=finished_at_monotonic,
+                            argument_template=tuple(str(item) for item in self.args_template),
+                            stdin_supplied=stdin_data is not None,
+                            parser_name=str(parser_name),
+                        )
                     except (ToolCancelledError, asyncio.CancelledError):
                         raise
                     except (ToolExecutionError, BackendExecutionError, BackendUnavailableError, asyncio.TimeoutError, OSError, httpx.HTTPError) as exc:
                         last_error = exc
+                        if isinstance(exc, ToolExecutionError) and exc.result is not None:
+                            last_result = exc.result
                         if attempt < self.retries:
                             await asyncio.sleep(min(8.0, 0.5 * (2**attempt)))
                             continue
                         attempted.append({"backend": backend.key, "outcome": _failure_outcome(exc), "error": str(exc)[:1000]})
                         break
             raise ToolExecutionError(
-                f"{self.tool_name} failed across {len(available)} backend(s): {last_error}; attempted={', '.join(item['backend'] for item in attempted)}"
+                f"{self.tool_name} failed across {len(available)} backend(s): {last_error}; attempted={', '.join(item['backend'] for item in attempted)}",
+                result=last_result,
             )
         finally:
             self.current_target = ""
