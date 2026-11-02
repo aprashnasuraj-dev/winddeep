@@ -6,6 +6,17 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 Post-freeze changes to the public v3 contracts are released as `3.0.x` patches unless they require a new major/minor compatibility window.
 
+## [4.1.1] - 2026-11-02
+
+### Fixed
+- Made the deterministic legacy-v2 wrapper migration recognize the already-installed cancellable v4 runtime and no-op instead of failing on stale exact-text anchors in compatibility CI.
+
+### Tests
+- Added regression coverage proving the wrapper migration is byte-stable on the current v4 cancellation/runtime implementation.
+
+### Security
+- No scope, consent, scan preflight, redaction, encryption, evidence-integrity, or audit control was relaxed.
+
 ## [4.1.0] - 2026-09-18
 
 ### Added
