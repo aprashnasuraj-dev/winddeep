@@ -175,3 +175,18 @@ def test_create_app_applies_evidence_and_v3_schema_before_routes(monkeypatch: py
         "evidence_bundles",
         "v3_pipeline_checkpoint",
     }
+
+    # A normal second desktop/server start must not re-apply, fork, or corrupt
+    # forward-only evidence schema. This mirrors an installed app restart.
+    restarted = create_app()
+    assert restarted.extensions["windeep.schema"] == schema
+    with restarted.extensions["windeep.database"]._connect() as conn:
+        versions = [
+            int(row["version"])
+            for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
+        ]
+        v3_rows = int(
+            conn.execute("SELECT COUNT(*) AS n FROM v3_release_migrations WHERE version = 30").fetchone()["n"]
+        )
+    assert versions == list(range(1, 9))
+    assert v3_rows == 1
