@@ -248,8 +248,9 @@ class ReportGenerator:
         except ValueError as exc:
             raise ReportingError(f"invalid CVSS v3.1 vector for finding {finding_id}: {exc}") from exc
         flows = self._flow_views(bundle)
-        if not flows:
-            raise ReportingError(f"finding {finding_id} bundle has no captured flow")
+        profile = str(bundle.get("evidence_profile") or ("http" if flows else "artifact")).casefold()
+        if profile in {"http", "browser"} and not flows:
+            raise ReportingError(f"finding {finding_id} {profile} evidence bundle has no captured flow")
         provenance = redact_mapping(bundle.get("provenance") or {"nodes": [], "edges": []})
         detector_ids = sorted(
             {
@@ -259,7 +260,8 @@ class ReportGenerator:
             }
         )
         title = redact_text(str(finding.get("title") or "Finding"))
-        endpoint = redact_url(str(finding.get("endpoint") or flows[0]["url"]))
+        endpoint_fallback = flows[0]["url"] if flows else "artifact-bound observation"
+        endpoint = redact_url(str(finding.get("endpoint") or endpoint_fallback))
         exploitability = str(bundle.get("exploitability") or "observed")
         summary = (
             f"Detector {', '.join(f'`{item}`' for item in detector_ids) if detector_ids else '`unknown`'} "
@@ -279,6 +281,7 @@ class ReportGenerator:
             "cvss_score": cvss_score,
             "endpoint": endpoint,
             "bundle_sha256": str(bundle["bundle_sha256"]),
+            "evidence_profile": profile,
             "exploitability": exploitability,
             "confidence": redact_mapping(bundle.get("confidence") or {}),
             "summary": summary,
@@ -291,7 +294,7 @@ class ReportGenerator:
             "duplicates": self._dedup_context(finding, external_duplicates=external_duplicates),
             "images": self._redacted_images(bundle),
             "browser_observation_present": isinstance(bundle.get("browser_observation"), Mapping),
-            "captured_at": flows[0]["created_at"],
+            "captured_at": flows[0]["created_at"] if flows else self._iso_timestamp(bundle.get("created_at")),
         }
 
     @staticmethod
@@ -305,6 +308,7 @@ class ReportGenerator:
             f"- Affected endpoint: `{model['endpoint']}`",
             f"- Finding fingerprint: `{model['fingerprint']}`",
             f"- Evidence bundle: `{model['bundle_sha256']}`",
+            f"- Evidence profile: `{model.get('evidence_profile') or 'http'}`",
             f"- Exploitability: `{model['exploitability']}`",
             f"- Confidence: `{float(confidence.get('score') or 0.0):.2f}` (`{confidence.get('band') or 'unknown'}`)",
             f"- Evidence timestamp: `{model['captured_at']}`",
@@ -415,7 +419,7 @@ class ReportGenerator:
                 "## Evidence integrity",
                 "",
                 f"- Bundle SHA-256: `{model['bundle_sha256']}`",
-                "- Every request/response and tool-output slice above was revalidated against its persisted P2 evidence reference at render time.",
+                "- Every referenced flow and tool-output slice above was revalidated against its persisted evidence reference at render time.",
                 "",
             ]
         )
