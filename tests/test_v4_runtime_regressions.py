@@ -8,12 +8,20 @@ import pytest
 from app.engine.tool_wrapper import ToolWrapperFactory, _failure_outcome, _jsonl_parser
 from app.tools.backends import BackendUnavailableError
 from app.tools.provisioning import _candidate_names
+from app.tools.process_utils import hidden_process_kwargs
 
 
 def _factory(tmp_path: Path, root: dict | None = None) -> ToolWrapperFactory:
     config = tmp_path / "tools_config.json"
     config.write_text(json.dumps(root if root is not None else {"tools": {}}), encoding="utf-8")
     return ToolWrapperFactory(config)
+
+
+def test_windows_child_processes_request_no_console_window() -> None:
+    assert hidden_process_kwargs(windows=False) == {}
+    windows_kwargs = hidden_process_kwargs(windows=True)
+    assert "creationflags" in windows_kwargs
+    assert isinstance(windows_kwargs["creationflags"], int)
 
 
 def test_windows_provisioning_prefers_only_native_launchers_over_posix_shims() -> None:
