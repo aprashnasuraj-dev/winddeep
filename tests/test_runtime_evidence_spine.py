@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeBackend:
-    key = "fixture"
+    key = "local_binary"
     tier = "fixture"
 
     def __init__(self, *, stdout: str = "finding-one\n", stderr: str = "", rc: int = 0) -> None:
@@ -67,7 +67,7 @@ async def test_wrapper_execution_result_retains_raw_parser_input_without_rendere
     assert result.stdout == "finding-one\n"
     assert result.stderr == "diagnostic\n"
     assert result.exit_code == 0
-    assert result.backend == "fixture"
+    assert result.backend == "local_binary"
     assert result.backend_tier == "fixture"
     assert result.parser_name == "_line_parser"
     assert result.argument_template == ("--target", "{target}")
@@ -89,7 +89,7 @@ async def test_failed_backend_exposes_raw_execution_result_for_fail_closed_persi
     assert result.stdout == "partial-output\n"
     assert result.stderr == "fixture-error\n"
     assert result.exit_code == 7
-    assert result.backend == "fixture"
+    assert result.backend == "local_binary"
 
 
 def _evidence_fixture(tmp_path: Path):
