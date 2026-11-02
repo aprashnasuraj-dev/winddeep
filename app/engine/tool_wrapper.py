@@ -361,7 +361,7 @@ class ToolWrapperBase:
                         )
                         if returncode != 0:
                             raise ToolExecutionError(
-                                f"{self.tool_name} via {backend.key} exited with code {returncode}: {stderr.strip()[:2000]}",
+                                f"{self.tool_name} via {backend.key} exited with code {returncode}; raw stderr retained in the encrypted execution evidence path",
                                 result=base_result,
                             )
                         try:
