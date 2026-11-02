@@ -180,6 +180,21 @@ def test_high_bundle_refuses_to_close_without_flow_and_provenance(tmp_path: Path
             close=True,
         )
 
+    with pytest.raises(ValueError, match="cannot downgrade"):
+        store.build(
+            finding=finding,
+            scan_id=scan_id,
+            tool_run_id=run_id,
+            flow_ids=[],
+            artifact_sha256=artifact["sha256"],
+            line_start=1,
+            line_end=1,
+            provenance=_provenance(),
+            exploitability="observed",
+            evidence_profile="artifact",
+            close=True,
+        )
+
 
 def test_artifact_corruption_and_invalid_slice_fail_closed(tmp_path: Path) -> None:
     crypto, database, _target_id, scan_id, run_id, finding, flow_id = _fixture(tmp_path)
