@@ -524,4 +524,5 @@ class EvidenceBundleStore:
             "canonical_json": canonical_text,
             "bundle_id": int(item["id"]),
             "state": str(item["state"]),
+            "created_at": float(item["created_at"]),
         }
