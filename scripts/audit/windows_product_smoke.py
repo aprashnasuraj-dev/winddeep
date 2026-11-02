@@ -38,7 +38,9 @@ def run_smoke(base_url: str, fixture: Path, *, timeout: float = 60.0) -> dict[st
             headers["X-CSRF-Token"] = csrf
         request = urllib.request.Request(base_url + path, data=payload, method=method, headers=headers)
         try:
-            with opener.open(request, timeout=10) as response:
+            # Allow the bounded scan timeout for a busy Windows runner's initial
+            # planning request as well as for scan completion.
+            with opener.open(request, timeout=max(10.0, timeout)) as response:
                 status, data = response.status, response.read()
         except urllib.error.HTTPError as exc:
             status, data = exc.code, exc.read()

@@ -321,14 +321,16 @@ def register_v2_api(
 
     def build_plan(target_row: dict[str, Any], mode: str, modules: list[str], names: list[str]) -> dict[str, Any]:
         normalized_target_type = _target_type(str(target_row.get("type") or "web"))
-        descriptors = all_descriptors(normalized_target_type, active_probe=True)
+        # Discover the whole catalog passively. Active WSL/container probes can
+        # be slow, so run them only for candidates this plan could actually use.
+        descriptors = all_descriptors(normalized_target_type)
         by_name = {item["name"]: item for item in descriptors}
         selected: list[str] = []
         skipped: list[dict[str, str]] = []
         normalized_mode = mode.strip().lower() or "smart"
         requested_names = {str(item) for item in names if str(item)}
         requested_modules = {str(item) for item in modules if str(item)}
-        for item in descriptors:
+        for index, item in enumerate(descriptors):
             name = item["name"]
             category = item["category"]
             choose = False
@@ -352,6 +354,13 @@ def register_v2_api(
             if not item["compatible"]:
                 skipped.append({"tool": name, "reason": item["blocked_reason"] or "target type mismatch"})
                 continue
+            if not item["configured"]:
+                skipped.append({"tool": name, "reason": item["blocked_reason"] or "not configured"})
+                continue
+            # Revalidate every selected candidate before scheduling. Passive
+            # availability of other catalog entries never authorizes execution.
+            item = tool_descriptor(name, wrapper_classes[name], target_type=normalized_target_type, active_probe=True)
+            descriptors[index] = item
             if not item["ready"]:
                 skipped.append({"tool": name, "reason": item["blocked_reason"] or "not ready"})
                 continue
@@ -369,6 +378,9 @@ def register_v2_api(
             "skipped_count": len(skipped),
             "catalog_count": len(descriptors),
             "ready_compatible_count": sum(1 for item in descriptors if item["ready"] and item["compatible"]),
+            "ready_compatible_count_is_lower_bound": any(
+                item["compatible"] and item["runtime_deferred"] for item in descriptors
+            ),
         }
 
     def save_scan_authorization(scan_id: int, target_id: int, consent_id: str) -> None:

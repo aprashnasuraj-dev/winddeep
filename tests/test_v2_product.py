@@ -143,6 +143,30 @@ def test_v2_status_tools_settings_and_plan(v2_client) -> None:
     assert all(isinstance(name, str) for name in plan["selected"])
 
 
+def test_selected_plan_actively_probes_only_the_requested_compatible_tool(v2_client, monkeypatch) -> None:
+    client, tmp_path = v2_client
+    headers = session(client)
+    source = tmp_path / "owned-source.txt"
+    source.write_text("fixture", encoding="utf-8")
+    target, _consent = target_and_consent(client, headers, target=str(source), target_type="repo")
+    probed: list[str] = []
+
+    def unavailable(_backend, tool):
+        probed.append(tool.tool_name)
+        return False
+
+    monkeypatch.setattr(WslBackend, "can_run", unavailable)
+    monkeypatch.setattr(WslBackend, "passive_can_run", lambda *_args: None)
+    monkeypatch.setattr(ContainerBackend, "can_run", unavailable)
+    response = client.get(f"/api/v2/scan-plan?target_id={target['id']}&mode=selected&tools=custom_regex")
+    assert response.status_code == 200
+    plan = response.get_json()
+    assert plan["catalog_count"] == 137
+    assert plan["selected"] == ["custom_regex"]
+    assert set(probed) == {"custom_regex"}
+    assert plan["ready_compatible_count_is_lower_bound"] is True
+
+
 def test_v2_builtin_scan_creates_raw_proof_and_report_exports(v2_client) -> None:
     client, tmp_path = v2_client
     headers = session(client)
