@@ -10,6 +10,7 @@ Post-freeze changes to the public v3 contracts are released as `3.0.x` patches u
 
 ### Fixed
 - Made the deterministic legacy-v2 wrapper migration recognize the already-installed cancellable v4 runtime and no-op instead of failing on stale exact-text anchors in compatibility CI.
+- Kept the v3 compatibility audit release-aware by accepting later semantic versions only when the full frozen v3 phase map remains present.
 
 ### Tests
 - Added regression coverage proving the wrapper migration is byte-stable on the current v4 cancellation/runtime implementation.
