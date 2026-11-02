@@ -696,24 +696,70 @@ def register_v2_api(
     @app.post("/api/v2/reports/generate")
     @authenticated
     def v2_reports_generate() -> tuple[Response, int]:
+        """Persist an immutable report snapshot for one terminal authorized scan."""
         data = request.get_json(silent=True) or {}
         try:
             target_id = int(data["target_id"])
-            target_row = require_target_access(target_id)
-            findings = database.list_findings(target_id=target_id, limit=5000)
-            title = str(data.get("title") or f"Windeep proof report - {target_row['name']}")
-            markdown = _proof_markdown(target_row, findings, title)
-            encrypted = crypto.encrypt_text(markdown, aad=b"windeep:report.content")
-            ids = [int(item["id"]) for item in findings]
+            scan_id, target_row, scan_status = report_scan(target_id, data.get("scan_id"))
+            artifact = report_renderer.render_scan(scan_id)
+            title = str(data.get("title") or f"Windeep scan {scan_id} report - {target_row['name']}")
+            encrypted = crypto.encrypt_text(artifact.markdown, aad=b"windeep:report.content")
+            ids = [int(value) for value in artifact.finding_ids]
+            evidence = snapshot_evidence(scan_id, ids)
             with database._connect() as conn:
                 cursor = conn.execute(
                     "INSERT INTO reports(target_id, title, template, content, format, finding_ids, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (target_id, title, "v2-proof", encrypted, "markdown", json.dumps(ids), time.time()),
+                    (
+                        target_id,
+                        title,
+                        "v3-scan-snapshot",
+                        encrypted,
+                        "markdown",
+                        json.dumps(ids),
+                        time.time(),
+                    ),
                 )
                 report_id = int(cursor.lastrowid)
-            audit.append("v2.report.generated", {"report_id": report_id, "target_id": target_id, "findings": len(ids)})
-            return jsonify({"id": report_id, "title": title, "finding_ids": ids, "content": markdown, "format": "markdown", "encrypted_at_rest": True, "plaintext_export": True}), 201
-        except (KeyError, TypeError, ValueError, PermissionError) as exc:
+            snapshot = store_snapshot(
+                report_id=report_id,
+                scan_id=scan_id,
+                report_sha256=artifact.sha256,
+                scan_status=scan_status,
+                evidence=evidence,
+                finding_ids=ids,
+            )
+            audit.append(
+                "v2.report.snapshot_generated",
+                {
+                    "report_id": report_id,
+                    "target_id": target_id,
+                    "scan_id": scan_id,
+                    "findings": len(ids),
+                    "report_sha256": artifact.sha256,
+                    "evidence_state": evidence["state"],
+                },
+            )
+            return jsonify(
+                {
+                    "id": report_id,
+                    "title": title,
+                    "scan_id": scan_id,
+                    "scan_status": scan_status,
+                    "finding_ids": ids,
+                    "content": artifact.markdown,
+                    "format": "markdown",
+                    "report_sha256": artifact.sha256,
+                    "evidence": evidence,
+                    "snapshot_schema": snapshot["schema"],
+                    "encrypted_at_rest": True,
+                    "plaintext_export": True,
+                }
+            ), 201
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        except RuntimeError as exc:
+            return jsonify({"error": str(exc)}), 409
+        except (KeyError, TypeError, ValueError) as exc:
             return jsonify({"error": str(exc)}), 400
 
     @app.get("/api/v2/reports/<int:report_id>/download")
