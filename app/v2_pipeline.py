@@ -28,7 +28,8 @@ from app.duplicates import DuplicateDetector
 from app.engine.event_bus import EventBus
 from app.engine.scan_context import ScanContext
 from app.engine.scheduler import TaskScheduler, TaskSpec
-from app.engine.tool_wrapper import ToolCancelledError
+from app.engine.tool_wrapper import ToolCancelledError, ToolExecutionError
+from app.evidence.raw_store import RawArtifactStore
 from app.security.preflight import PreFlightError
 
 _ALLOWED_RESOURCE_CLASSES = frozenset({"recon", "active", "web3", "browser", "llm"})
@@ -488,6 +489,7 @@ async def run_p0_scan(
     event_bus = EventBus(heartbeat_interval=60.0)
     event_log = ScanEventLog(database, crypto)
     writer = FindingBatchWriter(database)
+    raw_store = RawArtifactStore(database, crypto, audit)
     event_log.ensure_schema()
     writer.ensure_schema()
 
