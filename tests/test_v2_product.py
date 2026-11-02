@@ -143,6 +143,27 @@ def test_v2_status_tools_settings_and_plan(v2_client) -> None:
     assert all(isinstance(name, str) for name in plan["selected"])
 
 
+def test_v2_evidence_zip_denied_without_prior_authorized_scan(v2_client) -> None:
+    client, _tmp_path = v2_client
+    headers = session(client)
+    target, _consent = target_and_consent(client, headers, target="local-report-fixture.test")
+
+    # Legacy report storage is allowed without a scan, but that does not
+    # authorize the stronger raw-evidence/PoC ZIP export.
+    created = client.post(
+        "/api/reports/generate",
+        json={"target_id": target["id"], "title": "stored report fixture"},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    report_id = int(created.get_json()["id"])
+
+    denied = client.get(f"/api/v2/reports/{report_id}/evidence")
+    assert denied.status_code == 403
+    assert "no authorized scan" in denied.get_json()["error"]
+    assert denied.mimetype == "application/json"
+
+
 def test_v2_builtin_scan_creates_raw_proof_and_report_exports(v2_client) -> None:
     client, tmp_path = v2_client
     headers = session(client)
