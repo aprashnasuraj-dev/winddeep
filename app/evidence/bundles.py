@@ -14,6 +14,8 @@ import time
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from app.evidence.raw_store import RawArtifactStore
+
 
 BUNDLE_SCHEMA = "windeep.evidence-bundle.v1"
 _EXPLOITABILITY = {"observed", "needs-human-review"}
@@ -74,9 +76,11 @@ def _sha256(value: bytes) -> str:
 class EvidenceBundleStore:
     """Construct, persist, and revalidate append-only finding evidence bundles."""
 
-    def __init__(self, database: Any, crypto: Any) -> None:
+    def __init__(self, database: Any, crypto: Any, audit: Any | None = None) -> None:
         self.database = database
         self.crypto = crypto
+        self.audit = audit
+        self.raw_artifacts = RawArtifactStore(database, crypto, audit) if audit is not None else None
 
     def put_artifact(
         self,
@@ -119,33 +123,62 @@ class EvidenceBundleStore:
             "media_type": media_type,
         }
 
-    def read_artifact(self, sha256: str) -> dict[str, Any]:
-        """Read and hash-verify an encrypted content-addressed artifact."""
+    def read_artifact(self, sha256: str, *, scan_id: int | None = None) -> dict[str, Any]:
+        """Read and hash-verify an immutable evidence artifact.
+
+        Legacy P2 blobs remain readable. New runtime evidence is stored once in
+        the stronger P1 RawArtifactStore; when an audit sink is supplied this
+        method resolves that same encrypted artifact and records custody access
+        instead of copying bytes into evidence_blobs.
+        """
         with self.database._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM evidence_blobs WHERE sha256 = ?",
                 (sha256,),
             ).fetchone()
-        if row is None:
+        if row is not None:
+            item = dict(row)
+            encoded = self.crypto.decrypt_text(
+                str(item["payload"]),
+                aad=f"windeep:evidence-blob:{sha256}".encode("utf-8"),
+            )
+            try:
+                content = base64.b64decode(encoded.encode("ascii"), validate=True)
+            except Exception as exc:
+                raise EvidenceIntegrityError("artifact payload is not valid encoded evidence") from exc
+            if _sha256(content) != sha256 or len(content) != int(item["size"]):
+                raise EvidenceIntegrityError(f"artifact hash mismatch: {sha256}")
+            return {
+                "sha256": sha256,
+                "size": int(item["size"]),
+                "kind": str(item["kind"]),
+                "media_type": str(item["media_type"]),
+                "origin_scan_id": int(item["origin_scan_id"]),
+                "origin_tool_run_id": item["origin_tool_run_id"],
+                "storage": "p2-legacy",
+                "content": content,
+            }
+
+        if self.raw_artifacts is None or scan_id is None:
             raise KeyError(f"evidence artifact not found: {sha256}")
-        item = dict(row)
-        encoded = self.crypto.decrypt_text(
-            str(item["payload"]),
-            aad=f"windeep:evidence-blob:{sha256}".encode("utf-8"),
-        )
         try:
-            content = base64.b64decode(encoded.encode("ascii"), validate=True)
-        except Exception as exc:  # encrypted payload authenticated, base64 is schema-level validation
-            raise EvidenceIntegrityError("artifact payload is not valid encoded evidence") from exc
-        if _sha256(content) != sha256 or len(content) != int(item["size"]):
-            raise EvidenceIntegrityError(f"artifact hash mismatch: {sha256}")
+            metadata = self.raw_artifacts.metadata(sha256, scan_id=int(scan_id))
+            content = self.raw_artifacts.read(
+                sha256,
+                scan_id=int(scan_id),
+                reason="resolve P2 evidence reference from canonical raw artifact store",
+                actor="evidence-bundle",
+            )
+        except Exception as exc:
+            raise EvidenceIntegrityError(f"raw artifact resolution failed: {sha256}: {exc}") from exc
         return {
             "sha256": sha256,
-            "size": int(item["size"]),
-            "kind": str(item["kind"]),
-            "media_type": str(item["media_type"]),
-            "origin_scan_id": int(item["origin_scan_id"]),
-            "origin_tool_run_id": item["origin_tool_run_id"],
+            "size": int(metadata["size"]),
+            "kind": str(metadata["kind"]),
+            "media_type": str(metadata["media_type"]),
+            "origin_scan_id": int(metadata["scan_id"]),
+            "origin_tool_run_id": metadata.get("tool_run_id"),
+            "storage": "p1-canonical",
             "content": content,
         }
 
