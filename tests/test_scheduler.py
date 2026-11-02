@@ -208,3 +208,47 @@ async def test_program_policy_keeps_local_analysis_available_when_scanners_are_f
     )
     assert result == {"analysis": "local-result"}
     await bus.close()
+
+
+@pytest.mark.asyncio
+async def test_program_policy_is_context_local_and_does_not_restrict_other_targets() -> None:
+    bus = EventBus(heartbeat_interval=60)
+    calls: list[str] = []
+
+    async def runner(context: object, deps: dict[str, object]) -> str:
+        calls.append(str(getattr(context, "target", "")))
+        return "ok"
+
+    scheduler = TaskScheduler(bus, preflight=FakePreflight())
+
+    restricted = SimpleNamespace(
+        target="https://bugbounty-test-researcher.atlassian.net",
+        consent_id="signed-consent",
+        program_policy={
+            "automated_tooling_allowed": False,
+            "allowed_hosts": ["bugbounty-test-researcher.atlassian.net"],
+        },
+        metadata={},
+    )
+    with pytest.raises(PreFlightError, match="program rules prohibit automated tools/scanners"):
+        await scheduler.execute(
+            [TaskSpec("scanner", runner, execution_kind="automated_tool")],
+            restricted,
+            scan_id="program-restricted",
+        )
+
+    unrelated = SimpleNamespace(
+        target="https://other-authorized.example",
+        consent_id="signed-consent",
+        program_policy={},
+        metadata={},
+    )
+    result = await scheduler.execute(
+        [TaskSpec("scanner", runner, execution_kind="automated_tool")],
+        unrelated,
+        scan_id="unrelated-target",
+    )
+
+    assert result == {"scanner": "ok"}
+    assert calls == ["https://other-authorized.example"]
+    await bus.close()
