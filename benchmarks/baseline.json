@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "status": "unmeasured",
+  "source": "Local authorized Docker labs only; no invented metric values",
+  "labs": [
+    "juice-shop",
+    "dvwa",
+    "webgoat",
+    "crapi"
+  ],
+  "metrics": {
+    "recall": null,
+    "false_positive_rate": null,
+    "report_success_rate": null,
+    "evidence_bundle_completeness": null,
+    "scan_runtime_seconds": null
+  },
+  "minimum_report_success_rate": 1,
+  "regression_threshold_fraction": 0.05,
+  "minimum_consecutive_green_nightly": 3,
+  "definition": {
+    "recall": "true positive matches / known exploitable local-lab vulnerabilities",
+    "false_positive_rate": "false positives / all emitted candidates",
+    "report_success_rate": "successfully exported validated reports / all eligible findings",
+    "evidence_bundle_completeness": "closed verified evidence bundles / eligible findings",
+    "scan_runtime_seconds": "elapsed monotonic seconds, median over identical lab snapshots"
+  },
+  "measurement_policy": "No green gate with null values. Save timestamped comparable results to benchmarks/history only with actual tool/test output."
+}
