@@ -60,6 +60,8 @@ Dashboard (localhost:7331)
 
 The wider product includes 160 assessment checks, findings/proof workflows, local SSE updates, scope/consent controls, reports, and Windows packaging through PyInstaller + Inno Setup.
 
+Windeep is **not only a scanner**. Its program workspace is intended to support the full authorized research loop: program/scope understanding, rules-of-engagement enforcement, manual test planning, target-aware automation where permitted, evidence custody, deduplication/ranking, hypotheses, verification, reporting, submission tracking, and earnings history. Program rules can disable scanners or other target-facing automation without disabling the local reasoning/reporting workspace.
+
 ## Install
 
 ### Release build
