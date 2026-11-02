@@ -77,9 +77,12 @@ jobs:
         if: github.event_name == 'push'
         shell: pwsh
         run: |
-          git ls-remote --exit-code --tags origin 'refs/tags/${{ needs.version-check.outputs.tag }}'
-          if ($LASTEXITCODE -eq 0) { throw 'The v5 release tag already exists; refusing to replace it.' }
-          if ($LASTEXITCODE -ne 2) { throw "Could not verify release tag absence: exit $LASTEXITCODE" }
+          # git ls-remote exits zero with no matches unless --exit-code is used.
+          # On pwsh 7, a nonzero native exit code may terminate this step before
+          # $LASTEXITCODE can be tested. Check an empty successful result instead.
+          $existingTag = @(git ls-remote --tags origin 'refs/tags/${{ needs.version-check.outputs.tag }}')
+          if ($LASTEXITCODE -ne 0) { throw "Could not verify release tag absence: exit $LASTEXITCODE" }
+          if ($existingTag.Count -gt 0) { throw 'The v5 release tag already exists; refusing to replace it.' }
 
       - name: G2 Setup Python 3.11
         uses: actions/setup-python@v7
