@@ -15,6 +15,7 @@ from flask import Flask, Response, jsonify, request, stream_with_context
 
 from app.migrations import MigrationManager
 from app.v2_pipeline import ScanEventLog, SchedulerRuntimeRegistry, canonical_bytes, run_p0_scan
+from app.v3.reporting import V3ReportGenerator
 
 
 _CATEGORY_TARGET_TYPES: dict[str, tuple[str, ...]] = {
@@ -220,6 +221,7 @@ def register_v2_api(
     runtime = SchedulerRuntimeRegistry()
     event_log = ScanEventLog(database, crypto)
     event_log.ensure_schema()
+    report_renderer = V3ReportGenerator(database, crypto, audit=audit)
     settings_path = state / "settings.enc"
 
     def read_settings() -> dict[str, Any]:
@@ -397,6 +399,158 @@ def register_v2_api(
         target_row, consent_id = latest_target_authorization(target_id)
         preflight_for(target_row, consent_id)
         return target_row
+
+    def report_scan(target_id: int, requested_scan_id: Any = None) -> tuple[int, dict[str, Any], str]:
+        if requested_scan_id is None:
+            placeholders = ",".join("?" for _ in sorted(_TERMINAL_SCAN_STATUSES))
+            with database._connect() as conn:
+                row = conn.execute(
+                    f"""
+                    SELECT sa.scan_id
+                    FROM scan_authorizations AS sa
+                    JOIN scans AS s ON s.id = sa.scan_id
+                    WHERE sa.target_id = ? AND s.status IN ({placeholders})
+                    ORDER BY sa.scan_id DESC
+                    LIMIT 1
+                    """,
+                    (int(target_id), *sorted(_TERMINAL_SCAN_STATUSES)),
+                ).fetchone()
+            if row is None:
+                raise PermissionError("no terminal authorized scan exists for this target")
+            scan_id = int(row["scan_id"])
+        else:
+            scan_id = int(requested_scan_id)
+        target_row, consent_id = load_scan_authorization(scan_id)
+        if int(target_row["id"]) != int(target_id):
+            raise PermissionError("scan authorization does not belong to the requested target")
+        preflight_for(target_row, consent_id)
+        with database._connect() as conn:
+            scan = conn.execute(
+                "SELECT status, results_summary FROM scans WHERE id = ? AND target_id = ?",
+                (scan_id, int(target_id)),
+            ).fetchone()
+        if scan is None:
+            raise ValueError("scan not found for target")
+        status = str(scan["status"])
+        if status not in _TERMINAL_SCAN_STATUSES:
+            raise RuntimeError(f"scan {scan_id} is not terminal: {status}")
+        return scan_id, target_row, status
+
+    def snapshot_evidence(scan_id: int, finding_ids: list[int]) -> dict[str, Any]:
+        blocked_ids: set[int] = set()
+        with database._connect() as conn:
+            scan = conn.execute("SELECT results_summary FROM scans WHERE id = ?", (int(scan_id),)).fetchone()
+        if scan is not None:
+            try:
+                summary = json.loads(str(scan["results_summary"] or "{}"))
+            except (TypeError, json.JSONDecodeError):
+                summary = {}
+            for item in (summary.get("evidence") or {}).get("results") or []:
+                if isinstance(item, Mapping) and item.get("state") == "blocked" and item.get("finding_id") is not None:
+                    blocked_ids.add(int(item["finding_id"]))
+
+        rows: list[dict[str, Any]] = []
+        for finding_id in finding_ids:
+            if finding_id in blocked_ids:
+                state = "blocked"
+                bundle_sha = ""
+            else:
+                with database._connect() as conn:
+                    bundle = conn.execute(
+                        """
+                        SELECT state, bundle_sha256
+                        FROM evidence_bundles
+                        WHERE finding_id = ? AND scan_id = ?
+                        ORDER BY id DESC LIMIT 1
+                        """,
+                        (int(finding_id), int(scan_id)),
+                    ).fetchone()
+                state = str(bundle["state"]) if bundle is not None else "incomplete"
+                bundle_sha = str(bundle["bundle_sha256"]) if bundle is not None else ""
+            rows.append({"finding_id": int(finding_id), "state": state, "bundle_sha256": bundle_sha})
+
+        closed = sum(1 for item in rows if item["state"] == "closed")
+        blocked = sum(1 for item in rows if item["state"] == "blocked")
+        incomplete = len(rows) - closed - blocked
+        overall = "blocked" if blocked else ("complete" if incomplete == 0 else "partial")
+        return {
+            "state": overall,
+            "closed": closed,
+            "incomplete": incomplete,
+            "blocked": blocked,
+            "findings": rows,
+        }
+
+    def store_snapshot(
+        *,
+        report_id: int,
+        scan_id: int,
+        report_sha256: str,
+        scan_status: str,
+        evidence: Mapping[str, Any],
+        finding_ids: list[int],
+    ) -> dict[str, Any]:
+        payload = {
+            "schema": "windeep.report-snapshot.v1",
+            "report_id": int(report_id),
+            "scan_id": int(scan_id),
+            "scan_status": str(scan_status),
+            "report_sha256": str(report_sha256),
+            "finding_ids": [int(value) for value in finding_ids],
+            "evidence": dict(evidence),
+        }
+        encoder = getattr(database, "_enc", None)
+        if not callable(encoder):
+            raise RuntimeError("report snapshots require encrypted database fields")
+        encrypted = encoder(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")),
+            field="report_snapshot.payload",
+        )
+        with database._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO report_snapshots(
+                    report_id, scan_id, report_sha256, renderer, evidence_state,
+                    closed_findings, incomplete_findings, blocked_findings,
+                    payload, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(report_id),
+                    int(scan_id),
+                    str(report_sha256),
+                    "v3-scan-report",
+                    str(evidence["state"]),
+                    int(evidence["closed"]),
+                    int(evidence["incomplete"]),
+                    int(evidence["blocked"]),
+                    encrypted,
+                    time.time(),
+                ),
+            )
+        return payload
+
+    def load_snapshot(report_id: int) -> dict[str, Any] | None:
+        with database._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM report_snapshots WHERE report_id = ?",
+                (int(report_id),),
+            ).fetchone()
+        if row is None:
+            return None
+        decoder = getattr(database, "_dec", None)
+        if not callable(decoder):
+            raise RuntimeError("report snapshots require encrypted database fields")
+        payload = json.loads(decoder(str(row["payload"]), field="report_snapshot.payload"))
+        return {
+            **payload,
+            "renderer": str(row["renderer"]),
+            "evidence_state": str(row["evidence_state"]),
+            "closed_findings": int(row["closed_findings"]),
+            "incomplete_findings": int(row["incomplete_findings"]),
+            "blocked_findings": int(row["blocked_findings"]),
+            "created_at": float(row["created_at"]),
+        }
 
     @app.get("/api/v2/tools")
     @authenticated
