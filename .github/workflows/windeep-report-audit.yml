@@ -1,0 +1,36 @@
+name: Windeep Report Quality Audit
+on:
+  schedule:
+    - cron: '26 * * * *' # :11 NPT
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: windeep-report-quality
+  cancel-in-progress: false
+jobs:
+  report-audit:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Report unit regression suite
+        run: python -m pytest -q -k "report or redaction or evidence"
+      - name: Require measurable report quality and secret scan
+        shell: pwsh
+        run: |
+          if (-not (Test-Path scripts/benchmarks/audit_reports.py)) { throw "Missing report scoring and export secret-scanning harness: fail closed" }
+          python scripts/benchmarks/audit_reports.py --min-score 8 --min-average 8 --zero-secret-leaks --all-findings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Open audit failure issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh issue create --title "Report quality gate failed: run ${{ github.run_id }}" --body "Report audit failed. Inspect https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}. Preserve scope and encryption safeguards." 

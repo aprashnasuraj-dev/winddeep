@@ -1,0 +1,41 @@
+name: Windeep Candidate Testing
+on:
+  schedule:
+    - cron: '14 * * * *' # :59 NPT
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: windeep-candidate-testing
+  cancel-in-progress: false
+jobs:
+  candidate-testing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Guard against missing lab harness
+        shell: bash
+        run: |
+          test -f scripts/benchmarks/run_local_labs.py || { echo "::error::No verified local-lab harness. Must not report a passing benchmark."; exit 1; }
+          test -f benchmarks/baseline.json
+      - name: Run authorized Docker local labs and validate metrics
+        run: |
+          python scripts/benchmarks/run_local_labs.py --local-only --baseline benchmarks/baseline.json --output benchmark-result.json
+          python scripts/benchmarks/validate.py --baseline benchmarks/baseline.json --result benchmark-result.json --require-reports 1.0 --max-regression 0.05
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidate-testing-${{ github.run_id }}
+          path: benchmark-result.json
+          if-no-files-found: warn
+      - name: Create issue on regression or missing adapter
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --title "Benchmark gate failed: run ${{ github.run_id }}" --body "Local lab benchmark failed or could not execute. Inspect [run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}). Do not treat this as a measured regression without actual metrics." || true

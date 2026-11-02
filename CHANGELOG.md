@@ -4,6 +4,14 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 ## [Unreleased]
 
+## [4.1.1] - 2026-11-02
+
+### CI and release governance
+- Added UTC-adjusted hourly candidate-testing, report-audit, and release-readiness workflow definitions. Gates fail closed when local-lab, scoring, or history verifiers are not implemented; no public release is automated.
+- Added prioritized engineering backlog, unmeasured benchmark baseline schema, and human-approval release checklist.
+- Opened diagnostic issue #22 for reproducing report failure and Windows startup icon fan-out; neither is claimed fixed.
+
+
 Post-freeze changes to the public v3 contracts are released as `3.0.x` patches unless they require a new major/minor compatibility window.
 
 ## [4.1.0] - 2026-09-18
