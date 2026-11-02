@@ -10,6 +10,7 @@ import zipfile
 from collections import Counter
 from functools import wraps
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 from flask import Flask, jsonify, request
@@ -114,6 +115,7 @@ def test_redacts_url_credentials_fragments_form_bodies_and_embedded_urls() -> No
     url = "https://user:pass@example.test/path?access_token=secretvalue&ok=1#fragmentsecret"
     for rendered in (redact_url(url), redact_text("see " + url)):
         assert all(secret not in rendered for secret in ("user:pass", "secretvalue", "fragmentsecret"))
+    assert urlsplit(redact_url(url)).hostname == "example.test"
     assert "secretvalue" not in redact_body("access_token=secretvalue&ok=1", content_type="application/x-www-form-urlencoded")
     assert "abc123" not in redact_text("Authorization: Basic abc123\nmore")
     assert _block("one\n```\nINJECTED\n```").startswith("````text\n")

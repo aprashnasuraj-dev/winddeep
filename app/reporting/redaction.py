@@ -74,7 +74,9 @@ def redact_url(url: str) -> str:
         pairs.append((key, _REDACTED if _SECRET_KEY.search(key) else _redact_plain(value)))
     authority = parsed.netloc
     if "@" in authority:
-        authority = f"{_REDACTED}@{authority.rsplit('@', 1)[1]}"
+        # Square brackets in the userinfo would be parsed as an invalid IPv6
+        # authority by urlsplit; keep the redacted URL syntactically valid.
+        authority = f"REDACTED@{authority.rsplit('@', 1)[1]}"
     return urlunsplit((parsed.scheme, authority, _redact_plain(parsed.path), urlencode(pairs, doseq=True), _REDACTED if parsed.fragment else ""))
 
 
