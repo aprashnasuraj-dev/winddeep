@@ -98,6 +98,29 @@ def test_active_launch_entries_declare_a_v4_runnable_route() -> None:
     assert len(excluded) == 28
 
 
+def test_passive_resolver_defers_external_backend_without_active_probe() -> None:
+    classes = ToolWrapperFactory(REGISTRY).load()
+    wrapper = classes["whois"](tools_dir=TOOLS, scope_validator=lambda _value: True)
+
+    class DeferredWsl(FakeBackend):
+        key = "wsl"
+        tier = "wsl"
+
+        def can_run(self, tool: Any) -> bool:
+            raise AssertionError("passive status must not launch an active WSL probe")
+
+        def passive_can_run(self, tool: Any) -> bool | None:
+            return None
+
+    resolver = ExecutionResolver([DeferredWsl()])
+    status = resolver.status(wrapper, active_probe=False)
+    assert status["tier"] == "deferred"
+    assert status["backend"] == "wsl"
+    assert status["verified"] is False
+    assert status["deferred"] is True
+    assert status["chain"][0]["deferred"] is True
+
+
 def test_resolver_uses_first_available_backend_in_declared_order() -> None:
     classes = ToolWrapperFactory(REGISTRY).load()
     wrapper = classes["whois"](tools_dir=TOOLS, scope_validator=lambda _value: True)
@@ -169,7 +192,8 @@ def test_builtin_fallback_catalog_covers_dead_and_api_shaped_cli_routes() -> Non
 
 def test_scan_planner_has_no_selected_or_catalog_readiness_bypass() -> None:
     source = (ROOT / "app" / "v2_api.py").read_text(encoding="utf-8")
-    assert "runtime_state = wrapper.runtime_status()" in source
+    assert "runtime_state = wrapper.runtime_status(active_probe=active_probe)" in source
+    assert "all_descriptors(normalized_target_type, active_probe=True)" in source
     assert 'runtime_tier != "unavailable"' in source
     assert "require_ready = False" not in source
     assert 'if not item["ready"]:' in source
