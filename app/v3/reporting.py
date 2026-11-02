@@ -33,13 +33,15 @@ class V3ReportGenerator:
         database: Any,
         crypto: Any,
         *,
+        audit: Any | None = None,
         triage: ManualTriage | None = None,
         finding_renderer: Any | None = None,
     ) -> None:
         self.database = database
         self.crypto = crypto
-        self.triage = triage or ManualTriage(database, _NullAudit())
-        self.finding_renderer = finding_renderer or ReportGenerator(database, crypto)
+        self.audit = audit or _NullAudit()
+        self.triage = triage or ManualTriage(database, self.audit)
+        self.finding_renderer = finding_renderer or ReportGenerator(database, crypto, audit=self.audit)
 
     def _verification(self, finding_id: int) -> dict[str, Any]:
         with self.database._connect() as conn:
