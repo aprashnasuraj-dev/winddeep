@@ -13,6 +13,7 @@ import os
 import shutil
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -36,6 +37,31 @@ class Finding(BaseModel):
     description: str = ""
     evidence: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolExecutionResult:
+    """One backend execution plus the raw output consumed by normalization.
+
+    The result intentionally carries an invocation template rather than rendered
+    target/options so the durable evidence layer can preserve execution context
+    without copying credentials or sensitive target arguments into metadata.
+    """
+
+    findings: tuple[Finding, ...]
+    stdout: str
+    stderr: str
+    exit_code: int
+    backend: str
+    backend_tier: str
+    attempted_backends: tuple[dict[str, str], ...]
+    started_at_wall: float
+    finished_at_wall: float
+    started_at_monotonic: float
+    finished_at_monotonic: float
+    argument_template: tuple[str, ...]
+    stdin_supplied: bool
+    parser_name: str
 
 
 Parser = Callable[[str, str, str], list[Finding]]
@@ -115,6 +141,10 @@ _ALIAS_NOTICE_EMITTED: set[str] = set()
 
 class ToolExecutionError(RuntimeError):
     """Raised when a tool cannot complete successfully on any eligible backend."""
+
+    def __init__(self, message: str, *, result: ToolExecutionResult | None = None) -> None:
+        super().__init__(message)
+        self.result = result
 
 
 class ToolCancelledError(ToolExecutionError):
