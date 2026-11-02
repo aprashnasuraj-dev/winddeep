@@ -47,10 +47,11 @@ class ReportArtifact:
 class ReportGenerator:
     """Render findings/chains strictly from normalized findings and P2 bundles."""
 
-    def __init__(self, database: Any, crypto: Any) -> None:
+    def __init__(self, database: Any, crypto: Any, audit: Any | None = None) -> None:
         self.database = database
         self.crypto = crypto
-        self.evidence = EvidenceBundleStore(database, crypto)
+        self.audit = audit
+        self.evidence = EvidenceBundleStore(database, crypto, audit=audit)
 
     @staticmethod
     def _iso_timestamp(value: Any) -> str:
@@ -133,7 +134,10 @@ class ReportGenerator:
         if not isinstance(output, Mapping):
             return None
         try:
-            artifact = self.evidence.read_artifact(str(output["artifact_sha256"]))
+            artifact = self.evidence.read_artifact(
+                str(output["artifact_sha256"]),
+                scan_id=int(output.get("origin_scan_id")) if output.get("origin_scan_id") is not None else None,
+            )
         except Exception as exc:
             raise ReportingError(f"tool-output integrity validation failed: {exc}") from exc
         start = int(output["line_start"])
