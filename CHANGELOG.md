@@ -6,6 +6,17 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 Post-freeze changes to the public v3 contracts are released as `3.0.x` patches unless they require a new major/minor compatibility window.
 
+## [4.1.3] - 2026-11-02
+
+### Fixed
+- Require the same live target authorization/preflight for evidence/PoC ZIP exports as for report downloads; authenticated access to a stored legacy report alone no longer grants raw-evidence export.
+
+### Tests
+- Added a negative report-export regression for a stored report with no prior authorized scan. The existing authorized scan-to-report-to-ZIP regression remains the positive control.
+
+### Security
+- Scope, signed consent, preflight, encryption, redaction, evidence integrity, and audit controls remain mandatory; no detector or target execution behavior changed.
+
 ## [4.1.2] - 2026-11-02
 
 ### Added
