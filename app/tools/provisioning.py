@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from app.tools.process_utils import hidden_process_kwargs
+
 
 class ProvisioningError(RuntimeError):
     """Raised when a provisioning contract cannot be satisfied."""
@@ -103,6 +105,7 @@ class Provisioner:
             text=True,
             timeout=timeout,
             check=False,
+            **hidden_process_kwargs(),
         )
         if completed.returncode != 0:
             tail = (completed.stdout or "")[-4000:]
