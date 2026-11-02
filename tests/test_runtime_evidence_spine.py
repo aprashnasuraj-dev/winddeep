@@ -80,17 +80,18 @@ async def test_wrapper_execution_result_retains_raw_parser_input_without_rendere
 
 @pytest.mark.asyncio
 async def test_failed_backend_exposes_raw_execution_result_for_fail_closed_persistence(tmp_path: Path) -> None:
-    wrapper = _wrapper(tmp_path, FakeBackend(stdout="partial-output\n", stderr="fixture-error\n", rc=7))
+    wrapper = _wrapper(tmp_path, FakeBackend(stdout="partial-output\n", stderr="Error HHE4 token=fixture-secret\n", rc=7))
     with pytest.raises(ToolExecutionError) as raised:
         await wrapper.run_with_evidence("example.test")
 
     result = raised.value.result
     assert result is not None
     assert result.stdout == "partial-output\n"
-    assert result.stderr == "fixture-error\n"
+    assert result.stderr == "Error HHE4 token=fixture-secret\n"
     assert result.exit_code == 7
     assert result.backend == "local_binary"
-    assert "fixture-error" not in str(raised.value)
+    assert "HHE4" in str(raised.value)
+    assert "fixture-secret" not in str(raised.value)
 
 
 def _evidence_fixture(tmp_path: Path):
