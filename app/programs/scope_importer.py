@@ -469,6 +469,7 @@ class ProgramScopeImporter:
             tos_url=source_url,
             snapshot_sha256=digest,
         )
+        testing_requirements = policy.get("testing_requirements") if isinstance(policy, Mapping) else None
         return ImportedProgramScope(
             platform=platform,
             program_handle=program_handle,
@@ -476,5 +477,5 @@ class ProgramScopeImporter:
             snapshot_sha256=digest,
             snapshot_path=path,
             source_url=source_url,
-            testing_requirements={},
+            testing_requirements=dict(testing_requirements) if isinstance(testing_requirements, Mapping) else {},
         )
