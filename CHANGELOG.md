@@ -16,9 +16,12 @@ Post-freeze changes to the public v3 contracts are released as `3.0.x` patches u
 ### Fixed
 - Preserved manual-import `testing_requirements` instead of discarding program execution rules.
 - Fixed manual program snapshot serialization for slotted `ProgramAsset` records.
+- Prevented Windows startup console/taskbar storms by launching child CLI processes with `CREATE_NO_WINDOW` from the windowed desktop build.
+- Made dashboard catalog/status enumeration passive: opening Windeep no longer actively probes WSL/Docker across the 137-tool catalog; verified external-runtime checks remain at scan planning, explicit probe, and execution time.
 
 ### Tests
 - Added fail-closed tests for automated-tool prohibition, exact owned-instance binding, customer/other-researcher instance rejection, marketplace-target rejection, latest-version/app-context requirements, no-pivoting, local-analysis availability, and policy-aware hypothesis generation. Added cross-context isolation coverage proving one program's restrictions cannot affect unrelated authorized targets.
+- Added Windows regressions proving startup catalog/status cannot invoke active WSL/Docker probes and child-process launches request no-console creation flags.
 
 ### Security
 - Program rules can only narrow target-facing execution. Scope, signed consent, preflight, redaction, encryption, evidence integrity, rate governance, and audit controls remain mandatory.
