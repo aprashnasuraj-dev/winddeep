@@ -275,6 +275,14 @@ def test_rediscovered_case_remains_visible_in_later_scan_via_observation_relatio
         findings=[payload],
     )
     assert int(second[0]["finding_id"]) == finding_id
+    manual_id = _finding(
+        database,
+        target_id,
+        second_scan,
+        "Manual context in rediscovery scan",
+        "low",
+        "https://example.test/manual-context",
+    )
 
     # The canonical case remains first-seen, proving scan inclusion cannot rely
     # on findings.scan_id for the second scan.
@@ -283,9 +291,12 @@ def test_rediscovered_case_remains_visible_in_later_scan_via_observation_relatio
     assert int(canonical["scan_id"]) == first_scan
 
     ranked = ManualTriage(database, audit).rank_scan(second_scan)
-    assert [item["finding_id"] for item in ranked] == [finding_id]
-    assert ranked[0]["observation_count"] == 1
-    assert ranked[0]["observations"][0]["tool_run_id"] == second_run
+    assert {item["finding_id"] for item in ranked} == {finding_id, manual_id}
+    rediscovered = next(item for item in ranked if item["finding_id"] == finding_id)
+    manual = next(item for item in ranked if item["finding_id"] == manual_id)
+    assert rediscovered["observation_count"] == 1
+    assert rediscovered["observations"][0]["tool_run_id"] == second_run
+    assert manual["observation_count"] == 0
 
     report = V3ReportGenerator(
         database,
@@ -293,8 +304,9 @@ def test_rediscovered_case_remains_visible_in_later_scan_via_observation_relatio
         triage=ManualTriage(database, audit),
         finding_renderer=_Renderer(),
     ).render_scan(second_scan)
-    assert report.finding_ids == (finding_id,)
+    assert set(report.finding_ids) == {finding_id, manual_id}
     assert "Rediscovered authorization inconsistency" in report.markdown
+    assert "Manual context in rediscovery scan" in report.markdown
     assert "Observations in this scan: `1`" in report.markdown
     assert f"Tool run IDs: `{second_run}`" in report.markdown
     assert "`" + ("c" * 64) + "`" in report.markdown
