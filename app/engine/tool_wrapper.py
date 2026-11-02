@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -149,6 +150,20 @@ class ToolExecutionError(RuntimeError):
 
 class ToolCancelledError(ToolExecutionError):
     """Raised when a user-requested scan stop terminates tool execution."""
+
+
+_DIAGNOSTIC_CODE_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z][A-Z0-9_-]{1,15}\d{1,6}(?![A-Za-z0-9])")
+
+
+def _diagnostic_code(stderr: str) -> str:
+    """Return a bounded machine-like error identifier without copying stderr.
+
+    Codes such as HHE4 are useful for backend fallback diagnosis. Arbitrary
+    diagnostic prose, URLs, tokens, paths, and credentials are deliberately
+    excluded from the operational error surface.
+    """
+    match = _DIAGNOSTIC_CODE_RE.search(str(stderr or ""))
+    return match.group(0) if match else ""
 
 
 def _failure_outcome(exc: BaseException) -> str:
@@ -360,8 +375,10 @@ class ToolWrapperBase:
                             parser_name=str(parser_name),
                         )
                         if returncode != 0:
+                            diagnostic = _diagnostic_code(stderr)
+                            suffix = f"; diagnostic={diagnostic}" if diagnostic else ""
                             raise ToolExecutionError(
-                                f"{self.tool_name} via {backend.key} exited with code {returncode}; raw stderr retained in the encrypted execution evidence path",
+                                f"{self.tool_name} via {backend.key} exited with code {returncode}{suffix}; raw stderr retained in the encrypted execution evidence path",
                                 result=base_result,
                             )
                         try:
