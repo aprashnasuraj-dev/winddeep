@@ -17,6 +17,7 @@ from app.brain.prompts import HYPOTHESIS_GEN_PROMPT
 from app.database import Database
 from app.engine.event_bus import EventBus
 from app.engine.scan_context import ScanContext
+from app.programs.policy import ProgramTestingPolicy
 
 _ALLOWED_SEVERITIES = {"critical", "high", "medium", "low", "info"}
 
@@ -77,6 +78,7 @@ class HypothesisEngine:
     ) -> list[Hypothesis]:
         """Generate, validate, scope-filter, persist, and publish hypotheses."""
         try:
+            policy = ProgramTestingPolicy.from_mapping(context.program_policy) if context.program_policy else None
             payload = {
                 "target": context.target,
                 "scope": list(context.scope),
@@ -85,8 +87,22 @@ class HypothesisEngine:
                 "findings": [self._compact_finding(item) for item in findings],
                 "memory_examples": list(memory_examples)[:8],
             }
+            if policy is not None:
+                payload["program_policy"] = policy.public_summary()
             guarded_context = self.prompt_guard.wrap_untrusted_json(payload)
             prompt = HYPOTHESIS_GEN_PROMPT.replace("{context_json}", guarded_context)
+            if policy is not None:
+                trusted_constraints: list[str] = []
+                if not policy.automated_tooling_allowed:
+                    trusted_constraints.append(
+                        "The program prohibits automated tooling/scanners. Generate manual verification guidance only; do not propose running scanners."
+                    )
+                if policy.no_pivoting:
+                    trusted_constraints.append(
+                        "The program prohibits pivoting/post-exploitation. Do not propose using one finding to discover or exploit another."
+                    )
+                if trusted_constraints:
+                    prompt += "\n\nTRUSTED PROGRAM EXECUTION CONSTRAINTS:\n- " + "\n- ".join(trusted_constraints)
             raw = await self.llm_client.complete_json(
                 prompt,
                 heuristic=lambda: self._rule_based(findings, context),
@@ -140,6 +156,10 @@ class HypothesisEngine:
                 continue
             if hypothesis.id in seen:
                 continue
+            if context.program_policy:
+                policy = ProgramTestingPolicy.from_mapping(context.program_policy)
+                if policy.no_pivoting and hypothesis.chain_hints:
+                    hypothesis = hypothesis.model_copy(update={"chain_hints": []})
             endpoint = self._absolute_endpoint(hypothesis.endpoint, context.target)
             if endpoint is not None and not context.is_in_scope(endpoint):
                 continue
