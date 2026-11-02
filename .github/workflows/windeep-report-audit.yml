@@ -1,7 +1,7 @@
 name: Windeep Report Quality Audit
 on:
   schedule:
-    - cron: '25 * * * *' # :10 NPT
+    - cron: '26 * * * *' # :11 NPT
   workflow_dispatch:
 permissions:
   contents: read
