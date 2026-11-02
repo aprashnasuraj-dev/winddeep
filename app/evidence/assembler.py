@@ -57,11 +57,9 @@ class EvidenceAssembler:
 
     @staticmethod
     def _line_number(payload: Mapping[str, Any]) -> int | None:
+        raw = payload.get("source_line")
         evidence = payload.get("evidence")
-        if not isinstance(evidence, Mapping):
-            return None
-        raw = evidence.get("_windeep_line_number")
-        if raw is None:
+        if raw is None and isinstance(evidence, Mapping):
             raw = evidence.get("line_number")
         try:
             value = int(raw)
