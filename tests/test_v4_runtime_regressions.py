@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -22,6 +23,7 @@ def test_windows_child_processes_request_no_console_window() -> None:
     windows_kwargs = hidden_process_kwargs(windows=True)
     assert "creationflags" in windows_kwargs
     assert isinstance(windows_kwargs["creationflags"], int)
+    assert windows_kwargs["creationflags"] == int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 def test_windows_provisioning_prefers_only_native_launchers_over_posix_shims() -> None:
