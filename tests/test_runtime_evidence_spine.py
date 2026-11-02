@@ -90,6 +90,7 @@ async def test_failed_backend_exposes_raw_execution_result_for_fail_closed_persi
     assert result.stderr == "fixture-error\n"
     assert result.exit_code == 7
     assert result.backend == "local_binary"
+    assert "fixture-error" not in str(raised.value)
 
 
 def _evidence_fixture(tmp_path: Path):
