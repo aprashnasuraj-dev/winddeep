@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+from app.tools.backends import ContainerBackend, WslBackend
+
 from app.engine.tool_wrapper import ToolWrapperFactory
 from app.server import create_app
 
@@ -68,6 +70,23 @@ def test_catalog_is_fully_runtime_addressable_and_target_aligned() -> None:
     assert all(tuple(cls.target_types) for cls in classes.values())
     assert all(isinstance(cls.scan_default, bool) for cls in classes.values())
     assert {cls.category for cls in classes.values()} >= {"recon_passive", "recon_active", "web_vulns", "mobile", "web3", "secrets", "network", "utilities"}
+
+
+def test_startup_status_and_catalog_never_active_probe_external_runtimes(v2_client, monkeypatch) -> None:
+    client, _tmp = v2_client
+    session(client)
+
+    def forbidden_probe(*_args, **_kwargs):
+        raise AssertionError("startup catalog/status must not launch Docker or WSL probes")
+
+    monkeypatch.setattr(WslBackend, "can_run", forbidden_probe)
+    monkeypatch.setattr(ContainerBackend, "can_run", forbidden_probe)
+
+    status = client.get("/api/v2/status")
+    tools = client.get("/api/v2/tools?target_type=domain")
+    assert status.status_code == 200
+    assert tools.status_code == 200
+    assert tools.get_json()["total"] == 137
 
 
 def test_v2_status_tools_settings_and_plan(v2_client) -> None:

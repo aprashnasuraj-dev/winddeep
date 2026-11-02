@@ -108,6 +108,7 @@ class PipelineNode:
     cancellable: bool = True
     tool_name: str | None = None
     rate_cost: float = 1.0
+    execution_kind: str = "local_analysis"
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -125,6 +126,7 @@ class PipelineNode:
             tool_name=self.tool_name or self.id,
             continue_on_error=True,
             rate_cost=self.rate_cost,
+            execution_kind=self.execution_kind,
         )
 
 
@@ -165,6 +167,7 @@ def build_tool_nodes(
                 retry_policy=RetryPolicy(max_attempts=min(8, retries + 1)),
                 cancellable=True,
                 tool_name=name,
+                execution_kind="automated_tool",
             )
         )
     return nodes
@@ -466,6 +469,8 @@ async def run_p0_scan(
     preflight_for: Callable[..., Any],
     broadcast: Callable[[str, dict[str, Any], int | None], None],
     environment: Mapping[str, str],
+    program_policy: Mapping[str, Any] | None = None,
+    program_metadata: Mapping[str, Any] | None = None,
 ) -> None:
     """Execute one v2 scan on one scheduler-owned event loop."""
     target = str(target_row["target"])
@@ -477,6 +482,8 @@ async def run_p0_scan(
         scope=list(target_row.get("scope") or [target]),
         out_of_scope=list(target_row.get("out_of_scope") or []),
         consent_id=consent_id,
+        metadata=dict(program_metadata or {}),
+        program_policy=dict(program_policy or {}),
     )
     event_bus = EventBus(heartbeat_interval=60.0)
     event_log = ScanEventLog(database, crypto)
@@ -648,10 +655,10 @@ async def run_p0_scan(
         return {**ranked, "hypotheses": hypothesis_rows}
 
     stage_nodes = [
-        PipelineNode("stage:dedup", "stage", dedup_stage, depends_on=tool_ids, resource_class="active", timeout=60.0, cancellable=True, tool_name="stage:dedup"),
-        PipelineNode("stage:chain", "stage", chain_stage, depends_on=("stage:dedup",), resource_class="llm", timeout=60.0, cancellable=True, tool_name="stage:chain"),
-        PipelineNode("stage:rank", "stage", rank_stage, depends_on=("stage:chain",), resource_class="active", timeout=30.0, cancellable=True, tool_name="stage:rank"),
-        PipelineNode("stage:hypothesis", "stage", hypothesis_stage, depends_on=("stage:rank",), resource_class="llm", timeout=60.0, cancellable=True, tool_name="stage:hypothesis"),
+        PipelineNode("stage:dedup", "stage", dedup_stage, depends_on=tool_ids, resource_class="active", timeout=60.0, cancellable=True, tool_name="stage:dedup", execution_kind="local_analysis"),
+        PipelineNode("stage:chain", "stage", chain_stage, depends_on=("stage:dedup",), resource_class="llm", timeout=60.0, cancellable=True, tool_name="stage:chain", execution_kind="local_analysis"),
+        PipelineNode("stage:rank", "stage", rank_stage, depends_on=("stage:chain",), resource_class="active", timeout=30.0, cancellable=True, tool_name="stage:rank", execution_kind="local_analysis"),
+        PipelineNode("stage:hypothesis", "stage", hypothesis_stage, depends_on=("stage:rank",), resource_class="llm", timeout=60.0, cancellable=True, tool_name="stage:hypothesis", execution_kind="local_analysis"),
     ]
 
     scheduler = TaskScheduler(

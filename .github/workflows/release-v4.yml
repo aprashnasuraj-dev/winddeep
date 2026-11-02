@@ -37,7 +37,7 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
-          if ($version -ne '4.1.0') { throw "This release trigger is pinned to VERSION 4.1.0; found $version" }
+          if ($version -notmatch '^4\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$') { throw "Windeep v4 release requires a valid 4.x semantic VERSION; found $version" }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
@@ -88,9 +88,9 @@ jobs:
         shell: pwsh
         run: |
           $notes = @'
-          # Windeep v4.1.0
+          # Windeep v${{ steps.version.outputs.version }}
 
-          Windeep 4.1 keeps the multi-backend execution runtime, opens in a native desktop window by default, fixes report/evidence exports, surfaces Brain audit reasoning, and removes dead/deprecated catalog entries from the active launch surface.
+          Windeep 4.x keeps the multi-backend execution runtime and native desktop workspace while preserving authorized research, evidence, reporting, and compatibility contracts. This release also prevents Windows startup console storms by keeping catalog enumeration passive and suppressing child console windows.
 
           ## Highlights
 

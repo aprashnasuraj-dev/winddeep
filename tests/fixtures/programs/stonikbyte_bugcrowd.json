@@ -1,0 +1,110 @@
+{
+  "platform": "bugcrowd",
+  "program_handle": "stonikbyte-atlassian-marketplace",
+  "source_kind": "user-supplied-program-policy",
+  "testing_requirements": {
+    "automated_tooling_allowed": false,
+    "browser_automation_allowed": false,
+    "network_probing_allowed": false,
+    "manual_testing_allowed": true,
+    "no_pivoting": true,
+    "owned_instance_only": true,
+    "requires_app_context": true,
+    "latest_version_only": true,
+    "allowed_host_templates": [
+      "bugbounty-test-{bugcrowd_name}.atlassian.net"
+    ],
+    "denied_hosts": [
+      "stonikbyte.com",
+      "*.stonikbyte.com"
+    ],
+    "reporting_only_hosts": [
+      "marketplace.atlassian.com"
+    ],
+    "focus_classes": [
+      "cross-instance-data-leakage",
+      "rce",
+      "ssrf",
+      "xss",
+      "csrf",
+      "sqli",
+      "xxe",
+      "idor",
+      "access-control",
+      "path-traversal"
+    ],
+    "notes": [
+      "Use only the operator-owned Bugcrowd test instance namespace.",
+      "Marketplace listing URLs identify apps for reporting and are not test targets.",
+      "Do not access customer instances or customer data.",
+      "Do not pivot or perform post-exploitation.",
+      "Use the latest eligible product version."
+    ]
+  },
+  "reporting_assets": [
+    {
+      "name": "Documents for Jira - Cloud",
+      "url": "https://marketplace.atlassian.com/apps/1211062/documents-for-jira?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Great Gadgets for Confluence Cloud",
+      "url": "https://marketplace.atlassian.com/apps/1226592/great-gadgets-for-confluence-cloud?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Project Team for Jira Cloud",
+      "url": "https://marketplace.atlassian.com/apps/1217117/project-team-for-jira-cloud?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Great Gadgets for Jira Cloud",
+      "url": "https://marketplace.atlassian.com/apps/1216564/great-gadgets-for-jira-cloud?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Velocity & Throughput Charts for Agile, Scrum, Kanban",
+      "url": "https://marketplace.atlassian.com/apps/607387265/velocity-throughput-charts-for-agile-scrum-kanban?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "DevOps Gadgets for Jira (Insights from GitHub & BB)",
+      "url": "https://marketplace.atlassian.com/apps/1237211/devops-gadgets-for-jira-insights-from-github-bb?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "WIP Run / WIP Aging Charts for Scrum, Kanban & Scaled Agile",
+      "url": "https://marketplace.atlassian.com/apps/2077076462/wip-run-wip-aging-charts-for-scrum-kanban-scaled-agile?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Burndown & Burnup Charts with Forecast for Agile Teams",
+      "url": "https://marketplace.atlassian.com/apps/375826955/burndown-burnup-charts-with-forecast-for-agile-teams?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Cumulative Flow Diagram",
+      "url": "https://marketplace.atlassian.com/apps/1752044660/cumulative-flow-diagram-cfd-charts-for-agile-scrum-kanban?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Team Wallboard for Agile, Scrum, Kanban & ITSM Dashboards",
+      "url": "https://marketplace.atlassian.com/apps/3937617820/team-wallboard-for-agile-scrum-kanban-itsm-dashboards?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Work Breakdown Structure, Link Hierarchy & Dependency Tree",
+      "url": "https://marketplace.atlassian.com/apps/4240011577/work-breakdown-structure-link-hierarchy-dependency-tree?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Countdown & Regional Clock",
+      "url": "https://marketplace.atlassian.com/apps/1157161318/countdown-regional-clock?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Formula Cards, Gauge Charts, RAG Reports & Custom KPIs",
+      "url": "https://marketplace.atlassian.com/apps/2113139725/formula-cards-gauge-charts-rag-reports-custom-kpis?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Cycle Time, Lead Time & Time in Status Charts for Agile",
+      "url": "https://marketplace.atlassian.com/apps/2194903109/cycle-time-lead-time-time-in-status-charts-for-agile?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Pivot Worklog Reports: Timesheets, Charts & Heatmaps",
+      "url": "https://marketplace.atlassian.com/apps/89496753/pivot-worklog-reports-timesheets-charts-heatmaps?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Pivot Tables, Charts & Heatmaps for Jira Agile Reporting",
+      "url": "https://marketplace.atlassian.com/apps/1855294554/pivot-tables-charts-heatmaps-for-jira-agile-reporting?hosting=cloud&tab=overview"
+    }
+  ]
+}

@@ -7,7 +7,7 @@ import hashlib
 import json
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import urljoin
@@ -461,7 +461,7 @@ class ProgramScopeImporter:
         """Import a manually supplied policy without weakening snapshot/audit semantics."""
         if not assets:
             raise ScopeImportError("manual import requires at least one asset")
-        digest, path = self.snapshots.save(platform, program_handle, {"policy": dict(policy), "assets": [asset.__dict__ for asset in assets]})
+        digest, path = self.snapshots.save(platform, program_handle, {"policy": dict(policy), "assets": [asdict(asset) for asset in assets]})
         self.repository.replace(
             platform=platform,
             program_handle=program_handle,
@@ -469,6 +469,7 @@ class ProgramScopeImporter:
             tos_url=source_url,
             snapshot_sha256=digest,
         )
+        testing_requirements = policy.get("testing_requirements") if isinstance(policy, Mapping) else None
         return ImportedProgramScope(
             platform=platform,
             program_handle=program_handle,
@@ -476,5 +477,5 @@ class ProgramScopeImporter:
             snapshot_sha256=digest,
             snapshot_path=path,
             source_url=source_url,
-            testing_requirements={},
+            testing_requirements=dict(testing_requirements) if isinstance(testing_requirements, Mapping) else {},
         )

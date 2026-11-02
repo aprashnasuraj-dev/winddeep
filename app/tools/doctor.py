@@ -9,6 +9,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
+from app.tools.process_utils import hidden_process_kwargs
+
 from app.engine.tool_wrapper import ToolWrapperFactory
 from app.tools.backends import BackendUnavailableError, backend_capabilities
 from app.tools.provisioning import Provisioner, ProvisioningError
@@ -80,6 +82,7 @@ def _build_container(image: str, root: Path) -> dict[str, Any]:
         text=True,
         timeout=3600,
         check=False,
+        **hidden_process_kwargs(),
     )
     return {
         "status": "built" if completed.returncode == 0 else "failed",
