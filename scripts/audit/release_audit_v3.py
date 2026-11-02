@@ -97,11 +97,18 @@ def contract_check() -> Check:
 
 def all_findings_check() -> Check:
     triage = text("app/v3/triage.py")
+    observations = text("app/finding_observations.py")
     report = text("app/v3/reporting.py")
     api = text("app/v3/api.py")
     policy_terms = ("handling_policy", "handling_rule", "policy: unspecified")
+    observation_union = (
+        "self.observations.scan_cases" in triage
+        and "FROM scan_findings" in observations
+        and "SELECT id FROM findings WHERE scan_id = ? ORDER BY id ASC" in observations
+        and "by_id.setdefault" in observations
+    )
     ok = (
-        "SELECT id FROM findings WHERE scan_id = ?" in triage
+        observation_union
         and '"disposition": "needs-review"' in triage
         and "for index, item in enumerate(ranked" in report
         and "not-recorded" in report
@@ -110,7 +117,12 @@ def all_findings_check() -> Check:
         and '"policy_required": False' in api
         and '"verification_required_for_inclusion": False' in api
     )
-    return Check("all-findings non-suppression", ok, "classification/verification affect display, never inclusion" if ok else "all-findings markers are incomplete")
+    detail = (
+        "scan observation union plus legacy/manual rows; classification/verification affect display, never inclusion"
+        if ok
+        else "all-findings observation-union markers are incomplete"
+    )
+    return Check("all-findings non-suppression", ok, detail)
 
 
 def preflight_check() -> Check:
