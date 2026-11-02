@@ -7,9 +7,10 @@ from typing import Any, Sequence
 
 import pytest
 
-from app.engine.tool_wrapper import ToolWrapperFactory
+from app.engine.tool_wrapper import ToolWrapperBase, ToolWrapperFactory
+from app.server import create_app
 from app.tools import builtin_fallbacks, builtin_integrations
-from app.tools.backends import ExecutionBackend, ExecutionResolver
+from app.tools.backends import ContainerBackend, ExecutionBackend, ExecutionResolver, WslBackend
 from app.tools.bundle import export_bundle, import_bundle
 from app.tools.provisioning import Provisioner
 from app.tools.release_metadata import effective_definitions
@@ -190,13 +191,51 @@ def test_builtin_fallback_catalog_covers_dead_and_api_shaped_cli_routes() -> Non
         assert builtin_fallbacks.supports(adapter)
 
 
-def test_scan_planner_has_no_selected_or_catalog_readiness_bypass() -> None:
-    source = (ROOT / "app" / "v2_api.py").read_text(encoding="utf-8")
-    assert "runtime_state = wrapper.runtime_status(active_probe=active_probe)" in source
-    assert "all_descriptors(normalized_target_type, active_probe=True)" in source
-    assert 'runtime_tier != "unavailable"' in source
-    assert "require_ready = False" not in source
-    assert 'if not item["ready"]:' in source
+@pytest.mark.parametrize("mode", ["selected", "catalog"])
+def test_scan_planner_rechecks_candidates_before_selection(tmp_path: Path, monkeypatch, mode: str) -> None:
+    monkeypatch.setenv("WINDEEP_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(WslBackend, "can_run", lambda *_args: False)
+    monkeypatch.setattr(ContainerBackend, "can_run", lambda *_args: False)
+    original = ToolWrapperBase.runtime_status
+    probes: list[bool] = []
+
+    def changing_status(self, *, active_probe: bool = True):
+        if self.tool_name == "nmap":
+            probes.append(active_probe)
+            return {
+                "tier": "unavailable" if active_probe else "native",
+                "backend": None if active_probe else "local_binary",
+                "verified": True,
+                "chain": [],
+            }
+        return original(self, active_probe=active_probe)
+
+    monkeypatch.setattr(ToolWrapperBase, "runtime_status", changing_status)
+    client = create_app().test_client()
+    csrf = client.post("/api/handshake", json={}).get_json()["csrf_token"]
+    headers = {"X-CSRF-Token": csrf}
+    target = client.post("/api/targets", headers=headers, json={
+        "name": "Readiness fixture", "type": "domain", "target": "example.test",
+        "scope": ["example.test"], "out_of_scope": [],
+    }).get_json()
+    response = client.get(f"/api/v2/scan-plan?target_id={target['id']}&mode={mode}&tools=nmap")
+    assert response.status_code == 200
+    plan = response.get_json()
+    assert False in probes and True in probes
+    assert "nmap" not in plan["selected"]
+    assert any(item["tool"] == "nmap" for item in plan["skipped"])
+
+    if mode == "selected":
+        consent = client.post("/api/consent", headers=headers, json={
+            "target": "example.test", "scope": ["example.test"], "out_of_scope": [],
+            "authorized_by": "readiness test", "purpose": "fixture", "ttl_seconds": 600,
+        }).get_json()
+        started = client.post("/api/v2/scans", headers=headers, json={
+            "target_id": target["id"], "consent_id": consent["id"],
+            "mode": "selected", "tools": ["nmap"], "modules": [],
+        })
+        assert started.status_code == 409
+        assert started.get_json()["code"] == "V4_SCAN_READINESS_FAILED"
 
 
 def test_v4_ui_blocks_run_buttons_when_runtime_or_target_is_not_runnable() -> None:
