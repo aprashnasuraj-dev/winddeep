@@ -252,14 +252,24 @@ class EvidenceBundleStore:
         evidence = finding.get("evidence")
         if not requested and isinstance(evidence, Mapping):
             requested = str(evidence.get("evidence_profile") or "").strip().casefold()
-        if requested:
-            if requested not in _EVIDENCE_PROFILES:
-                raise ValueError(f"unsupported evidence_profile: {requested}")
-            return requested
-        if cls._is_browser_observable(finding):
-            return "browser"
+        if requested and requested not in _EVIDENCE_PROFILES:
+            raise ValueError(f"unsupported evidence_profile: {requested}")
+
         endpoint = str(finding.get("endpoint") or "").strip().casefold()
-        if endpoint.startswith(("http://", "https://")) or cls._is_reflection(finding) or flows:
+        browser_required = cls._is_browser_observable(finding)
+        http_required = endpoint.startswith(("http://", "https://")) or cls._is_reflection(finding)
+
+        if browser_required:
+            if requested and requested != "browser":
+                raise ValueError("browser-observed finding cannot downgrade evidence_profile below browser")
+            return "browser"
+        if http_required:
+            if requested == "artifact":
+                raise ValueError("HTTP/reflection finding cannot downgrade evidence_profile to artifact")
+            return requested or "http"
+        if requested:
+            return requested
+        if flows:
             return "http"
         return "artifact"
 
