@@ -26,7 +26,7 @@ def register_v3_api(
     """Register v3 compatibility plus the additive v4 runtime-management API."""
     apply_v3_release_migration(database.path)
     triage = ManualTriage(database, audit)
-    reports = V3ReportGenerator(database, crypto, triage=triage)
+    reports = V3ReportGenerator(database, crypto, audit=audit, triage=triage)
 
     def scan_access(scan_id: int) -> tuple[dict[str, Any], str]:
         with database._connect() as conn:
