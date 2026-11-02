@@ -405,6 +405,81 @@ class RawArtifactStore:
             )
         return payload
 
+    def record_execution_result(
+        self,
+        *,
+        scan_id: int,
+        tool_run_id: int,
+        result: Any,
+        tool_name: str,
+        command_template: Sequence[str],
+        working_directory: str,
+    ) -> dict[str, Any]:
+        """Persist the raw output and non-secret execution provenance for a wrapper result.
+
+        The command template is stored instead of rendered arguments so credentials,
+        tokens, and concrete target values are not duplicated into evidence metadata.
+        stdout/stderr themselves remain encrypted, content-addressed raw artifacts.
+        """
+        stdout = str(getattr(result, "stdout", "")).encode("utf-8", errors="replace")
+        stderr = str(getattr(result, "stderr", "")).encode("utf-8", errors="replace")
+        stdout_ref = self.put(
+            scan_id=scan_id,
+            tool_run_id=tool_run_id,
+            kind="tool.stdout",
+            media_type="text/plain; charset=utf-8",
+            content=stdout,
+            reason="capture normalized-tool parser input",
+        )
+        stderr_ref = self.put(
+            scan_id=scan_id,
+            tool_run_id=tool_run_id,
+            kind="tool.stderr",
+            media_type="text/plain; charset=utf-8",
+            content=stderr,
+            reason="capture tool diagnostic output",
+        )
+        payload = {
+            "schema": "windeep.tool-execution-evidence.v2",
+            "tool_name": str(tool_name),
+            "command_template": [str(item) for item in command_template],
+            "backend": str(getattr(result, "backend", "")),
+            "backend_tier": str(getattr(result, "backend_tier", "")),
+            "attempted_backends": [dict(item) for item in getattr(result, "attempted_backends", ())],
+            "exit_code": int(getattr(result, "exit_code", 0)),
+            "started_at_wall": float(getattr(result, "started_at_wall", 0.0)),
+            "finished_at_wall": float(getattr(result, "finished_at_wall", 0.0)),
+            "started_at_monotonic": float(getattr(result, "started_at_monotonic", 0.0)),
+            "finished_at_monotonic": float(getattr(result, "finished_at_monotonic", 0.0)),
+            "stdin_supplied": bool(getattr(result, "stdin_supplied", False)),
+            "parser_name": str(getattr(result, "parser_name", "")),
+            "finding_count": len(tuple(getattr(result, "findings", ()))),
+            "working_directory": str(working_directory),
+            "stdout_sha256": stdout_ref.sha256,
+            "stderr_sha256": stderr_ref.sha256,
+        }
+        encrypted = self._enc_text(_canonical(payload).decode("utf-8"), field="tool_run_evidence.payload")
+        with self.database._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO tool_run_evidence(tool_run_id, scan_id, payload, stdout_sha256, stderr_sha256, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tool_run_id) DO UPDATE SET
+                    payload = excluded.payload,
+                    stdout_sha256 = excluded.stdout_sha256,
+                    stderr_sha256 = excluded.stderr_sha256
+                """,
+                (tool_run_id, scan_id, encrypted, stdout_ref.sha256, stderr_ref.sha256, time.time()),
+            )
+        self._custody(
+            action="bind",
+            scan_id=scan_id,
+            content_hash=stdout_ref.sha256,
+            reason=f"bind raw execution evidence to tool run {tool_run_id}",
+            artifact_id=stdout_ref.id,
+        )
+        return payload
+
     def read_tool_run(self, tool_run_id: int) -> dict[str, Any]:
         with self.database._connect() as conn:
             row = conn.execute("SELECT * FROM tool_run_evidence WHERE tool_run_id = ?", (tool_run_id,)).fetchone()

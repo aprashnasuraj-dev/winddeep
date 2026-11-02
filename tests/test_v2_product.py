@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import stat
 import time
 import zipfile
@@ -166,6 +167,26 @@ def test_v2_builtin_scan_creates_raw_proof_and_report_exports(v2_client) -> None
     assert finding["steps"]
     assert finding["evidence"]
     assert "abcdefghijklmnopqrstuvwxyz012345" not in json.dumps(finding["evidence"])
+    execution_ref = finding["evidence"]["_windeep_execution"]
+    assert execution_ref["tool_run_id"] > 0
+    assert len(execution_ref["stdout_sha256"]) == 64
+    assert len(execution_ref["stderr_sha256"]) == 64
+    assert completed["results_summary"]["evidence_root"]["leaf_count"] >= 2
+    assert len(completed["results_summary"]["evidence_root"]["merkle_root"]) == 64
+
+    with sqlite3.connect(tmp_path / "state" / "windeep.db") as conn:
+        tool_evidence = conn.execute(
+            "SELECT stdout_sha256, stderr_sha256 FROM tool_run_evidence WHERE tool_run_id = ?",
+            (execution_ref["tool_run_id"],),
+        ).fetchone()
+        root = conn.execute(
+            "SELECT merkle_root, leaf_count FROM scan_evidence_roots WHERE scan_id = ? ORDER BY id DESC LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+    assert tool_evidence == (execution_ref["stdout_sha256"], execution_ref["stderr_sha256"])
+    assert root is not None
+    assert root[0] == completed["results_summary"]["evidence_root"]["merkle_root"]
+    assert root[1] == completed["results_summary"]["evidence_root"]["leaf_count"]
 
     generated = client.post(
         "/api/v2/reports/generate",

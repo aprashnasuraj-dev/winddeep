@@ -28,7 +28,8 @@ from app.duplicates import DuplicateDetector
 from app.engine.event_bus import EventBus
 from app.engine.scan_context import ScanContext
 from app.engine.scheduler import TaskScheduler, TaskSpec
-from app.engine.tool_wrapper import ToolCancelledError
+from app.engine.tool_wrapper import ToolCancelledError, ToolExecutionError
+from app.evidence.raw_store import RawArtifactStore
 from app.security.preflight import PreFlightError
 
 _ALLOWED_RESOURCE_CLASSES = frozenset({"recon", "active", "web3", "browser", "llm"})
@@ -488,6 +489,7 @@ async def run_p0_scan(
     event_bus = EventBus(heartbeat_interval=60.0)
     event_log = ScanEventLog(database, crypto)
     writer = FindingBatchWriter(database)
+    raw_store = RawArtifactStore(database, crypto, audit)
     event_log.ensure_schema()
     writer.ensure_schema()
 
@@ -533,8 +535,27 @@ async def run_p0_scan(
                 try:
                     guard.authorize_scan(target=target, consent_id=consent_id)
                     await guard.acquire_rate(_host_rate_key(target))
-                    findings = await asyncio.wait_for(wrapper.run(target, options=options), timeout=timeout)
-                    payloads = [finding.model_dump() for finding in findings]
+                    execution = await asyncio.wait_for(wrapper.run_with_evidence(target, options=options), timeout=timeout)
+                    evidence_record = raw_store.record_execution_result(
+                        scan_id=scan_id,
+                        tool_run_id=run_id,
+                        result=execution,
+                        tool_name=tool_name,
+                        command_template=(tool_name, *execution.argument_template),
+                        working_directory=str(tools_dir),
+                    )
+                    payloads = [finding.model_dump() for finding in execution.findings]
+                    for payload in payloads:
+                        evidence = dict(payload.get("evidence") or {})
+                        evidence["_windeep_execution"] = {
+                            "tool_run_id": run_id,
+                            "backend": execution.backend,
+                            "backend_tier": execution.backend_tier,
+                            "parser": execution.parser_name,
+                            "stdout_sha256": evidence_record["stdout_sha256"],
+                            "stderr_sha256": evidence_record["stderr_sha256"],
+                        }
+                        payload["evidence"] = evidence
                     persisted = writer.persist(
                         scan_id=scan_id,
                         tool_run_id=run_id,
@@ -542,7 +563,13 @@ async def run_p0_scan(
                         tool_name=tool_name,
                         findings=payloads,
                     )
-                    database.finish_tool_run(run_id, status="completed", exit_code=0, stdout_tail=f"{len(persisted)} normalized result(s)")
+                    database.finish_tool_run(
+                        run_id,
+                        status="completed",
+                        exit_code=execution.exit_code,
+                        stdout_tail=f"{len(persisted)} normalized result(s); raw={evidence_record['stdout_sha256'][:12]}",
+                        stderr_tail=f"encrypted-raw={evidence_record['stderr_sha256'][:12]}",
+                    )
                     for item in persisted:
                         public = {key: value for key, value in item.items() if key != "stable_json"}
                         emit("finding", {"finding": public})
@@ -553,6 +580,10 @@ async def run_p0_scan(
                             "tool_run_id": run_id,
                             "finding_count": len(persisted),
                             "fingerprints": [item["fingerprint"] for item in persisted],
+                            "stdout_sha256": evidence_record["stdout_sha256"],
+                            "stderr_sha256": evidence_record["stderr_sha256"],
+                            "backend": execution.backend,
+                            "parser": execution.parser_name,
                         },
                     )
                     return persisted
@@ -565,6 +596,21 @@ async def run_p0_scan(
                 except asyncio.CancelledError:
                     database.finish_tool_run(run_id, status="cancelled", error="cancelled by operator")
                     raise
+                except ToolExecutionError as exc:
+                    if exc.result is not None:
+                        raw_store.record_execution_result(
+                            scan_id=scan_id,
+                            tool_run_id=run_id,
+                            result=exc.result,
+                            tool_name=tool_name,
+                            command_template=(tool_name, *exc.result.argument_template),
+                            working_directory=str(tools_dir),
+                        )
+                    last_error = exc
+                    if attempt >= retry_policy.max_attempts:
+                        database.finish_tool_run(run_id, status="failed", error=str(exc))
+                        raise
+                    await asyncio.sleep(retry_policy.delay(attempt))
                 except Exception as exc:
                     last_error = exc
                     if attempt >= retry_policy.max_attempts:
@@ -684,6 +730,11 @@ async def run_p0_scan(
         chain_count = len(final_payload.get("chains", [])) if isinstance(final_payload, Mapping) else 0
         ranked_count = len(final_payload.get("ranked", [])) if isinstance(final_payload, Mapping) else 0
         status = "completed_with_errors" if errors else "completed"
+        evidence_root = raw_store.seal_scan(
+            scan_id,
+            reason=f"seal terminal v2 scan evidence ({status})",
+            actor="v2-orchestrator",
+        )
         summary = {
             "mode": mode,
             "tools_planned": len(selected),
@@ -692,10 +743,16 @@ async def run_p0_scan(
             "ranked": ranked_count,
             "errors": errors,
             "skipped": list(skipped),
+            "evidence_root": {
+                "merkle_root": evidence_root["merkle_root"],
+                "leaf_count": evidence_root["leaf_count"],
+                "audit_hash": evidence_root["audit_hash"],
+            },
         }
+        emit("evidence", {"scan_id": scan_id, "sealed": True, **summary["evidence_root"]})
         database.update_scan(scan_id, status=status, progress=100.0, finished_at=time.time(), results_summary=summary)
         emit("progress", {"progress": 100.0, "status": status, "summary": summary})
-        audit.append("v2.scan.completed", {"scan_id": scan_id, "status": status, "errors": len(errors)})
+        audit.append("v2.scan.completed", {"scan_id": scan_id, "status": status, "errors": len(errors), "evidence_root": evidence_root["merkle_root"]})
     except asyncio.CancelledError:
         reason = "operator cancellation requested" if cancel_event.is_set() else "scheduler cancellation"
         database.update_scan(scan_id, status="cancelled", finished_at=time.time(), results_summary={"cancel_reason": reason})

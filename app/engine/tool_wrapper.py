@@ -10,9 +10,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -36,6 +38,31 @@ class Finding(BaseModel):
     description: str = ""
     evidence: dict[str, Any] = Field(default_factory=dict)
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+@dataclass(frozen=True, slots=True)
+class ToolExecutionResult:
+    """One backend execution plus the raw output consumed by normalization.
+
+    The result intentionally carries an invocation template rather than rendered
+    target/options so the durable evidence layer can preserve execution context
+    without copying credentials or sensitive target arguments into metadata.
+    """
+
+    findings: tuple[Finding, ...]
+    stdout: str
+    stderr: str
+    exit_code: int
+    backend: str
+    backend_tier: str
+    attempted_backends: tuple[dict[str, str], ...]
+    started_at_wall: float
+    finished_at_wall: float
+    started_at_monotonic: float
+    finished_at_monotonic: float
+    argument_template: tuple[str, ...]
+    stdin_supplied: bool
+    parser_name: str
 
 
 Parser = Callable[[str, str, str], list[Finding]]
@@ -116,9 +143,27 @@ _ALIAS_NOTICE_EMITTED: set[str] = set()
 class ToolExecutionError(RuntimeError):
     """Raised when a tool cannot complete successfully on any eligible backend."""
 
+    def __init__(self, message: str, *, result: ToolExecutionResult | None = None) -> None:
+        super().__init__(message)
+        self.result = result
+
 
 class ToolCancelledError(ToolExecutionError):
     """Raised when a user-requested scan stop terminates tool execution."""
+
+
+_DIAGNOSTIC_CODE_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z][A-Z0-9_-]{1,15}\d{1,6}(?![A-Za-z0-9])")
+
+
+def _diagnostic_code(stderr: str) -> str:
+    """Return a bounded machine-like error identifier without copying stderr.
+
+    Codes such as HHE4 are useful for backend fallback diagnosis. Arbitrary
+    diagnostic prose, URLs, tokens, paths, and credentials are deliberately
+    excluded from the operational error surface.
+    """
+    match = _DIAGNOSTIC_CODE_RE.search(str(stderr or ""))
+    return match.group(0) if match else ""
 
 
 def _failure_outcome(exc: BaseException) -> str:
@@ -261,6 +306,21 @@ class ToolWrapperBase:
         return findings
 
     async def run(self, target: str, options: Mapping[str, Any] | None = None) -> list[Finding]:
+        """Compatibility API returning only normalized findings."""
+        result = await self.run_with_evidence(target, options=options)
+        return list(result.findings)
+
+    async def run_with_evidence(
+        self,
+        target: str,
+        options: Mapping[str, Any] | None = None,
+    ) -> ToolExecutionResult:
+        """Execute once through the resolver while retaining the raw parser input.
+
+        Raw stdout/stderr remain in-memory here; callers decide whether to persist
+        them in Windeep's encrypted evidence store. Rendered target/options are not
+        copied into the result metadata.
+        """
         if self._cancel_requested():
             raise ToolCancelledError(f"{self.tool_name} cancelled before execution")
         if self.requires_scope and self.scope_validator is None:
@@ -272,6 +332,7 @@ class ToolWrapperBase:
         rendered_args = self._render_args(validated)
         stdin_data = self._render_stdin(validated)
         attempted: list[dict[str, str]] = []
+        last_result: ToolExecutionResult | None = None
         self.current_target = target
         try:
             available = [self.resolver.backends[key] for key in self.resolver.ordered_keys(self) if self.resolver.backends[key].can_run(self)]
@@ -282,6 +343,8 @@ class ToolWrapperBase:
             last_error: BaseException | None = None
             for backend in available:
                 for attempt in range(self.retries + 1):
+                    started_at_wall = time.time()
+                    started_at_monotonic = time.monotonic()
                     try:
                         if self._cancel_requested():
                             raise ToolCancelledError(f"{self.tool_name} cancelled by user")
@@ -290,23 +353,72 @@ class ToolWrapperBase:
                             backend.exec(self, rendered_args, stdin_data, self.timeout),
                             timeout=self.timeout + 2.0,
                         )
+                        finished_at_wall = time.time()
+                        finished_at_monotonic = time.monotonic()
+                        parser_name = "_jsonl_parser" if backend.key == "builtin_fallback" else getattr(
+                            self.output_parser, "__name__", type(self.output_parser).__name__
+                        )
+                        base_result = ToolExecutionResult(
+                            findings=(),
+                            stdout=stdout,
+                            stderr=stderr,
+                            exit_code=int(returncode),
+                            backend=str(backend.key),
+                            backend_tier=str(backend.tier),
+                            attempted_backends=tuple(dict(item) for item in attempted),
+                            started_at_wall=started_at_wall,
+                            finished_at_wall=finished_at_wall,
+                            started_at_monotonic=started_at_monotonic,
+                            finished_at_monotonic=finished_at_monotonic,
+                            argument_template=tuple(str(item) for item in self.args_template),
+                            stdin_supplied=stdin_data is not None,
+                            parser_name=str(parser_name),
+                        )
                         if returncode != 0:
+                            diagnostic = _diagnostic_code(stderr)
+                            suffix = f"; diagnostic={diagnostic}" if diagnostic else ""
                             raise ToolExecutionError(
-                                f"{self.tool_name} via {backend.key} exited with code {returncode}: {stderr.strip()[:2000]}"
+                                f"{self.tool_name} via {backend.key} exited with code {returncode}{suffix}; raw stderr retained in the encrypted execution evidence path",
+                                result=base_result,
                             )
-                        findings = self.parse_output(stdout, target, builtin=backend.key == "builtin_fallback")
-                        return self._annotate_findings(findings, backend=backend, attempted=attempted)
+                        try:
+                            findings = self.parse_output(stdout, target, builtin=backend.key == "builtin_fallback")
+                        except Exception as exc:
+                            raise ToolExecutionError(
+                                f"{self.tool_name} output parser failed after successful execution: {exc}",
+                                result=base_result,
+                            ) from exc
+                        annotated = self._annotate_findings(findings, backend=backend, attempted=attempted)
+                        return ToolExecutionResult(
+                            findings=tuple(annotated),
+                            stdout=stdout,
+                            stderr=stderr,
+                            exit_code=int(returncode),
+                            backend=str(backend.key),
+                            backend_tier=str(backend.tier),
+                            attempted_backends=tuple(dict(item) for item in attempted),
+                            started_at_wall=started_at_wall,
+                            finished_at_wall=finished_at_wall,
+                            started_at_monotonic=started_at_monotonic,
+                            finished_at_monotonic=finished_at_monotonic,
+                            argument_template=tuple(str(item) for item in self.args_template),
+                            stdin_supplied=stdin_data is not None,
+                            parser_name=str(parser_name),
+                        )
                     except (ToolCancelledError, asyncio.CancelledError):
                         raise
                     except (ToolExecutionError, BackendExecutionError, BackendUnavailableError, asyncio.TimeoutError, OSError, httpx.HTTPError) as exc:
                         last_error = exc
+                        if isinstance(exc, ToolExecutionError) and exc.result is not None:
+                            last_result = exc.result
                         if attempt < self.retries:
                             await asyncio.sleep(min(8.0, 0.5 * (2**attempt)))
                             continue
                         attempted.append({"backend": backend.key, "outcome": _failure_outcome(exc), "error": str(exc)[:1000]})
                         break
             raise ToolExecutionError(
-                f"{self.tool_name} failed across {len(available)} backend(s): {last_error}; attempted={', '.join(item['backend'] for item in attempted)}"
+                f"{self.tool_name} failed across {len(available)} backend(s): {last_error}; attempted={', '.join(item['backend'] for item in attempted)}",
+                result=last_result,
             )
         finally:
             self.current_target = ""
