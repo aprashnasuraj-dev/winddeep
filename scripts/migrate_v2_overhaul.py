@@ -20,8 +20,29 @@ def replace_once(path: Path, old: str, new: str) -> None:
     path.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 
+def _has_cancellable_runtime(text: str) -> bool:
+    """Return True when the v2 cancellation contract is already installed.
+
+    V4 replaced several exact v2 implementation blocks with the execution
+    resolver while preserving the cancellation contract.  Treat that evolved
+    implementation as already migrated instead of trying to replay stale
+    text substitutions over it.
+    """
+    required_markers = (
+        "class ToolCancelledError(ToolExecutionError):",
+        "cancel_check: Callable[[], bool] | None = None,",
+        "def _cancel_requested(self) -> bool:",
+        "async def _await_with_cancel(",
+        "raise ToolCancelledError(f\"{self.tool_name} cancelled by user\")",
+        "stdout, stderr = await self._await_with_cancel(process.communicate(stdin_data), timeout=self.timeout)",
+    )
+    return all(marker in text for marker in required_markers)
+
+
 def migrate_tool_wrapper() -> None:
     path = ROOT / "app" / "engine" / "tool_wrapper.py"
+    if _has_cancellable_runtime(path.read_text(encoding="utf-8")):
+        return
     replace_once(
         path,
         "class ToolExecutionError(RuntimeError):\n    \"\"\"Raised when an external tool cannot complete successfully.\"\"\"\n\n\nclass ToolWrapperBase:\n",
