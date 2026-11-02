@@ -409,8 +409,11 @@ def create_app() -> Flask:
             modules = [str(v) for v in data.get("modules", [])]
             candidates = select_tools(scan_type, modules)
             scan_id = database.create_scan(target_id, scan_type, modules or candidates)
+            pending_snapshot = scan_row(scan_id)
+            if pending_snapshot is None:
+                raise RuntimeError("new scan row could not be resolved")
             threading.Thread(target=scan_worker, args=(scan_id, target_row, scan_type, modules, consent_id), daemon=True, name=f"windeep-scan-{scan_id}").start()
-            return jsonify(scan_row(scan_id)), 202
+            return jsonify(pending_snapshot), 202
         except (KeyError, TypeError, ValueError, ScopeViolation, ConsentError, PermissionError) as exc:
             return jsonify({"error": str(exc)}), 403
 
