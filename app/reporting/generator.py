@@ -38,7 +38,7 @@ class ReportArtifact:
     sha256: str
     severity: str
     cvss_vector: str
-    cvss_score: float
+    cvss_score: float | None
     finding_ids: tuple[int, ...]
     flow_ids: tuple[int, ...]
     model: dict[str, Any]
@@ -245,12 +245,15 @@ class ReportGenerator:
         finding = self._finding(finding_id)
         bundle = self._bundle(finding_id)
         vector = str(finding.get("cvss_vector") or "").strip()
-        if not vector:
-            raise ReportingError(f"finding {finding_id} has no explicit CVSS v3.1 vector")
-        try:
-            cvss_score, cvss_severity = score_cvss31(vector)
-        except ValueError as exc:
-            raise ReportingError(f"invalid CVSS v3.1 vector for finding {finding_id}: {exc}") from exc
+        stored_severity = str(finding.get("severity") or "info").lower()
+        if vector:
+            try:
+                cvss_score, cvss_severity = score_cvss31(vector)
+            except ValueError as exc:
+                raise ReportingError(f"invalid CVSS v3.1 vector for finding {finding_id}: {exc}") from exc
+        else:
+            cvss_score = None
+            cvss_severity = stored_severity
         flows = self._flow_views(bundle)
         profile = str(bundle.get("evidence_profile") or ("http" if flows else "artifact")).casefold()
         if profile in {"http", "browser"} and not flows:
@@ -280,7 +283,7 @@ class ReportGenerator:
             "finding_id": int(finding_id),
             "fingerprint": str(bundle.get("finding", {}).get("fingerprint") or finding.get("fingerprint") or ""),
             "severity": cvss_severity,
-            "stored_severity": str(finding.get("severity") or "info").lower(),
+            "stored_severity": stored_severity,
             "cvss_vector": vector,
             "cvss_score": cvss_score,
             "endpoint": endpoint,
@@ -304,11 +307,16 @@ class ReportGenerator:
     @staticmethod
     def _finding_markdown(model: Mapping[str, Any]) -> str:
         confidence = model.get("confidence") or {}
+        cvss_line = (
+            f"- CVSS v3.1: `{float(model['cvss_score']):.1f}` (`{model['cvss_vector']}`)"
+            if model.get("cvss_score") is not None
+            else "- CVSS v3.1: `not recorded`"
+        )
         lines = [
             f"# {model['title']}",
             "",
             f"- Severity: **{str(model['severity']).upper()}**",
-            f"- CVSS v3.1: `{model['cvss_score']:.1f}` (`{model['cvss_vector']}`)",
+            cvss_line,
             f"- Affected endpoint: `{model['endpoint']}`",
             f"- Finding fingerprint: `{model['fingerprint']}`",
             f"- Evidence bundle: `{model['bundle_sha256']}`",
@@ -472,7 +480,7 @@ class ReportGenerator:
             sha256=digest,
             severity=str(model["severity"]),
             cvss_vector=str(model["cvss_vector"]),
-            cvss_score=float(model["cvss_score"]),
+            cvss_score=float(model["cvss_score"]) if model.get("cvss_score") is not None else None,
             finding_ids=(int(finding_id),),
             flow_ids=tuple(int(flow["id"]) for flow in model["flows"]),
             model=model,
@@ -510,13 +518,23 @@ class ReportGenerator:
         missing_pairs = [pair for pair in zip(ordered_ids, ordered_ids[1:]) if pair not in edge_map]
         if missing_pairs:
             raise ReportingError(f"chain relation missing for ordered hop(s): {missing_pairs}")
-        highest = max(models, key=lambda item: (_SEVERITY_RANK.get(str(item["severity"]), -1), float(item["cvss_score"])))
+        highest = max(
+            models,
+            key=lambda item: (
+                _SEVERITY_RANK.get(str(item["severity"]), -1),
+                float(item["cvss_score"]) if item.get("cvss_score") is not None else -1.0,
+            ),
+        )
         title = "Evidence chain: " + " → ".join(str(item["title"]) for item in models)
         lines = [
             f"# {title}",
             "",
             f"- Chain severity: **{str(highest['severity']).upper()}**",
-            f"- Highest hop CVSS v3.1: `{highest['cvss_score']:.1f}` (`{highest['cvss_vector']}`)",
+            (
+                f"- Highest hop CVSS v3.1: `{float(highest['cvss_score']):.1f}` (`{highest['cvss_vector']}`)"
+                if highest.get("cvss_score") is not None
+                else "- Highest hop CVSS v3.1: `not recorded`"
+            ),
             "- Chain severity rule: maximum severity across all evidence-backed hops; an `amplifies` relation strengthens the narrative linkage but does not exceed the maximum hop severity.",
             "",
             "## Chain narrative",
@@ -527,7 +545,11 @@ class ReportGenerator:
                 [
                     f"### Hop {index}: {model['title']}",
                     "",
-                    f"- Severity / CVSS: `{str(model['severity']).upper()}` / `{model['cvss_score']:.1f}` (`{model['cvss_vector']}`)",
+                    (
+                        f"- Severity / CVSS: `{str(model['severity']).upper()}` / `{float(model['cvss_score']):.1f}` (`{model['cvss_vector']}`)"
+                        if model.get("cvss_score") is not None
+                        else f"- Severity / CVSS: `{str(model['severity']).upper()}` / `not recorded`"
+                    ),
                     f"- Evidence bundle: `{model['bundle_sha256']}`",
                     f"- Endpoint: `{model['endpoint']}`",
                     f"- Exploitability: `{model['exploitability']}`",
@@ -591,7 +613,7 @@ class ReportGenerator:
             sha256=digest,
             severity=str(highest["severity"]),
             cvss_vector=str(highest["cvss_vector"]),
-            cvss_score=float(highest["cvss_score"]),
+            cvss_score=float(highest["cvss_score"]) if highest.get("cvss_score") is not None else None,
             finding_ids=ordered_ids,
             flow_ids=tuple(int(flow["id"]) for model in models for flow in model["flows"]),
             model=chain_model,
