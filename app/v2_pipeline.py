@@ -568,7 +568,7 @@ async def run_p0_scan(
                         status="completed",
                         exit_code=execution.exit_code,
                         stdout_tail=f"{len(persisted)} normalized result(s); raw={evidence_record['stdout_sha256'][:12]}",
-                        stderr_tail=execution.stderr[-2000:],
+                        stderr_tail=f"encrypted-raw={evidence_record['stderr_sha256'][:12]}",
                     )
                     for item in persisted:
                         public = {key: value for key, value in item.items() if key != "stable_json"}
