@@ -1,6 +1,7 @@
 {
   "tools": {
     "jq": {
+      "result_role": "diagnostic",
       "category": "utilities",
       "binary": "jq",
       "args": [
@@ -31,6 +32,7 @@
       "scan_default": false
     },
     "yq": {
+      "result_role": "diagnostic",
       "category": "utilities",
       "binary": "yq",
       "args": [
@@ -61,6 +63,7 @@
       "scan_default": false
     },
     "openssl": {
+      "result_role": "diagnostic",
       "category": "utilities",
       "binary": "openssl",
       "args": [
@@ -91,6 +94,7 @@
       "scan_default": false
     },
     "git": {
+      "result_role": "diagnostic",
       "category": "utilities",
       "binary": "git",
       "args": [
@@ -121,6 +125,7 @@
       "scan_default": false
     },
     "python_runtime": {
+      "result_role": "diagnostic",
       "category": "utilities",
       "binary": "python",
       "args": [
@@ -151,6 +156,7 @@
       "scan_default": false
     },
     "node": {
+      "result_role": "diagnostic",
       "category": "utilities",
       "binary": "node",
       "args": [
@@ -181,6 +187,7 @@
       "scan_default": false
     },
     "ripgrep": {
+      "result_role": "diagnostic",
       "category": "utilities",
       "binary": "rg",
       "args": [
@@ -211,6 +218,7 @@
       "scan_default": false
     },
     "sevenzip": {
+      "result_role": "diagnostic",
       "category": "utilities",
       "binary": "7z",
       "args": [
@@ -241,6 +249,7 @@
       "scan_default": false
     },
     "sqlite3": {
+      "result_role": "diagnostic",
       "category": "utilities",
       "binary": "sqlite3",
       "args": [
@@ -271,6 +280,7 @@
       "scan_default": false
     },
     "grpcurl": {
+      "result_role": "diagnostic",
       "category": "utilities",
       "binary": "grpcurl",
       "args": [

@@ -29,6 +29,7 @@
       "scan_default": false
     },
     "tshark": {
+      "result_role": "diagnostic",
       "category": "network",
       "binary": "tshark",
       "args": [
@@ -53,6 +54,7 @@
       "scan_default": false
     },
     "metasploit": {
+      "result_role": "diagnostic",
       "category": "network",
       "binary": "msfconsole",
       "args": [
@@ -105,6 +107,7 @@
       "scan_default": false
     },
     "radare2": {
+      "result_role": "diagnostic",
       "category": "network",
       "binary": "radare2",
       "args": [
@@ -128,6 +131,7 @@
       "scan_default": true
     },
     "john": {
+      "result_role": "diagnostic",
       "category": "network",
       "binary": "john",
       "args": [
@@ -151,6 +155,7 @@
       "scan_default": true
     },
     "hashcat": {
+      "result_role": "diagnostic",
       "category": "network",
       "binary": "hashcat",
       "args": [
@@ -174,6 +179,7 @@
       "scan_default": true
     },
     "testssl": {
+      "result_role": "diagnostic",
       "category": "network",
       "binary": "testssl",
       "args": [
@@ -198,6 +204,7 @@
       "scan_default": false
     },
     "sslscan": {
+      "result_role": "diagnostic",
       "category": "network",
       "binary": "sslscan",
       "args": [
@@ -222,6 +229,7 @@
       "scan_default": false
     },
     "rustscan": {
+      "result_role": "diagnostic",
       "category": "network",
       "binary": "rustscan",
       "args": [

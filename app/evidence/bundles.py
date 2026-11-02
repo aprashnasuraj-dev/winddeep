@@ -525,13 +525,23 @@ class EvidenceBundleStore:
                 )
         return {**payload, "bundle_sha256": digest, "canonical_json": canonical.decode("utf-8")}
 
-    def resolve(self, finding_id: int) -> dict[str, Any]:
-        """Resolve the latest bundle and revalidate every referenced evidence hash."""
+    def resolve(self, finding_id: int, *, scan_id: int | None = None) -> dict[str, Any]:
+        """Resolve and revalidate the latest bundle, optionally within one scan.
+
+        A canonical finding can recur in several scans. Callers exporting under
+        one scan's authorization must not silently select another scan's bundle.
+        """
         with self.database._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM evidence_bundles WHERE finding_id = ? ORDER BY id DESC LIMIT 1",
-                (finding_id,),
-            ).fetchone()
+            if scan_id is None:
+                row = conn.execute(
+                    "SELECT * FROM evidence_bundles WHERE finding_id = ? ORDER BY id DESC LIMIT 1",
+                    (finding_id,),
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM evidence_bundles WHERE finding_id = ? AND scan_id = ? ORDER BY id DESC LIMIT 1",
+                    (finding_id, int(scan_id)),
+                ).fetchone()
         if row is None:
             raise KeyError(f"evidence bundle not found for finding: {finding_id}")
         item = dict(row)
@@ -545,6 +555,35 @@ class EvidenceBundleStore:
         payload = json.loads(canonical_text)
         if payload.get("schema") != BUNDLE_SCHEMA:
             raise EvidenceIntegrityError("unsupported evidence bundle schema")
+
+        if scan_id is not None:
+            # Check ownership before loading any referenced evidence. A valid
+            # hash alone does not establish that another scan is authorized.
+            with self.database._connect() as conn:
+                scan = conn.execute("SELECT target_id FROM scans WHERE id = ?", (int(scan_id),)).fetchone()
+                finding = conn.execute("SELECT target_id FROM findings WHERE id = ?", (int(finding_id),)).fetchone()
+                if scan is None or finding is None or int(scan["target_id"]) != int(finding["target_id"]):
+                    raise EvidenceIntegrityError("finding and evidence scan have different targets")
+                for ref in payload.get("flows") or []:
+                    flow = conn.execute("SELECT scan_id, target_id FROM flows WHERE id = ?", (int(ref["id"]),)).fetchone()
+                    if flow is None or flow["scan_id"] != int(scan_id) or flow["target_id"] != scan["target_id"]:
+                        raise EvidenceIntegrityError("evidence flow belongs to a different scan or target")
+                output = payload.get("tool_output") or {}
+                browser = payload.get("browser_observation") or {}
+                hashes = [output.get("artifact_sha256"), browser.get("screenshot_sha256"), browser.get("redacted_screenshot_sha256")]
+                if output.get("origin_scan_id") is not None and int(output["origin_scan_id"]) != int(scan_id):
+                    raise EvidenceIntegrityError("evidence artifact belongs to a different scan")
+                for digest in (value for value in hashes if value):
+                    legacy = conn.execute("SELECT origin_scan_id FROM evidence_blobs WHERE sha256 = ?", (str(digest),)).fetchone()
+                    if legacy is not None:
+                        valid = int(legacy["origin_scan_id"]) == int(scan_id)
+                    else:
+                        valid = conn.execute(
+                            "SELECT 1 FROM artifacts WHERE scan_id = ? AND sha256 = ? AND tombstoned_at IS NULL",
+                            (int(scan_id), str(digest)),
+                        ).fetchone() is not None
+                    if not valid:
+                        raise EvidenceIntegrityError("evidence artifact belongs to a different scan or is unavailable")
 
         for flow_ref in payload.get("flows") or []:
             current = self._flow_ref(int(flow_ref["id"]))
@@ -572,6 +611,7 @@ class EvidenceBundleStore:
             "bundle_sha256": str(item["bundle_sha256"]),
             "canonical_json": canonical_text,
             "bundle_id": int(item["id"]),
+            "scan_id": int(item["scan_id"]),
             "state": str(item["state"]),
             "created_at": float(item["created_at"]),
         }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -38,7 +39,10 @@ class FindingRanker:
         """Score one finding on a 0-100 scale."""
         impact = self._impact(finding)
         exploitability = self._exploitability(finding)
-        confidence = self._clamp(float(finding.get("confidence", 0.5)))
+        raw_confidence = finding.get("confidence")
+        if isinstance(raw_confidence, Mapping):
+            raw_confidence = raw_confidence.get("score")
+        confidence = self._number(raw_confidence, default=0.5)
         score = round(100.0 * impact * exploitability * confidence, 2)
         return RankedFinding(
             finding=finding,
@@ -52,8 +56,10 @@ class FindingRanker:
         cvss = finding.get("cvss_score")
         if cvss is not None:
             try:
-                return self._clamp(float(cvss) / 10.0)
-            except (TypeError, ValueError):
+                value = float(cvss)
+                if math.isfinite(value):
+                    return self._clamp(value / 10.0)
+            except (TypeError, ValueError, OverflowError):
                 pass
         return _SEVERITY_IMPACT.get(str(finding.get("severity", "info")).lower(), 0.10)
 
@@ -61,8 +67,10 @@ class FindingRanker:
         explicit = finding.get("exploitability")
         if explicit is not None:
             try:
-                return self._clamp(float(explicit))
-            except (TypeError, ValueError):
+                value = float(explicit)
+                if math.isfinite(value):
+                    return self._clamp(value)
+            except (TypeError, ValueError, OverflowError):
                 pass
 
         value = 0.65
@@ -84,6 +92,14 @@ class FindingRanker:
     @staticmethod
     def _clamp(value: float) -> float:
         return max(0.0, min(1.0, value))
+
+    @classmethod
+    def _number(cls, value: Any, *, default: float) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return default
+        return cls._clamp(parsed) if math.isfinite(parsed) else default
 
     @staticmethod
     def _stable_key(finding: Mapping[str, Any]) -> str:

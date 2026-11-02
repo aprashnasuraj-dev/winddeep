@@ -1,11 +1,15 @@
 """Guarded v3 API surface for tester triage and all-findings reporting."""
 from __future__ import annotations
 
+import io
+import zipfile
 from collections.abc import Callable
 from typing import Any
 
 from flask import Flask, Response, jsonify, request
 
+from app.reporting.export import ExportBundleBuilder
+from app.reporting.generator import ReportingError
 from app.v3.events import V3EventPublisher
 from app.v3.release_migration import apply_v3_release_migration
 from app.v3.reporting import V3ReportGenerator
@@ -184,6 +188,65 @@ def register_v3_api(
         except PermissionError as exc:
             audit.append("v3.api.denied", {"scan_id": scan_id, "path": request.path, "reason": str(exc)})
             return jsonify({"error": str(exc)}), 403
+
+    @app.get("/api/v3/scans/<int:scan_id>/findings/<int:finding_id>/submission")
+    @authenticated
+    def v3_submission_draft(scan_id: int, finding_id: int) -> tuple[Response, int] | Response:
+        """Create a local draft only after scan authorization and evidence checks."""
+        try:
+            target, _consent_id = scan_access(scan_id)
+            with database._connect() as conn:
+                row = conn.execute(
+                    """
+                    SELECT s.status FROM scans s JOIN findings f ON f.target_id = s.target_id
+                    WHERE s.id = ? AND s.target_id = ? AND f.id = ?
+                      AND (f.scan_id = s.id OR EXISTS (
+                          SELECT 1 FROM scan_findings sf WHERE sf.scan_id = s.id AND sf.finding_id = f.id
+                      ))
+                    """,
+                    (scan_id, int(target["id"]), finding_id),
+                ).fetchone()
+            if row is None:
+                return jsonify({"error": "finding is not associated with the authorized scan"}), 404
+            scan_status = str(row["status"])
+            if scan_status not in {"completed", "completed_with_errors", "cancelled", "failed"}:
+                return jsonify({"error": "wait for the scan to finish before preparing a submission"}), 409
+            requested = str(request.args.get("format") or "json").casefold()
+            if requested not in {"json", "markdown", "zip"}:
+                return jsonify({"error": "format must be json, markdown, or zip"}), 400
+            platform = str(request.args.get("platform") or "generic").casefold()
+            bundle = ExportBundleBuilder(reports.finding_renderer).build_submission_finding(
+                finding_id, scan_id=scan_id, scan_status=scan_status, platform=platform
+            )
+            audit.append(
+                "v3.submission.draft_exported",
+                {"scan_id": scan_id, "finding_id": finding_id, "platform": platform,
+                 "format": requested, "report_sha256": bundle.report_sha256},
+            )
+            if requested == "json":
+                response = jsonify({"payload": bundle.payload, "files": sorted(bundle.files)})
+            elif requested == "markdown":
+                response = Response(bundle.files["report.md"], mimetype="text/markdown")
+            else:
+                output = io.BytesIO()
+                with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                    for name, content in sorted(bundle.files.items()):
+                        entry = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+                        entry.compress_type = zipfile.ZIP_DEFLATED
+                        entry.external_attr = 0o600 << 16
+                        archive.writestr(entry, content)
+                response = Response(output.getvalue(), mimetype="application/zip")
+                response.headers["Content-Disposition"] = f'attachment; filename="windeep-scan-{scan_id}-finding-{finding_id}.zip"'
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            return response
+        except PermissionError as exc:
+            audit.append("v3.api.denied", {"scan_id": scan_id, "path": request.path, "reason": str(exc)})
+            return jsonify({"error": str(exc)}), 403
+        except ReportingError as exc:
+            return jsonify({"error": str(exc)}), 409
+        except (KeyError, TypeError, ValueError) as exc:
+            return jsonify({"error": str(exc)}), 400
 
     if "windeep.tool_factory" in app.extensions:
         register_v4_api(app, authenticated=authenticated, audit=audit)

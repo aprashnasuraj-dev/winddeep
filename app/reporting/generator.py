@@ -38,7 +38,7 @@ class ReportArtifact:
     sha256: str
     severity: str
     cvss_vector: str
-    cvss_score: float
+    cvss_score: float | None
     finding_ids: tuple[int, ...]
     flow_ids: tuple[int, ...]
     model: dict[str, Any]
@@ -67,9 +67,9 @@ class ReportGenerator:
             raise ReportingError(f"finding not found: {finding_id}")
         return finding
 
-    def _bundle(self, finding_id: int) -> dict[str, Any]:
+    def _bundle(self, finding_id: int, *, scan_id: int | None = None) -> dict[str, Any]:
         try:
-            bundle = self.evidence.resolve(int(finding_id))
+            bundle = self.evidence.resolve(int(finding_id), scan_id=scan_id)
         except KeyError as exc:
             raise ReportingError(f"evidence bundle required for finding {finding_id}") from exc
         except EvidenceIntegrityError as exc:
@@ -222,7 +222,7 @@ class ReportGenerator:
         if not redacted_sha:
             return []
         try:
-            artifact = self.evidence.read_artifact(redacted_sha)
+            artifact = self.evidence.read_artifact(redacted_sha, scan_id=bundle.get("scan_id"))
         except Exception as exc:
             raise ReportingError(f"redacted screenshot integrity validation failed: {exc}") from exc
         return [
@@ -241,16 +241,21 @@ class ReportGenerator:
         finding_id: int,
         *,
         external_duplicates: Sequence[Mapping[str, Any]] | None = None,
+        scan_id: int | None = None,
+        allow_unscored: bool = False,
     ) -> dict[str, Any]:
         finding = self._finding(finding_id)
-        bundle = self._bundle(finding_id)
+        bundle = self._bundle(finding_id, scan_id=scan_id)
         vector = str(finding.get("cvss_vector") or "").strip()
-        if not vector:
+        if not vector and not allow_unscored:
             raise ReportingError(f"finding {finding_id} has no explicit CVSS v3.1 vector")
-        try:
-            cvss_score, cvss_severity = score_cvss31(vector)
-        except ValueError as exc:
-            raise ReportingError(f"invalid CVSS v3.1 vector for finding {finding_id}: {exc}") from exc
+        if vector:
+            try:
+                cvss_score, cvss_severity = score_cvss31(vector)
+            except ValueError as exc:
+                raise ReportingError(f"invalid CVSS v3.1 vector for finding {finding_id}: {exc}") from exc
+        else:
+            cvss_score, cvss_severity = None, str(finding.get("severity") or "info").lower()
         flows = self._flow_views(bundle)
         profile = str(bundle.get("evidence_profile") or ("http" if flows else "artifact")).casefold()
         if profile in {"http", "browser"} and not flows:
@@ -278,6 +283,7 @@ class ReportGenerator:
             "kind": "finding",
             "title": title,
             "finding_id": int(finding_id),
+            "scan_id": bundle.get("scan_id"),
             "fingerprint": str(bundle.get("finding", {}).get("fingerprint") or finding.get("fingerprint") or ""),
             "severity": cvss_severity,
             "stored_severity": str(finding.get("severity") or "info").lower(),
@@ -289,6 +295,9 @@ class ReportGenerator:
             "exploitability": exploitability,
             "confidence": redact_mapping(bundle.get("confidence") or {}),
             "summary": summary,
+            "description": redact_text(str(finding.get("description") or "").strip()),
+            "recorded_steps": redact_text(str(finding.get("steps") or "").strip()),
+            "finding_status": str(finding.get("status") or "new").casefold(),
             "flows": flows,
             "tool_output": self._tool_output(bundle),
             "reproduction": redact_mapping(bundle.get("reproduction") or {}),

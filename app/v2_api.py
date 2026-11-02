@@ -306,6 +306,7 @@ def register_v2_api(
             "target_types": list(types),
             "compatible": compatible,
             "scan_default": bool(getattr(cls, "scan_default", True)),
+            "result_role": str(getattr(cls, "result_role", "finding")),
             "release_support": release_support,
             "windows_certified": release_support == "bundled",
             "timeout": float(getattr(cls, "timeout", 120.0)),
@@ -344,6 +345,9 @@ def register_v2_api(
             else:
                 raise ValueError(f"unknown scan mode: {normalized_mode}")
             if not choose:
+                continue
+            if item["result_role"] == "diagnostic" and normalized_mode not in {"selected", "single"}:
+                skipped.append({"tool": name, "reason": "diagnostic-only command; select explicitly to inspect its output"})
                 continue
             if not item["compatible"]:
                 skipped.append({"tool": name, "reason": item["blocked_reason"] or "target type mismatch"})

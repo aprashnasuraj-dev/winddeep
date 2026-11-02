@@ -1,4 +1,4 @@
-"""Deterministic P3 export bundles for HackerOne, Jira, and GitHub."""
+"""Deterministic evidence bundles and human-review submission drafts."""
 from __future__ import annotations
 
 import hashlib
@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from app.reporting.generator import ReportArtifact, ReportGenerator, ReportingError
+from app.reporting.submission import SubmissionDraftGenerator
 
-_SUPPORTED_PLATFORMS = {"hackerone", "jira", "github"}
+_SUPPORTED_PLATFORMS = {"generic", "bugcrowd", "hackerone", "jira", "github"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +138,10 @@ class ExportBundleBuilder:
             "report_sha256": report.sha256,
             "attachments": list(attachments),
         }
+        if report.model.get("submission_readiness"):
+            common["readiness"] = report.model["submission_readiness"]
+        if platform == "bugcrowd":
+            common["bugcrowd"] = {"title": report.title, "description": report.markdown}
         if platform == "hackerone":
             common["hackerone"] = {
                 "vulnerability_information": report.markdown,
@@ -172,6 +177,8 @@ class ExportBundleBuilder:
         for index, image in enumerate(self._images(report), start=1):
             extension = self._image_extension(str(image.get("media_type") or ""))
             files[f"screenshot-{index:02d}.{extension}"] = bytes(image["content"])
+        payload = self._platform_payload(normalized, report, sorted([*files, "manifest.json", "submission.json"]))
+        files["submission.json"] = self._canonical_json(payload)
         manifest = {
             "schema": "windeep.report-export.v1",
             "report_sha256": report.sha256,
@@ -183,8 +190,16 @@ class ExportBundleBuilder:
             ],
         }
         files["manifest.json"] = self._canonical_json(manifest)
-        payload = self._platform_payload(normalized, report, sorted(files))
         return ExportBundle(platform=normalized, report_sha256=report.sha256, files=files, payload=payload)
+
+    def build_submission_finding(
+        self, finding_id: int, *, scan_id: int, scan_status: str, platform: str = "generic"
+    ) -> ExportBundle:
+        """Create a scan-bound draft and attachments for manual review."""
+        report = SubmissionDraftGenerator(self.generator).render_finding(
+            finding_id, scan_id=scan_id, scan_status=scan_status
+        )
+        return self._build(report, platform=platform)
 
     def build_finding(
         self,

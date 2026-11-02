@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 import shutil
@@ -116,7 +117,9 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
             item = {"value": item}
         try:
             confidence = float(item.get("confidence", 0.5))
-        except (TypeError, ValueError):
+            if not math.isfinite(confidence):
+                confidence = 0.5
+        except (TypeError, ValueError, OverflowError):
             confidence = 0.5
         findings.append(
             Finding(
@@ -129,6 +132,11 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
                 evidence=item,
                 confidence=max(0.0, min(1.0, confidence)),
                 source_line=line_number,
+                **{
+                    key: item[key]
+                    for key in ("steps", "impact", "remediation", "request", "response", "cvss_vector")
+                    if isinstance(item.get(key), str)
+                },
             )
         )
     return findings
@@ -200,6 +208,7 @@ class ToolWrapperBase:
     adapter_kind: ClassVar[str] = "auto"
     target_types: ClassVar[tuple[str, ...]] = ()
     scan_default: ClassVar[bool] = True
+    result_role: ClassVar[str] = "finding"
     runtime_strategy: ClassVar[str] = "auto"
     execution_preference: ClassVar[tuple[str, ...]] = ()
     provision: ClassVar[dict[str, Any]] = {}
@@ -335,7 +344,10 @@ class ToolWrapperBase:
         if self.scope_validator is not None and not self.scope_validator(target):
             raise PermissionError(f"target is outside configured scope: {target}")
 
-        validated = self.input_schema.model_validate({"target": target, **dict(options or {})}).model_dump()
+        supplied_options = dict(options or {})
+        if "target" in supplied_options:
+            raise ValueError("tool options cannot override the authorized target")
+        validated = self.input_schema.model_validate({**supplied_options, "target": target}).model_dump()
         rendered_args = self._render_args(validated)
         stdin_data = self._render_stdin(validated)
         attempted: list[dict[str, str]] = []
@@ -389,7 +401,10 @@ class ToolWrapperBase:
                                 result=base_result,
                             )
                         try:
-                            findings = self.parse_output(stdout, target, builtin=backend.key == "builtin_fallback")
+                            findings = (
+                                [] if self.result_role == "diagnostic"
+                                else self.parse_output(stdout, target, builtin=backend.key == "builtin_fallback")
+                            )
                         except Exception as exc:
                             raise ToolExecutionError(
                                 f"{self.tool_name} output parser failed after successful execution: {exc}",
@@ -629,6 +644,9 @@ class ToolWrapperFactory:
         probe = definition.get("probe", [])
         if not isinstance(probe, list) or not all(isinstance(item, str) for item in probe):
             raise ValueError(f"probe must be a list of strings: {name}")
+        result_role = str(definition.get("result_role") or "finding").casefold()
+        if result_role not in {"finding", "diagnostic"}:
+            raise ValueError(f"invalid result_role for {name}: {result_role}")
         input_model = self._build_input_model(name, definition.get("input_schema", {}))
         execution_name = str(definition.get("execution_name") or name)
         class_name = "".join(part.capitalize() for part in name.replace("-", "_").split("_")) + "Wrapper"
@@ -652,7 +670,8 @@ class ToolWrapperFactory:
                 "required_env": tuple(required_env),
                 "adapter_kind": runtime_strategy,
                 "target_types": tuple(target_types_raw),
-                "scan_default": bool(definition.get("scan_default", True)),
+                "scan_default": bool(definition.get("scan_default", True)) and result_role != "diagnostic",
+                "result_role": result_role,
                 "runtime_strategy": runtime_strategy,
                 "execution_preference": tuple(preference),
                 "provision": dict(provision),
@@ -673,6 +692,8 @@ class ToolWrapperFactory:
             raise ValueError(f"input_schema must be an object: {name}")
         fields: dict[str, tuple[Any, Any]] = {"target": (str, ...)}
         for field_name, definition in schema.items():
+            if field_name == "target":
+                raise ValueError(f"target is reserved by the execution engine: {name}")
             if not isinstance(definition, dict):
                 raise ValueError(f"input field must be an object: {name}.{field_name}")
             type_name = str(definition.get("type", "str"))

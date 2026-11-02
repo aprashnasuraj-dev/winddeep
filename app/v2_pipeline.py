@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import random
 import re
 import threading
@@ -275,7 +276,12 @@ class FindingBatchWriter:
             payload["severity"] = str(payload.get("severity") or "info").lower()
             payload["vuln_type"] = str(payload.get("vuln_type") or "tool_output")
             payload["tool"] = tool_name
-            payload["confidence"] = float(payload.get("confidence") or 0.5)
+            try:
+                raw_confidence = payload.get("confidence")
+                confidence = 0.5 if raw_confidence is None else float(raw_confidence)
+            except (TypeError, ValueError, OverflowError):
+                confidence = 0.5
+            payload["confidence"] = max(0.0, min(1.0, confidence)) if math.isfinite(confidence) else 0.5
             payload["evidence"] = dict(payload.get("evidence") or {})
             endpoint = str(payload.get("endpoint") or "<scope-bound target>")
             payload["steps"] = str(payload.get("steps") or "").strip() or (
