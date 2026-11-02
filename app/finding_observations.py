@@ -76,21 +76,23 @@ class FindingObservationStore:
         ]
 
     def scan_cases(self, scan_id: int) -> list[dict[str, Any]]:
-        """Return canonical cases observed by a scan, with legacy fallback.
+        """Return the union of observed cases and legacy/manual scan cases.
 
-        Historical/manual scans created before `scan_findings` existed retain
-        the older `findings.scan_id` association. New scheduler-owned scans use
-        the observation relation as the authoritative inclusion boundary.
+        `scan_findings` is authoritative for scheduler observations, including
+        rediscovery of a case whose canonical first-seen scan differs. Direct
+        manual/historical findings can still be associated only through
+        `findings.scan_id`; those rows are unioned rather than suppressed.
         """
-        groups = self.grouped_scan(scan_id)
-        if groups:
-            return groups
+        by_id = {int(item["finding_id"]): item for item in self.grouped_scan(scan_id)}
         with self.database._connect() as conn:
             rows = conn.execute(
                 "SELECT id FROM findings WHERE scan_id = ? ORDER BY id ASC",
                 (int(scan_id),),
             ).fetchall()
-        return [{"finding_id": int(row["id"]), "observations": []} for row in rows]
+        for row in rows:
+            finding_id = int(row["id"])
+            by_id.setdefault(finding_id, {"finding_id": finding_id, "observations": []})
+        return [by_id[finding_id] for finding_id in sorted(by_id)]
 
 
 __all__ = ["FindingObservationStore"]
