@@ -1,0 +1,62 @@
+{
+  "platform": "bugcrowd",
+  "program_handle": "stonikbyte-atlassian-marketplace",
+  "source_kind": "user-supplied-program-policy",
+  "testing_requirements": {
+    "automated_tooling_allowed": false,
+    "browser_automation_allowed": false,
+    "network_probing_allowed": false,
+    "manual_testing_allowed": true,
+    "no_pivoting": true,
+    "owned_instance_only": true,
+    "requires_app_context": true,
+    "latest_version_only": true,
+    "allowed_host_templates": [
+      "bugbounty-test-{bugcrowd_name}.atlassian.net"
+    ],
+    "denied_hosts": [
+      "stonikbyte.com",
+      "*.stonikbyte.com"
+    ],
+    "reporting_only_hosts": [
+      "marketplace.atlassian.com"
+    ],
+    "focus_classes": [
+      "cross-instance-data-leakage",
+      "rce",
+      "ssrf",
+      "xss",
+      "csrf",
+      "sqli",
+      "xxe",
+      "idor",
+      "access-control",
+      "path-traversal"
+    ],
+    "notes": [
+      "Use only the operator-owned Bugcrowd test instance namespace.",
+      "Marketplace listing URLs identify apps for reporting and are not test targets.",
+      "Do not access customer instances or customer data.",
+      "Do not pivot or perform post-exploitation.",
+      "Use the latest eligible product version."
+    ]
+  },
+  "reporting_assets": [
+    {
+      "name": "Documents for Jira - Cloud",
+      "url": "https://marketplace.atlassian.com/apps/1211062/documents-for-jira?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Great Gadgets for Confluence Cloud",
+      "url": "https://marketplace.atlassian.com/apps/1226592/great-gadgets-for-confluence-cloud?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Project Team for Jira Cloud",
+      "url": "https://marketplace.atlassian.com/apps/1217117/project-team-for-jira-cloud?hosting=cloud&tab=overview"
+    },
+    {
+      "name": "Great Gadgets for Jira Cloud",
+      "url": "https://marketplace.atlassian.com/apps/1216564/great-gadgets-for-jira-cloud?hosting=cloud&tab=overview"
+    }
+  ]
+}
