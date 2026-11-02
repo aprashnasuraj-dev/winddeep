@@ -121,3 +121,19 @@ def test_no_pivoting_removes_chain_hints_and_blocks_pivot_execution() -> None:
             target="https://bugbounty-test-researcher.atlassian.net",
             metadata=_metadata(),
         )
+
+
+def test_fixture_preserves_program_focus_classes_for_research_planning() -> None:
+    policy = _policy()
+    assert {
+        "cross-instance-data-leakage",
+        "rce",
+        "ssrf",
+        "xss",
+        "csrf",
+        "sqli",
+        "xxe",
+        "idor",
+        "access-control",
+        "path-traversal",
+    } == set(policy.focus_classes)
