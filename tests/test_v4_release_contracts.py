@@ -38,3 +38,10 @@ def test_bundled_secret_scanners_have_working_builtin_fallback() -> None:
         assert classes[name].builtin_fallback == "repo_secret_scan"
         assert builtin_fallbacks.supports(classes[name].builtin_fallback)
         assert classes[name].runtime_strategy == "auto"
+
+
+def test_v4_release_workflow_accepts_patch_versions_and_dynamic_notes() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "release-v4.yml").read_text(encoding="utf-8")
+    assert "pinned to VERSION 4.1.0" not in workflow
+    assert "requires a valid 4.x semantic VERSION" in workflow
+    assert "# Windeep v${{ steps.version.outputs.version }}" in workflow
