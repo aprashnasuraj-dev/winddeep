@@ -149,7 +149,9 @@ jobs:
       - name: G12 Download, checksum and liveness-verify portable tools
         shell: pwsh
         run: |
-          ./installer/setup_tools.ps1
+          # A child PowerShell process gives the script an explicit native exit
+          # code; $LASTEXITCODE is otherwise unset or stale for .ps1 scripts.
+          & pwsh -NoProfile -NonInteractive -File ./installer/setup_tools.ps1
           if ($LASTEXITCODE -ne 0) { throw "Tool staging failed: $LASTEXITCODE" }
           python scripts/audit/release_audit.py --phase B --require-installed
           if ($LASTEXITCODE -ne 0) { Get-Content reports/tool_liveness.md; exit $LASTEXITCODE }
@@ -180,7 +182,7 @@ jobs:
       - name: G17 Verify installer and portable build on clean Windows runner
         shell: pwsh
         run: |
-          ./scripts/audit/windows_install_audit.ps1
+          & pwsh -NoProfile -NonInteractive -File ./scripts/audit/windows_install_audit.ps1
           if ($LASTEXITCODE -ne 0) { Get-Content reports/windows_install_audit.md; exit $LASTEXITCODE }
 
       - name: G18 Create exact candidate source snapshot
