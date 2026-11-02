@@ -12,6 +12,8 @@ from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit
 
+from app.finding_observations import FindingObservationStore
+
 ASSET_CLASSES = frozenset({"http", "https", "ipv4", "ipv6"})
 DISPOSITIONS = frozenset({"actionable", "needs-review", "not-actionable", "informational"})
 DUPLICATE_RISKS = frozenset({"low", "medium", "high"})
@@ -56,6 +58,7 @@ class ManualTriage:
     def __init__(self, database: Any, audit: Any) -> None:
         self.database = database
         self.audit = audit
+        self.observations = FindingObservationStore(database)
 
     def classify(
         self,
@@ -159,16 +162,17 @@ class ManualTriage:
         return item
 
     def rank_scan(self, scan_id: int) -> list[dict[str, Any]]:
-        with self.database._connect() as conn:
-            rows = conn.execute("SELECT id FROM findings WHERE scan_id = ? ORDER BY id ASC", (int(scan_id),)).fetchall()
         ranked: list[dict[str, Any]] = []
-        for row in rows:
-            finding_id = int(row["id"])
+        for case in self.observations.scan_cases(int(scan_id)):
+            finding_id = int(case["finding_id"])
             finding = self.database.get_finding(finding_id)
             if finding is None:
                 continue
             try:
                 classification = self.get(finding_id)
+                # Classification belongs to the canonical case; report/listing
+                # context belongs to the scan currently being ranked.
+                classification = {**classification, "scan_id": int(scan_id)}
             except KeyError:
                 severity_priority = _SEVERITY_WEIGHT.get(str(finding.get("severity") or "info").casefold(), 10.0)
                 classification = {
@@ -187,7 +191,15 @@ class ManualTriage:
                     ),
                     "classified": False,
                 }
-            ranked.append({**classification, "finding": finding})
+            observations = list(case.get("observations") or [])
+            ranked.append(
+                {
+                    **classification,
+                    "finding": finding,
+                    "observations": observations,
+                    "observation_count": len(observations),
+                }
+            )
         return sorted(ranked, key=lambda item: (-float(item["score"]), int(item["finding_id"])))
 
 
