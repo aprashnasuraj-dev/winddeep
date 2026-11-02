@@ -23,6 +23,7 @@ Post-freeze changes to the public v3 contracts are released as `3.0.x` patches u
 ### Release and limitations
 - V5 retains the v4 execution resolver and its 137 registered integration contracts; actual runtime availability still depends on the host, installed backends, and credentials.
 - Closed evidence bundles verify captured artifacts, not that a vulnerability or its claimed impact is confirmed. Review all drafts and attachments before sharing.
+- The reported Windows startup icon proliferation in issue #22 is not yet independently reproduced; the release smoke checks startup health and report exports, not the number of visible GUI icons.
 
 ## [4.1.2] - 2026-11-02
 
