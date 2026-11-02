@@ -13,6 +13,7 @@ remote workers.
 | Structured results | JSONL normalization discarded recorded steps, impact, remediation, request, response, and CVSS vector. | Preserve these fields as tool-reported content; do not accept a tool's self-asserted verification. |
 | Confidence | A recorded zero was replaced by 0.5 during persistence; malformed ranking inputs could raise or become non-finite. | Preserve zero and handle malformed/non-finite values deterministically. |
 | Submission export | The evidence-backed finding exporter was not available in the desktop workflow. | Add scan-bound drafts with redacted evidence, Markdown/HTML/HAR, a structured payload, and a SHA-256 manifest. |
+| Legacy evidence ZIP | The older ZIP endpoint did not recheck live target authorization before reading evidence. | Apply the preflight fix from PR #28, with tests for absent and expired consent. |
 
 Diagnostic classification is based on the current effective command templates.
 It does not establish that all remaining commands use valid flags, emit useful
@@ -41,3 +42,6 @@ secrets or personal data.
 The parent evidence/runtime PR must be reviewed and merged before this branch.
 This work does not certify the installer, fix every open report defect, benchmark
 detector recall or false positives, or establish that v5 is ready to ship.
+The legacy ZIP still exports raw proof and uses the latest target authorization;
+the new per-finding submission draft instead binds authorization and evidence to
+the selected scan. Treat the two export formats accordingly.

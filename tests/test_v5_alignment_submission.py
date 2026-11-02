@@ -21,6 +21,7 @@ from app.evidence.bundles import EvidenceBundleStore
 from app.reporting.redaction import redact_body, redact_text, redact_url
 from app.reporting.submission import _block
 from app.security.audit import AuditLog
+from app.security.consent import ConsentError
 from app.v2_pipeline import FindingBatchWriter
 from app.v3.api import register_v3_api
 from test_p3_reporting import _fixture, _provenance
@@ -227,7 +228,17 @@ def test_submission_selects_authorized_scan_and_rejects_cross_scan_evidence(subm
     assert "Read-only response differed from the authorized baseline." not in body
 
 
-def test_owned_source_scan_to_submission_draft_through_product_api(v2_client) -> None:
+def test_legacy_evidence_export_requires_authorized_scan(v2_client) -> None:
+    client, _tmp_path = v2_client
+    headers = session(client)
+    target, _consent = target_and_consent(client, headers, target="local-report-fixture.test")
+    created = client.post("/api/reports/generate", json={"target_id": target["id"]}, headers=headers)
+    assert created.status_code == 201
+    denied = client.get(f"/api/v2/reports/{created.get_json()['id']}/evidence")
+    assert denied.status_code == 403 and "no authorized scan" in denied.get_json()["error"]
+
+
+def test_owned_source_scan_to_submission_draft_through_product_api(v2_client, monkeypatch: pytest.MonkeyPatch) -> None:
     client, tmp_path = v2_client
     headers = session(client)
     source = tmp_path / "owned-source.txt"
@@ -250,3 +261,15 @@ def test_owned_source_scan_to_submission_draft_through_product_api(v2_client) ->
     assert exported.status_code == 200
     with zipfile.ZipFile(io.BytesIO(exported.data)) as archive:
         assert b"abcdefghijklmnopqrstuvwxyz012345" not in b"\n".join(archive.read(name) for name in archive.namelist())
+
+    legacy_report = client.post("/api/v2/reports/generate", json={"target_id": target["id"]}, headers=headers)
+    assert legacy_report.status_code == 201
+    legacy_url = f"/api/v2/reports/{legacy_report.get_json()['id']}/evidence"
+    assert client.get(legacy_url).status_code == 200
+
+    def expired(*_args, **_kwargs):
+        raise ConsentError("authorization consent has expired")
+
+    monkeypatch.setattr(client.application.extensions["windeep.consent"], "verify", expired)
+    assert client.get(legacy_url).status_code == 403
+    assert client.get(url).status_code == 403
