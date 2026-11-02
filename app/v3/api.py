@@ -109,6 +109,10 @@ def register_v3_api(
                         "rationale": row["rationale"],
                         "score": row["score"],
                         "classified": bool(row["classified"]),
+                        "observation_count": int(row.get("observation_count") or 0),
+                        "tool_run_ids": sorted(
+                            {int(item["tool_run_id"]) for item in row.get("observations") or []}
+                        ),
                         "verification_state": verification_state(int(row["finding_id"])),
                     }
                 )

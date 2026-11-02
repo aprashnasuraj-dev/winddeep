@@ -13,6 +13,7 @@ from app.security.crypto import CryptoManager
 from app.security.secure_database import SecureDatabase
 from app.v3.release_migration import apply_v3_release_migration
 from app.v3.reporting import V3ReportGenerator
+from app.v2_pipeline import FindingBatchWriter
 from app.v3.triage import ManualTriage, TriageError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -208,3 +209,104 @@ def test_v3_report_reads_encrypted_verification_rows_when_present(tmp_path: Path
     assert f"Verification artifact: `{'a' * 64}`" in artifact.markdown
     assert "`technical_detail`: `verified`" in artifact.markdown
     assert "`impact`: `partially_verified`" in artifact.markdown
+
+
+def test_rediscovered_case_remains_visible_in_later_scan_via_observation_relation(tmp_path: Path) -> None:
+    crypto, database, audit, target_id, first_scan = _fixture(tmp_path)
+    writer = FindingBatchWriter(database)
+    writer.ensure_schema()
+
+    first_run = database.create_tool_run(
+        tool_name="fixture",
+        status="running",
+        scan_id=first_scan,
+        target_id=target_id,
+        command=["fixture", "<scope-bound target>"],
+    )
+    payload = {
+        "title": "Rediscovered authorization inconsistency",
+        "severity": "high",
+        "vuln_type": "authorization",
+        "tool": "fixture",
+        "endpoint": "https://example.test/api/object/7",
+        "description": "Read-only role comparison differs from the baseline.",
+        "confidence": 0.91,
+        "evidence": {
+            "_windeep_execution": {
+                "tool_run_id": first_run,
+                "stdout_sha256": "a" * 64,
+                "stderr_sha256": "b" * 64,
+                "backend": "fixture",
+                "parser": "fixture-parser",
+            }
+        },
+    }
+    first = writer.persist(
+        scan_id=first_scan,
+        tool_run_id=first_run,
+        target_id=target_id,
+        tool_name="fixture",
+        findings=[payload],
+    )
+    finding_id = int(first[0]["finding_id"])
+
+    second_scan = database.create_scan(target_id, "v3:rediscovery", ["fixture"])
+    second_run = database.create_tool_run(
+        tool_name="fixture",
+        status="running",
+        scan_id=second_scan,
+        target_id=target_id,
+        command=["fixture", "<scope-bound target>"],
+    )
+    payload["evidence"] = {
+        "_windeep_execution": {
+            "tool_run_id": second_run,
+            "stdout_sha256": "c" * 64,
+            "stderr_sha256": "d" * 64,
+            "backend": "fixture",
+            "parser": "fixture-parser",
+        }
+    }
+    second = writer.persist(
+        scan_id=second_scan,
+        tool_run_id=second_run,
+        target_id=target_id,
+        tool_name="fixture",
+        findings=[payload],
+    )
+    assert int(second[0]["finding_id"]) == finding_id
+    manual_id = _finding(
+        database,
+        target_id,
+        second_scan,
+        "Manual context in rediscovery scan",
+        "low",
+        "https://example.test/manual-context",
+    )
+
+    # The canonical case remains first-seen, proving scan inclusion cannot rely
+    # on findings.scan_id for the second scan.
+    canonical = database.get_finding(finding_id)
+    assert canonical is not None
+    assert int(canonical["scan_id"]) == first_scan
+
+    ranked = ManualTriage(database, audit).rank_scan(second_scan)
+    assert {item["finding_id"] for item in ranked} == {finding_id, manual_id}
+    rediscovered = next(item for item in ranked if item["finding_id"] == finding_id)
+    manual = next(item for item in ranked if item["finding_id"] == manual_id)
+    assert rediscovered["observation_count"] == 1
+    assert rediscovered["observations"][0]["tool_run_id"] == second_run
+    assert manual["observation_count"] == 0
+
+    report = V3ReportGenerator(
+        database,
+        crypto,
+        triage=ManualTriage(database, audit),
+        finding_renderer=_Renderer(),
+    ).render_scan(second_scan)
+    assert set(report.finding_ids) == {finding_id, manual_id}
+    assert "Rediscovered authorization inconsistency" in report.markdown
+    assert "Manual context in rediscovery scan" in report.markdown
+    assert "Observations in this scan: `1`" in report.markdown
+    assert f"Tool run IDs: `{second_run}`" in report.markdown
+    assert "`" + ("c" * 64) + "`" in report.markdown

@@ -114,13 +114,13 @@ class V3ReportGenerator:
             "",
             "## Ranked finding index",
             "",
-            "| Rank | Finding | Severity | Disposition | Tester score | Asset class |",
-            "|---:|---|---|---|---:|---|",
+            "| Rank | Finding | Severity | Disposition | Tester score | Asset class | Observations |",
+            "|---:|---|---|---|---:|---|---:|",
         ]
         for index, item in enumerate(ranked, start=1):
             finding = item["finding"]
             lines.append(
-                f"| {index} | {redact_text(str(finding.get('title') or 'Finding'))} | {str(finding.get('severity') or 'info').upper()} | {item['disposition']} | {float(item['score']):.2f} | {item['asset_class']} |"
+                f"| {index} | {redact_text(str(finding.get('title') or 'Finding'))} | {str(finding.get('severity') or 'info').upper()} | {item['disposition']} | {float(item['score']):.2f} | {item['asset_class']} | {int(item.get('observation_count') or 0)} |"
             )
         lines.extend(["", "## Findings", ""])
         finding_ids: list[int] = []
@@ -148,6 +148,27 @@ class V3ReportGenerator:
                 lines.append(f"- Verification artifact: `{verification['artifact_sha256']}`")
             for claim in verification["claims"]:
                 lines.append(f"- `{claim['claim']}`: `{claim['state']}`")
+
+            observations = list(item.get("observations") or [])
+            lines.extend(["", "### Scan observation context", ""])
+            if observations:
+                tool_run_ids = sorted({int(observation["tool_run_id"]) for observation in observations})
+                raw_hashes = sorted(
+                    {
+                        str(execution.get("stdout_sha256"))
+                        for observation in observations
+                        for evidence in [observation.get("payload", {}).get("evidence") or {}]
+                        for execution in [evidence.get("_windeep_execution") or {}]
+                        if execution.get("stdout_sha256")
+                    }
+                )
+                lines.append(f"- Observations in this scan: `{len(observations)}`")
+                lines.append("- Tool run IDs: " + ", ".join(f"`{value}`" for value in tool_run_ids))
+                if raw_hashes:
+                    lines.append("- Raw execution artifact SHA-256: " + ", ".join(f"`{value}`" for value in raw_hashes))
+            else:
+                lines.append("- Observation relation: `legacy canonical scan association`")
+
             vector = str(finding.get("cvss_vector") or "")
             score = finding.get("cvss_score")
             lines.extend(
