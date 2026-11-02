@@ -469,6 +469,8 @@ async def run_p0_scan(
     preflight_for: Callable[..., Any],
     broadcast: Callable[[str, dict[str, Any], int | None], None],
     environment: Mapping[str, str],
+    program_policy: Mapping[str, Any] | None = None,
+    program_metadata: Mapping[str, Any] | None = None,
 ) -> None:
     """Execute one v2 scan on one scheduler-owned event loop."""
     target = str(target_row["target"])
@@ -480,6 +482,8 @@ async def run_p0_scan(
         scope=list(target_row.get("scope") or [target]),
         out_of_scope=list(target_row.get("out_of_scope") or []),
         consent_id=consent_id,
+        metadata=dict(program_metadata or {}),
+        program_policy=dict(program_policy or {}),
     )
     event_bus = EventBus(heartbeat_interval=60.0)
     event_log = ScanEventLog(database, crypto)
