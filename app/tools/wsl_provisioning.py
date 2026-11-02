@@ -14,6 +14,8 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from app.tools.process_utils import hidden_process_kwargs
+
 
 class WslProvisioningError(RuntimeError):
     pass
@@ -50,6 +52,7 @@ def _run(tool: Any, argv: list[str], *, timeout: float = 1800.0, root: bool = Fa
         text=True,
         timeout=timeout,
         check=False,
+        **hidden_process_kwargs(),
     )
     return completed
 

@@ -18,10 +18,12 @@ from flask import Flask, Response, jsonify, make_response, request, send_from_di
 
 from app.engine.tool_wrapper import ToolExecutionError, ToolWrapperFactory
 from app.modules.test_packs import PACK_COUNTS, TOTAL_TESTS, list_tests, run_selected
+from app.migrations import MigrationManager
 from app.tools.release_metadata import apply_release_metadata
 from app.v2_api import register_v2_api
 from app.v3.api import register_v3_api
 from app.v3.events import V3EventPublisher
+from app.v3.release_migration import apply_v3_release_migration
 from app.v4.api import filter_resolver_tools
 from app.security.audit import AuditLog
 from app.security.auth import AuthenticationError, LocalAuthManager, SessionClaims, is_loopback_remote
@@ -78,6 +80,13 @@ def create_app() -> Flask:
     auth = LocalAuthManager(protector=crypto.protector)
     consent = ConsentAuthority(state / "consent", protector=crypto.protector)
     database = SecureDatabase(state / "windeep.db", crypto=crypto)
+    migration_plan = MigrationManager(
+        database.path,
+        root / "app" / "data" / "migrations",
+        backup_dir=state / "backups",
+        down_migrations_dir=root / "app" / "data" / "migrations_down",
+    ).apply()
+    v3_migration = apply_v3_release_migration(database.path)
     flow_database = SecureFlowDatabase(database)
     factory = ToolWrapperFactory(registry_path)
     wrapper_classes = factory.load()
@@ -92,6 +101,10 @@ def create_app() -> Flask:
     app.extensions["windeep.auth"] = auth
     app.extensions["windeep.consent"] = consent
     app.extensions["windeep.database"] = database
+    app.extensions["windeep.schema"] = {
+        "sql_version": migration_plan.target_version,
+        "v3_version": v3_migration.version,
+    }
     app.extensions["windeep.flow_database"] = flow_database
     app.extensions["windeep.tool_factory"] = factory
 
@@ -396,8 +409,11 @@ def create_app() -> Flask:
             modules = [str(v) for v in data.get("modules", [])]
             candidates = select_tools(scan_type, modules)
             scan_id = database.create_scan(target_id, scan_type, modules or candidates)
+            pending_snapshot = scan_row(scan_id)
+            if pending_snapshot is None:
+                raise RuntimeError("new scan row could not be resolved")
             threading.Thread(target=scan_worker, args=(scan_id, target_row, scan_type, modules, consent_id), daemon=True, name=f"windeep-scan-{scan_id}").start()
-            return jsonify(scan_row(scan_id)), 202
+            return jsonify(pending_snapshot), 202
         except (KeyError, TypeError, ValueError, ScopeViolation, ConsentError, PermissionError) as exc:
             return jsonify({"error": str(exc)}), 403
 

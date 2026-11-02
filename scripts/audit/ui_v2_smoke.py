@@ -6,10 +6,11 @@ for cancellation. It performs no network security scan.
 from __future__ import annotations
 
 import os
+import re
 import stat
 from pathlib import Path
 
-from playwright.sync_api import Page, sync_playwright
+from playwright.sync_api import Page, expect, sync_playwright
 
 ROOT = Path(__file__).resolve().parents[2]
 PORT = int(os.environ.get("WINDEEP_PORT", "7332"))
@@ -59,7 +60,7 @@ def main() -> int:
 
             # Tool matrix must render the complete catalog.
             page.locator('button[data-view="tools"]').click()
-            page.wait_for_function("document.querySelectorAll('.tool-card').length === 137", timeout=15_000)
+            expect(page.locator(".tool-card")).to_have_count(137, timeout=15_000)
             assert page.locator(".tool-card").count() == 137
 
             # Signed consent, selected-tool execution, and process-level stop.
@@ -73,8 +74,9 @@ def main() -> int:
             # V3 server-side planning labels this "selected" while the additive
             # V4 resolver overlay labels the same planned tool "resolver-ready".
             # Assert the stable contract carried in the DOM instead of product copy.
-            page.wait_for_function(
-                "JSON.parse(document.querySelector('#scanPlan').dataset.selectedTools || '[]').includes('assetfinder')",
+            expect(page.locator("#scanPlan")).to_have_attribute(
+                "data-selected-tools",
+                re.compile(r'.*"assetfinder".*'),
                 timeout=10_000,
             )
             assert "assetfinder" in page.locator("#scanPlan").inner_text()

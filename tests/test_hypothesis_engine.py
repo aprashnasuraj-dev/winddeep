@@ -191,3 +191,39 @@ async def test_cancellation_propagates() -> None:
     engine = HypothesisEngine(CancelLLM(), RecordingBus())  # type: ignore[arg-type]
     with pytest.raises(asyncio.CancelledError):
         await engine.generate([], ScanContext(target="example.com"))
+
+
+@pytest.mark.asyncio
+async def test_program_policy_keeps_hypotheses_manual_and_removes_pivot_hints() -> None:
+    llm = FakeLLM(
+        {
+            "hypotheses": [
+                {
+                    "id": "manual-only",
+                    "test_class": "authorization",
+                    "endpoint": "/plugins/servlet/example",
+                    "parameters": {},
+                    "rationale": "Compare behavior between two operator-owned test accounts.",
+                    "confidence": 0.7,
+                    "severity_hint": "medium",
+                    "chain_hints": ["session", "next-finding"],
+                }
+            ]
+        }
+    )
+    engine = HypothesisEngine(llm, RecordingBus())  # type: ignore[arg-type]
+    ctx = ScanContext(
+        target="https://bugbounty-test-researcher.atlassian.net",
+        scope=["bugbounty-test-researcher.atlassian.net"],
+        program_policy={
+            "automated_tooling_allowed": False,
+            "no_pivoting": True,
+        },
+    )
+
+    result = await engine.generate([], ctx)
+
+    assert len(result) == 1
+    assert result[0].chain_hints == []
+    assert "prohibits automated tooling/scanners" in llm.prompts[0]
+    assert "prohibits pivoting/post-exploitation" in llm.prompts[0]

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import stat
 import time
 import zipfile
@@ -10,6 +11,8 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
+
+from app.tools.backends import ContainerBackend, WslBackend
 
 from app.engine.tool_wrapper import ToolWrapperFactory
 from app.server import create_app
@@ -70,6 +73,23 @@ def test_catalog_is_fully_runtime_addressable_and_target_aligned() -> None:
     assert {cls.category for cls in classes.values()} >= {"recon_passive", "recon_active", "web_vulns", "mobile", "web3", "secrets", "network", "utilities"}
 
 
+def test_startup_status_and_catalog_never_active_probe_external_runtimes(v2_client, monkeypatch) -> None:
+    client, _tmp = v2_client
+    session(client)
+
+    def forbidden_probe(*_args, **_kwargs):
+        raise AssertionError("startup catalog/status must not launch Docker or WSL probes")
+
+    monkeypatch.setattr(WslBackend, "can_run", forbidden_probe)
+    monkeypatch.setattr(ContainerBackend, "can_run", forbidden_probe)
+
+    status = client.get("/api/v2/status")
+    tools = client.get("/api/v2/tools?target_type=domain")
+    assert status.status_code == 200
+    assert tools.status_code == 200
+    assert tools.get_json()["total"] == 137
+
+
 def test_v2_status_tools_settings_and_plan(v2_client) -> None:
     client, _tmp = v2_client
     headers = session(client)
@@ -123,6 +143,30 @@ def test_v2_status_tools_settings_and_plan(v2_client) -> None:
     assert all(isinstance(name, str) for name in plan["selected"])
 
 
+def test_selected_plan_actively_probes_only_the_requested_compatible_tool(v2_client, monkeypatch) -> None:
+    client, tmp_path = v2_client
+    headers = session(client)
+    source = tmp_path / "owned-source.txt"
+    source.write_text("fixture", encoding="utf-8")
+    target, _consent = target_and_consent(client, headers, target=str(source), target_type="repo")
+    probed: list[str] = []
+
+    def unavailable(_backend, tool):
+        probed.append(tool.tool_name)
+        return False
+
+    monkeypatch.setattr(WslBackend, "can_run", unavailable)
+    monkeypatch.setattr(WslBackend, "passive_can_run", lambda *_args: None)
+    monkeypatch.setattr(ContainerBackend, "can_run", unavailable)
+    response = client.get(f"/api/v2/scan-plan?target_id={target['id']}&mode=selected&tools=custom_regex")
+    assert response.status_code == 200
+    plan = response.get_json()
+    assert plan["catalog_count"] == 137
+    assert plan["selected"] == ["custom_regex"]
+    assert set(probed) == {"custom_regex"}
+    assert plan["ready_compatible_count_is_lower_bound"] is True
+
+
 def test_v2_builtin_scan_creates_raw_proof_and_report_exports(v2_client) -> None:
     client, tmp_path = v2_client
     headers = session(client)
@@ -147,6 +191,45 @@ def test_v2_builtin_scan_creates_raw_proof_and_report_exports(v2_client) -> None
     assert finding["steps"]
     assert finding["evidence"]
     assert "abcdefghijklmnopqrstuvwxyz012345" not in json.dumps(finding["evidence"])
+    execution_ref = finding["evidence"]["_windeep_execution"]
+    assert execution_ref["tool_run_id"] > 0
+    assert len(execution_ref["stdout_sha256"]) == 64
+    assert len(execution_ref["stderr_sha256"]) == 64
+    assert completed["results_summary"]["evidence_root"]["leaf_count"] >= 2
+    assert len(completed["results_summary"]["evidence_root"]["merkle_root"]) == 64
+    evidence_summary = completed["results_summary"]["evidence"]
+    assert evidence_summary["observations"] >= 1
+    assert evidence_summary["closed"] >= 1
+    assert evidence_summary["blocked"] == 0
+    assembled = next(item for item in evidence_summary["results"] if item["finding_id"] == finding["id"])
+    assert assembled["state"] == "closed"
+    assert assembled["profile"] == "artifact"
+    assert assembled["stdout_sha256"] == execution_ref["stdout_sha256"]
+    assert assembled["line_number"] >= 1
+
+    with sqlite3.connect(tmp_path / "state" / "windeep.db") as conn:
+        tool_evidence = conn.execute(
+            "SELECT stdout_sha256, stderr_sha256 FROM tool_run_evidence WHERE tool_run_id = ?",
+            (execution_ref["tool_run_id"],),
+        ).fetchone()
+        root = conn.execute(
+            "SELECT merkle_root, leaf_count FROM scan_evidence_roots WHERE scan_id = ? ORDER BY id DESC LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+        bundle = conn.execute(
+            "SELECT state, payload FROM evidence_bundles WHERE finding_id = ? ORDER BY id DESC LIMIT 1",
+            (finding["id"],),
+        ).fetchone()
+        duplicate_blob = conn.execute(
+            "SELECT COUNT(*) FROM evidence_blobs WHERE sha256 = ?",
+            (execution_ref["stdout_sha256"],),
+        ).fetchone()[0]
+    assert tool_evidence == (execution_ref["stdout_sha256"], execution_ref["stderr_sha256"])
+    assert root is not None
+    assert root[0] == completed["results_summary"]["evidence_root"]["merkle_root"]
+    assert root[1] == completed["results_summary"]["evidence_root"]["leaf_count"]
+    assert bundle is not None and bundle[0] == "closed"
+    assert duplicate_blob == 0
 
     generated = client.post(
         "/api/v2/reports/generate",

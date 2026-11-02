@@ -142,8 +142,10 @@ def test_p8_documentation_and_current_version_contract() -> None:
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     docs = (ROOT / "docs" / "schema_compatibility.md").read_text(encoding="utf-8").casefold()
-    assert version == "4.1.0"
-    assert "## [4.1.0]" in changelog
+    version_parts = version.split(".")
+    assert len(version_parts) == 3 and all(part.isdigit() for part in version_parts)
+    assert tuple(int(part) for part in version_parts) >= (3, 0, 0)
+    assert f"## [{version}]" in changelog
     assert "## [3.0.0]" in changelog
     assert "current + previous" in docs
     assert "writers" in docs and "current" in docs

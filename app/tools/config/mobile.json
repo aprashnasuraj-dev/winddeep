@@ -219,6 +219,7 @@
       "scan_default": true
     },
     "drozer": {
+      "result_role": "diagnostic",
       "category": "mobile",
       "binary": "drozer",
       "args": [
@@ -244,6 +245,7 @@
       "scan_default": false
     },
     "adb": {
+      "result_role": "diagnostic",
       "category": "mobile",
       "binary": "adb",
       "args": [
@@ -267,6 +269,7 @@
       "scan_default": true
     },
     "frida_server": {
+      "result_role": "diagnostic",
       "category": "mobile",
       "binary": "frida-server",
       "args": [
@@ -365,6 +368,7 @@
       "scan_default": false
     },
     "checkra1n": {
+      "result_role": "diagnostic",
       "category": "mobile",
       "binary": "checkra1n",
       "args": [
@@ -413,6 +417,7 @@
       "scan_default": false
     },
     "corellium": {
+      "result_role": "diagnostic",
       "category": "mobile",
       "binary": "corellium-cli",
       "args": [

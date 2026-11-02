@@ -20,6 +20,11 @@ function scanRequestFromUi(){const targetId=Number($("scanTarget").value),mode=$
 OLD_START = '''$("startScan").onclick=async()=>{try{await startScan({target_id:Number($("scanTarget").value),mode:$("scanMode").value,modules:selectedCategories(),tools:selectedValues($("scanToolSelect")),tool_options:{}})}catch(e){toast(e.message,true);if(e.payload?.plan)$("scanPlan").textContent=JSON.stringify(e.payload.plan,null,2)}};'''
 NEW_START = '''$("startScan").onclick=async()=>{try{await startScan(scanRequestFromUi())}catch(e){toast(e.message,true);if(e.payload?.plan)$("scanPlan").textContent=JSON.stringify(e.payload.plan,null,2)}};'''
 
+CURRENT_PREVIEW = NEW_PREVIEW.replace(
+    '${d.ready_compatible_count} ready + compatible',
+    '${d.ready_compatible_count_is_lower_bound?"at least ":""}${d.ready_compatible_count} ready + compatible',
+)
+
 
 def replace_once(text: str, old: str, new: str, label: str) -> str:
     if new in text:
@@ -31,7 +36,8 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
 
 def main() -> int:
     text = APP_JS.read_text(encoding="utf-8")
-    text = replace_once(text, OLD_PREVIEW, NEW_PREVIEW, "previewPlan")
+    if CURRENT_PREVIEW not in text:
+        text = replace_once(text, OLD_PREVIEW, NEW_PREVIEW, "previewPlan")
     text = replace_once(text, OLD_START, NEW_START, "startScan")
     APP_JS.write_text(text, encoding="utf-8")
     return 0

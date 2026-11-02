@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
+import re
 import shutil
 import time
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -38,24 +41,54 @@ class Finding(BaseModel):
     confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
+@dataclass(frozen=True, slots=True)
+class ToolExecutionResult:
+    """One backend execution plus the raw output consumed by normalization.
+
+    The result intentionally carries an invocation template rather than rendered
+    target/options so the durable evidence layer can preserve execution context
+    without copying credentials or sensitive target arguments into metadata.
+    """
+
+    findings: tuple[Finding, ...]
+    stdout: str
+    stderr: str
+    exit_code: int
+    backend: str
+    backend_tier: str
+    attempted_backends: tuple[dict[str, str], ...]
+    started_at_wall: float
+    finished_at_wall: float
+    started_at_monotonic: float
+    finished_at_monotonic: float
+    argument_template: tuple[str, ...]
+    stdin_supplied: bool
+    parser_name: str
+
+
 Parser = Callable[[str, str, str], list[Finding]]
 
 
 def _line_parser(raw: str, tool: str, target: str) -> list[Finding]:
-    return [
-        Finding(
-            title=line,
-            severity="info",
-            vuln_type="tool_output",
-            tool=tool,
-            endpoint=target,
-            description="Normalized line emitted by tool integration.",
-            evidence={"raw": line},
-            confidence=0.3,
+    findings: list[Finding] = []
+    for line_number, raw_line in enumerate(raw.splitlines(), start=1):
+        line = raw_line.strip()
+        if not line:
+            continue
+        findings.append(
+            Finding(
+                title=line,
+                severity="info",
+                vuln_type="tool_output",
+                tool=tool,
+                endpoint=target,
+                description="Normalized line emitted by tool integration.",
+                evidence={"raw": line},
+                confidence=0.3,
+                source_line=line_number,
+            )
         )
-        for line in (item.strip() for item in raw.splitlines())
-        if line
-    ]
+    return findings
 
 
 def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
@@ -76,6 +109,7 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
                     description="Non-JSON diagnostic line emitted alongside structured output.",
                     evidence={"raw": line, "line_number": line_number},
                     confidence=0.2,
+                    source_line=line_number,
                 )
             )
             continue
@@ -83,7 +117,9 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
             item = {"value": item}
         try:
             confidence = float(item.get("confidence", 0.5))
-        except (TypeError, ValueError):
+            if not math.isfinite(confidence):
+                confidence = 0.5
+        except (TypeError, ValueError, OverflowError):
             confidence = 0.5
         findings.append(
             Finding(
@@ -95,6 +131,12 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
                 description=str(item.get("description") or ""),
                 evidence=item,
                 confidence=max(0.0, min(1.0, confidence)),
+                source_line=line_number,
+                **{
+                    key: item[key]
+                    for key in ("steps", "impact", "remediation", "request", "response", "cvss_vector")
+                    if isinstance(item.get(key), str)
+                },
             )
         )
     return findings
@@ -116,9 +158,27 @@ _ALIAS_NOTICE_EMITTED: set[str] = set()
 class ToolExecutionError(RuntimeError):
     """Raised when a tool cannot complete successfully on any eligible backend."""
 
+    def __init__(self, message: str, *, result: ToolExecutionResult | None = None) -> None:
+        super().__init__(message)
+        self.result = result
+
 
 class ToolCancelledError(ToolExecutionError):
     """Raised when a user-requested scan stop terminates tool execution."""
+
+
+_DIAGNOSTIC_CODE_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z][A-Z0-9_-]{1,15}\d{1,6}(?![A-Za-z0-9])")
+
+
+def _diagnostic_code(stderr: str) -> str:
+    """Return a bounded machine-like error identifier without copying stderr.
+
+    Codes such as HHE4 are useful for backend fallback diagnosis. Arbitrary
+    diagnostic prose, URLs, tokens, paths, and credentials are deliberately
+    excluded from the operational error surface.
+    """
+    match = _DIAGNOSTIC_CODE_RE.search(str(stderr or ""))
+    return match.group(0) if match else ""
 
 
 def _failure_outcome(exc: BaseException) -> str:
@@ -148,6 +208,7 @@ class ToolWrapperBase:
     adapter_kind: ClassVar[str] = "auto"
     target_types: ClassVar[tuple[str, ...]] = ()
     scan_default: ClassVar[bool] = True
+    result_role: ClassVar[str] = "finding"
     runtime_strategy: ClassVar[str] = "auto"
     execution_preference: ClassVar[tuple[str, ...]] = ()
     provision: ClassVar[dict[str, Any]] = {}
@@ -210,8 +271,8 @@ class ToolWrapperBase:
     def resolve_binary(self) -> Path | None:
         return self.resolve_local_binary() or self.resolve_provisioned_binary()
 
-    def runtime_status(self) -> dict[str, Any]:
-        status = self.resolver.status(self)
+    def runtime_status(self, *, active_probe: bool = True) -> dict[str, Any]:
+        status = self.resolver.status(self, active_probe=active_probe)
         status.update(
             {
                 "execution_name": self.execution_name,
@@ -261,6 +322,21 @@ class ToolWrapperBase:
         return findings
 
     async def run(self, target: str, options: Mapping[str, Any] | None = None) -> list[Finding]:
+        """Compatibility API returning only normalized findings."""
+        result = await self.run_with_evidence(target, options=options)
+        return list(result.findings)
+
+    async def run_with_evidence(
+        self,
+        target: str,
+        options: Mapping[str, Any] | None = None,
+    ) -> ToolExecutionResult:
+        """Execute once through the resolver while retaining the raw parser input.
+
+        Raw stdout/stderr remain in-memory here; callers decide whether to persist
+        them in Windeep's encrypted evidence store. Rendered target/options are not
+        copied into the result metadata.
+        """
         if self._cancel_requested():
             raise ToolCancelledError(f"{self.tool_name} cancelled before execution")
         if self.requires_scope and self.scope_validator is None:
@@ -268,10 +344,14 @@ class ToolWrapperBase:
         if self.scope_validator is not None and not self.scope_validator(target):
             raise PermissionError(f"target is outside configured scope: {target}")
 
-        validated = self.input_schema.model_validate({"target": target, **dict(options or {})}).model_dump()
+        supplied_options = dict(options or {})
+        if "target" in supplied_options:
+            raise ValueError("tool options cannot override the authorized target")
+        validated = self.input_schema.model_validate({**supplied_options, "target": target}).model_dump()
         rendered_args = self._render_args(validated)
         stdin_data = self._render_stdin(validated)
         attempted: list[dict[str, str]] = []
+        last_result: ToolExecutionResult | None = None
         self.current_target = target
         try:
             available = [self.resolver.backends[key] for key in self.resolver.ordered_keys(self) if self.resolver.backends[key].can_run(self)]
@@ -282,6 +362,8 @@ class ToolWrapperBase:
             last_error: BaseException | None = None
             for backend in available:
                 for attempt in range(self.retries + 1):
+                    started_at_wall = time.time()
+                    started_at_monotonic = time.monotonic()
                     try:
                         if self._cancel_requested():
                             raise ToolCancelledError(f"{self.tool_name} cancelled by user")
@@ -290,23 +372,75 @@ class ToolWrapperBase:
                             backend.exec(self, rendered_args, stdin_data, self.timeout),
                             timeout=self.timeout + 2.0,
                         )
+                        finished_at_wall = time.time()
+                        finished_at_monotonic = time.monotonic()
+                        parser_name = "_jsonl_parser" if backend.key == "builtin_fallback" else getattr(
+                            self.output_parser, "__name__", type(self.output_parser).__name__
+                        )
+                        base_result = ToolExecutionResult(
+                            findings=(),
+                            stdout=stdout,
+                            stderr=stderr,
+                            exit_code=int(returncode),
+                            backend=str(backend.key),
+                            backend_tier=str(backend.tier),
+                            attempted_backends=tuple(dict(item) for item in attempted),
+                            started_at_wall=started_at_wall,
+                            finished_at_wall=finished_at_wall,
+                            started_at_monotonic=started_at_monotonic,
+                            finished_at_monotonic=finished_at_monotonic,
+                            argument_template=tuple(str(item) for item in self.args_template),
+                            stdin_supplied=stdin_data is not None,
+                            parser_name=str(parser_name),
+                        )
                         if returncode != 0:
+                            diagnostic = _diagnostic_code(stderr)
+                            suffix = f"; diagnostic={diagnostic}" if diagnostic else ""
                             raise ToolExecutionError(
-                                f"{self.tool_name} via {backend.key} exited with code {returncode}: {stderr.strip()[:2000]}"
+                                f"{self.tool_name} via {backend.key} exited with code {returncode}{suffix}; raw stderr retained in the encrypted execution evidence path",
+                                result=base_result,
                             )
-                        findings = self.parse_output(stdout, target, builtin=backend.key == "builtin_fallback")
-                        return self._annotate_findings(findings, backend=backend, attempted=attempted)
+                        try:
+                            findings = (
+                                [] if self.result_role == "diagnostic"
+                                else self.parse_output(stdout, target, builtin=backend.key == "builtin_fallback")
+                            )
+                        except Exception as exc:
+                            raise ToolExecutionError(
+                                f"{self.tool_name} output parser failed after successful execution: {exc}",
+                                result=base_result,
+                            ) from exc
+                        annotated = self._annotate_findings(findings, backend=backend, attempted=attempted)
+                        return ToolExecutionResult(
+                            findings=tuple(annotated),
+                            stdout=stdout,
+                            stderr=stderr,
+                            exit_code=int(returncode),
+                            backend=str(backend.key),
+                            backend_tier=str(backend.tier),
+                            attempted_backends=tuple(dict(item) for item in attempted),
+                            started_at_wall=started_at_wall,
+                            finished_at_wall=finished_at_wall,
+                            started_at_monotonic=started_at_monotonic,
+                            finished_at_monotonic=finished_at_monotonic,
+                            argument_template=tuple(str(item) for item in self.args_template),
+                            stdin_supplied=stdin_data is not None,
+                            parser_name=str(parser_name),
+                        )
                     except (ToolCancelledError, asyncio.CancelledError):
                         raise
                     except (ToolExecutionError, BackendExecutionError, BackendUnavailableError, asyncio.TimeoutError, OSError, httpx.HTTPError) as exc:
                         last_error = exc
+                        if isinstance(exc, ToolExecutionError) and exc.result is not None:
+                            last_result = exc.result
                         if attempt < self.retries:
                             await asyncio.sleep(min(8.0, 0.5 * (2**attempt)))
                             continue
                         attempted.append({"backend": backend.key, "outcome": _failure_outcome(exc), "error": str(exc)[:1000]})
                         break
             raise ToolExecutionError(
-                f"{self.tool_name} failed across {len(available)} backend(s): {last_error}; attempted={', '.join(item['backend'] for item in attempted)}"
+                f"{self.tool_name} failed across {len(available)} backend(s): {last_error}; attempted={', '.join(item['backend'] for item in attempted)}",
+                result=last_result,
             )
         finally:
             self.current_target = ""
@@ -510,6 +644,9 @@ class ToolWrapperFactory:
         probe = definition.get("probe", [])
         if not isinstance(probe, list) or not all(isinstance(item, str) for item in probe):
             raise ValueError(f"probe must be a list of strings: {name}")
+        result_role = str(definition.get("result_role") or "finding").casefold()
+        if result_role not in {"finding", "diagnostic"}:
+            raise ValueError(f"invalid result_role for {name}: {result_role}")
         input_model = self._build_input_model(name, definition.get("input_schema", {}))
         execution_name = str(definition.get("execution_name") or name)
         class_name = "".join(part.capitalize() for part in name.replace("-", "_").split("_")) + "Wrapper"
@@ -533,7 +670,8 @@ class ToolWrapperFactory:
                 "required_env": tuple(required_env),
                 "adapter_kind": runtime_strategy,
                 "target_types": tuple(target_types_raw),
-                "scan_default": bool(definition.get("scan_default", True)),
+                "scan_default": bool(definition.get("scan_default", True)) and result_role != "diagnostic",
+                "result_role": result_role,
                 "runtime_strategy": runtime_strategy,
                 "execution_preference": tuple(preference),
                 "provision": dict(provision),
@@ -554,6 +692,8 @@ class ToolWrapperFactory:
             raise ValueError(f"input_schema must be an object: {name}")
         fields: dict[str, tuple[Any, Any]] = {"target": (str, ...)}
         for field_name, definition in schema.items():
+            if field_name == "target":
+                raise ValueError(f"target is reserved by the execution engine: {name}")
             if not isinstance(definition, dict):
                 raise ValueError(f"input field must be an object: {name}.{field_name}")
             type_name = str(definition.get("type", "str"))

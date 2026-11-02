@@ -251,20 +251,24 @@ def register_v2_api(
             return explicit
         return _CATEGORY_TARGET_TYPES.get(str(getattr(cls, "category", "utilities")), _CATEGORY_TARGET_TYPES["utilities"])
 
-    def tool_descriptor(name: str, cls: type[Any], *, target_type: str | None = None) -> dict[str, Any]:
+    def tool_descriptor(name: str, cls: type[Any], *, target_type: str | None = None, active_probe: bool = False) -> dict[str, Any]:
         env = runtime_environment()
         wrapper = cls(tools_dir=tools_dir, scope_validator=lambda _value: True, environment=env)
         missing_env = list(wrapper.missing_environment())
-        runtime_state = wrapper.runtime_status()
+        runtime_state = wrapper.runtime_status(active_probe=active_probe)
         runtime_tier = str(runtime_state.get("tier") or "unavailable")
         backend = runtime_state.get("backend")
         binary_path = wrapper.resolve_binary()
-        ready = not missing_env and runtime_tier != "unavailable"
+        runtime_verified = bool(runtime_state.get("verified", True))
+        runtime_deferred = bool(runtime_state.get("deferred", False))
+        ready = not missing_env and runtime_tier != "unavailable" and runtime_verified
         types = compatible_types(cls)
         normalized_type = _target_type(target_type or "") if target_type else None
         compatible = normalized_type is None or normalized_type in types or ("web" in types and normalized_type in {"domain", "url", "host"})
         if missing_env:
             blocked_reason = "Missing configuration: " + ", ".join(missing_env)
+        elif runtime_deferred:
+            blocked_reason = "External runtime route detected; readiness check is deferred until scan planning or an explicit probe"
         elif runtime_tier == "unavailable":
             blocked_reason = "No execution backend is currently runnable; use winddeep doctor --heal or enable Docker/WSL/remote worker"
         elif not compatible:
@@ -284,6 +288,8 @@ def register_v2_api(
             "ready": ready,
             "installed": bool(binary_path is not None),
             "resolved": runtime_tier != "unavailable",
+            "runtime_verified": runtime_verified,
+            "runtime_deferred": runtime_deferred,
             "configured": not missing_env,
             "missing_env": missing_env,
             "binary": str(binary_path) if binary_path else str(getattr(cls, "binary", name)),
@@ -300,6 +306,7 @@ def register_v2_api(
             "target_types": list(types),
             "compatible": compatible,
             "scan_default": bool(getattr(cls, "scan_default", True)),
+            "result_role": str(getattr(cls, "result_role", "finding")),
             "release_support": release_support,
             "windows_certified": release_support == "bundled",
             "timeout": float(getattr(cls, "timeout", 120.0)),
@@ -309,11 +316,13 @@ def register_v2_api(
             "blocked_reason": blocked_reason,
         }
 
-    def all_descriptors(target_type: str | None = None) -> list[dict[str, Any]]:
-        return [tool_descriptor(name, cls, target_type=target_type) for name, cls in sorted(wrapper_classes.items())]
+    def all_descriptors(target_type: str | None = None, *, active_probe: bool = False) -> list[dict[str, Any]]:
+        return [tool_descriptor(name, cls, target_type=target_type, active_probe=active_probe) for name, cls in sorted(wrapper_classes.items())]
 
     def build_plan(target_row: dict[str, Any], mode: str, modules: list[str], names: list[str]) -> dict[str, Any]:
         normalized_target_type = _target_type(str(target_row.get("type") or "web"))
+        # Discover the whole catalog passively. Active WSL/container probes can
+        # be slow, so run them only for candidates this plan could actually use.
         descriptors = all_descriptors(normalized_target_type)
         by_name = {item["name"]: item for item in descriptors}
         selected: list[str] = []
@@ -321,7 +330,7 @@ def register_v2_api(
         normalized_mode = mode.strip().lower() or "smart"
         requested_names = {str(item) for item in names if str(item)}
         requested_modules = {str(item) for item in modules if str(item)}
-        for item in descriptors:
+        for index, item in enumerate(descriptors):
             name = item["name"]
             category = item["category"]
             choose = False
@@ -339,9 +348,19 @@ def register_v2_api(
                 raise ValueError(f"unknown scan mode: {normalized_mode}")
             if not choose:
                 continue
+            if item["result_role"] == "diagnostic" and normalized_mode not in {"selected", "single"}:
+                skipped.append({"tool": name, "reason": "diagnostic-only command; select explicitly to inspect its output"})
+                continue
             if not item["compatible"]:
                 skipped.append({"tool": name, "reason": item["blocked_reason"] or "target type mismatch"})
                 continue
+            if not item["configured"]:
+                skipped.append({"tool": name, "reason": item["blocked_reason"] or "not configured"})
+                continue
+            # Revalidate every selected candidate before scheduling. Passive
+            # availability of other catalog entries never authorizes execution.
+            item = tool_descriptor(name, wrapper_classes[name], target_type=normalized_target_type, active_probe=True)
+            descriptors[index] = item
             if not item["ready"]:
                 skipped.append({"tool": name, "reason": item["blocked_reason"] or "not ready"})
                 continue
@@ -359,6 +378,9 @@ def register_v2_api(
             "skipped_count": len(skipped),
             "catalog_count": len(descriptors),
             "ready_compatible_count": sum(1 for item in descriptors if item["ready"] and item["compatible"]),
+            "ready_compatible_count_is_lower_bound": any(
+                item["compatible"] and item["runtime_deferred"] for item in descriptors
+            ),
         }
 
     def save_scan_authorization(scan_id: int, target_id: int, consent_id: str) -> None:
@@ -610,10 +632,12 @@ def register_v2_api(
             auth_row = conn.execute("SELECT target_id FROM reports WHERE id = ?", (report_id,)).fetchone()
         if auth_row is None:
             return jsonify({"error": "report not found"}), 404
-        # The report row is an artifact the operator already generated and can
-        # already preview/download; exporting it uses the same authenticated
-        # local-session gate as /api/reports, not a fresh scan authorization.
-        target_row = database.get_target(int(auth_row["target_id"])) or {}
+        # Match the report-download route: do not load proof unless the target's
+        # most recent recorded scan authorization passes live preflight.
+        try:
+            target_row = require_target_access(int(auth_row["target_id"]))
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
         with database._connect() as conn:
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
         if row is None:

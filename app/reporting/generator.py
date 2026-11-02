@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import html
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
@@ -38,7 +39,7 @@ class ReportArtifact:
     sha256: str
     severity: str
     cvss_vector: str
-    cvss_score: float
+    cvss_score: float | None
     finding_ids: tuple[int, ...]
     flow_ids: tuple[int, ...]
     model: dict[str, Any]
@@ -47,10 +48,11 @@ class ReportArtifact:
 class ReportGenerator:
     """Render findings/chains strictly from normalized findings and P2 bundles."""
 
-    def __init__(self, database: Any, crypto: Any) -> None:
+    def __init__(self, database: Any, crypto: Any, audit: Any | None = None) -> None:
         self.database = database
         self.crypto = crypto
-        self.evidence = EvidenceBundleStore(database, crypto)
+        self.audit = audit
+        self.evidence = EvidenceBundleStore(database, crypto, audit=audit)
 
     @staticmethod
     def _iso_timestamp(value: Any) -> str:
@@ -66,9 +68,38 @@ class ReportGenerator:
             raise ReportingError(f"finding not found: {finding_id}")
         return finding
 
-    def _bundle(self, finding_id: int) -> dict[str, Any]:
+    def _scan_finding(self, finding_id: int, scan_id: int, bundle: Mapping[str, Any]) -> dict[str, Any]:
+        """Use the matching scan observation when a case was first seen elsewhere."""
+        with self.database._connect() as conn:
+            row = conn.execute(
+                "SELECT id, scan_id, target_id, fingerprint, status FROM findings WHERE id = ?", (int(finding_id),)
+            ).fetchone()
+            if row is None:
+                raise ReportingError(f"finding not found: {finding_id}")
+            metadata = dict(row)
+            if metadata["scan_id"] == int(scan_id):
+                return self._finding(finding_id)
+            run_id = bundle.get("tool_run_id")
+            observation = conn.execute(
+                "SELECT payload FROM scan_findings WHERE scan_id = ? AND finding_id = ? AND tool_run_id = ?",
+                (int(scan_id), int(finding_id), run_id),
+            ).fetchone() if run_id is not None else None
+        if observation is None:
+            raise ReportingError("the evidence bundle has no matching scan-specific observation")
         try:
-            bundle = self.evidence.resolve(int(finding_id))
+            payload = json.loads(self.database._dec(str(observation["payload"]), field="scan_finding.payload"))
+        except Exception as exc:
+            raise ReportingError("the scan-specific observation could not be decrypted") from exc
+        if not isinstance(payload, dict):
+            raise ReportingError("the scan-specific observation is malformed")
+        # Identity and workflow state come from the canonical case, not from
+        # untrusted detector output. Narrative fields come only from this scan.
+        return {**payload, **{key: metadata[key] for key in ("id", "target_id", "fingerprint", "status")},
+                "scan_id": int(scan_id)}
+
+    def _bundle(self, finding_id: int, *, scan_id: int | None = None) -> dict[str, Any]:
+        try:
+            bundle = self.evidence.resolve(int(finding_id), scan_id=scan_id)
         except KeyError as exc:
             raise ReportingError(f"evidence bundle required for finding {finding_id}") from exc
         except EvidenceIntegrityError as exc:
@@ -133,7 +164,10 @@ class ReportGenerator:
         if not isinstance(output, Mapping):
             return None
         try:
-            artifact = self.evidence.read_artifact(str(output["artifact_sha256"]))
+            artifact = self.evidence.read_artifact(
+                str(output["artifact_sha256"]),
+                scan_id=int(output.get("origin_scan_id")) if output.get("origin_scan_id") is not None else None,
+            )
         except Exception as exc:
             raise ReportingError(f"tool-output integrity validation failed: {exc}") from exc
         start = int(output["line_start"])
@@ -218,7 +252,7 @@ class ReportGenerator:
         if not redacted_sha:
             return []
         try:
-            artifact = self.evidence.read_artifact(redacted_sha)
+            artifact = self.evidence.read_artifact(redacted_sha, scan_id=bundle.get("scan_id"))
         except Exception as exc:
             raise ReportingError(f"redacted screenshot integrity validation failed: {exc}") from exc
         return [
@@ -237,19 +271,26 @@ class ReportGenerator:
         finding_id: int,
         *,
         external_duplicates: Sequence[Mapping[str, Any]] | None = None,
+        scan_id: int | None = None,
+        allow_unscored: bool = False,
+        include_duplicates: bool = True,
     ) -> dict[str, Any]:
-        finding = self._finding(finding_id)
-        bundle = self._bundle(finding_id)
+        bundle = self._bundle(finding_id, scan_id=scan_id)
+        finding = self._scan_finding(finding_id, scan_id, bundle) if scan_id is not None else self._finding(finding_id)
         vector = str(finding.get("cvss_vector") or "").strip()
-        if not vector:
+        if not vector and not allow_unscored:
             raise ReportingError(f"finding {finding_id} has no explicit CVSS v3.1 vector")
-        try:
-            cvss_score, cvss_severity = score_cvss31(vector)
-        except ValueError as exc:
-            raise ReportingError(f"invalid CVSS v3.1 vector for finding {finding_id}: {exc}") from exc
+        if vector:
+            try:
+                cvss_score, cvss_severity = score_cvss31(vector)
+            except ValueError as exc:
+                raise ReportingError(f"invalid CVSS v3.1 vector for finding {finding_id}: {exc}") from exc
+        else:
+            cvss_score, cvss_severity = None, str(finding.get("severity") or "info").lower()
         flows = self._flow_views(bundle)
-        if not flows:
-            raise ReportingError(f"finding {finding_id} bundle has no captured flow")
+        profile = str(bundle.get("evidence_profile") or ("http" if flows else "artifact")).casefold()
+        if profile in {"http", "browser"} and not flows:
+            raise ReportingError(f"finding {finding_id} {profile} evidence bundle has no captured flow")
         provenance = redact_mapping(bundle.get("provenance") or {"nodes": [], "edges": []})
         detector_ids = sorted(
             {
@@ -259,7 +300,8 @@ class ReportGenerator:
             }
         )
         title = redact_text(str(finding.get("title") or "Finding"))
-        endpoint = redact_url(str(finding.get("endpoint") or flows[0]["url"]))
+        endpoint_fallback = flows[0]["url"] if flows else "artifact-bound observation"
+        endpoint = redact_url(str(finding.get("endpoint") or endpoint_fallback))
         exploitability = str(bundle.get("exploitability") or "observed")
         summary = (
             f"Detector {', '.join(f'`{item}`' for item in detector_ids) if detector_ids else '`unknown`'} "
@@ -272,6 +314,7 @@ class ReportGenerator:
             "kind": "finding",
             "title": title,
             "finding_id": int(finding_id),
+            "scan_id": bundle.get("scan_id"),
             "fingerprint": str(bundle.get("finding", {}).get("fingerprint") or finding.get("fingerprint") or ""),
             "severity": cvss_severity,
             "stored_severity": str(finding.get("severity") or "info").lower(),
@@ -279,19 +322,23 @@ class ReportGenerator:
             "cvss_score": cvss_score,
             "endpoint": endpoint,
             "bundle_sha256": str(bundle["bundle_sha256"]),
+            "evidence_profile": profile,
             "exploitability": exploitability,
             "confidence": redact_mapping(bundle.get("confidence") or {}),
             "summary": summary,
+            "description": redact_text(str(finding.get("description") or "").strip()),
+            "recorded_steps": redact_text(str(finding.get("steps") or "").strip()),
+            "finding_status": str(finding.get("status") or "new").casefold(),
             "flows": flows,
             "tool_output": self._tool_output(bundle),
             "reproduction": redact_mapping(bundle.get("reproduction") or {}),
             "impact": redact_text(str(finding.get("impact") or "").strip()),
             "remediation": redact_text(str(finding.get("remediation") or "").strip()),
             "provenance": provenance,
-            "duplicates": self._dedup_context(finding, external_duplicates=external_duplicates),
+            "duplicates": self._dedup_context(finding, external_duplicates=external_duplicates) if include_duplicates else {},
             "images": self._redacted_images(bundle),
             "browser_observation_present": isinstance(bundle.get("browser_observation"), Mapping),
-            "captured_at": flows[0]["created_at"],
+            "captured_at": flows[0]["created_at"] if flows else self._iso_timestamp(bundle.get("created_at")),
         }
 
     @staticmethod
@@ -305,6 +352,7 @@ class ReportGenerator:
             f"- Affected endpoint: `{model['endpoint']}`",
             f"- Finding fingerprint: `{model['fingerprint']}`",
             f"- Evidence bundle: `{model['bundle_sha256']}`",
+            f"- Evidence profile: `{model.get('evidence_profile') or 'http'}`",
             f"- Exploitability: `{model['exploitability']}`",
             f"- Confidence: `{float(confidence.get('score') or 0.0):.2f}` (`{confidence.get('band') or 'unknown'}`)",
             f"- Evidence timestamp: `{model['captured_at']}`",
@@ -415,7 +463,7 @@ class ReportGenerator:
                 "## Evidence integrity",
                 "",
                 f"- Bundle SHA-256: `{model['bundle_sha256']}`",
-                "- Every request/response and tool-output slice above was revalidated against its persisted P2 evidence reference at render time.",
+                "- Every referenced flow and tool-output slice above was revalidated against its persisted evidence reference at render time.",
                 "",
             ]
         )

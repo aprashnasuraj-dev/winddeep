@@ -12,7 +12,9 @@ from app.evidence.bundles import (
     EvidenceBundleStore,
     EvidenceIntegrityError,
 )
+from app.evidence.raw_store import RawArtifactStore
 from app.migrations import MigrationManager
+from app.security.audit import AuditLog
 from app.security.crypto import CryptoManager
 from app.security.secure_database import SecureDatabase
 
@@ -126,6 +128,8 @@ def test_complete_high_bundle_is_deterministic_and_flow_bound(tmp_path: Path) ->
     assert first["schema"] == "windeep.evidence-bundle.v1"
     assert first["bundle_sha256"] == second["bundle_sha256"]
     assert first["canonical_json"] == second["canonical_json"]
+    assert first["evidence_profile"] == "http"
+    assert first["completeness"]["profile"] == "http"
     assert first["completeness"]["closed"] is True
     assert first["completeness"]["score"] == 1.0
     assert first["flows"][0]["id"] == flow_id
@@ -175,6 +179,21 @@ def test_high_bundle_refuses_to_close_without_flow_and_provenance(tmp_path: Path
             line_end=1,
             provenance={"nodes": [], "edges": []},
             exploitability="observed",
+            close=True,
+        )
+
+    with pytest.raises(ValueError, match="cannot downgrade"):
+        store.build(
+            finding=finding,
+            scan_id=scan_id,
+            tool_run_id=run_id,
+            flow_ids=[],
+            artifact_sha256=artifact["sha256"],
+            line_start=1,
+            line_end=1,
+            provenance=_provenance(),
+            exploitability="observed",
+            evidence_profile="artifact",
             close=True,
         )
 
@@ -374,3 +393,132 @@ def test_reflection_and_browser_require_specialized_evidence(tmp_path: Path) -> 
         close=True,
     )
     assert complete["completeness"]["score"] == 1.0
+
+
+def test_artifact_profile_closes_non_http_finding_without_fake_flow(tmp_path: Path) -> None:
+    crypto, database, target_id, scan_id, _run_id, _finding_row, _flow_id = _fixture(tmp_path)
+    run_id = database.create_tool_run(
+        tool_name="secret-fixture",
+        status="completed",
+        scan_id=scan_id,
+        target_id=target_id,
+        command=["secret-fixture", "<scope-bound target>"],
+    )
+    finding_id, _ = database.create_finding(
+        target_id,
+        "Secret pattern observed in owned source fixture",
+        "medium",
+        scan_id=scan_id,
+        cvss_vector="CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        vuln_type="source_secret",
+        tool="secret-fixture",
+        endpoint="fixtures/package.env",
+        description="A synthetic marker was observed in an owned local source fixture.",
+        evidence={"detector_id": "fixture.secret.pattern"},
+        confidence=0.93,
+    )
+    finding = database.get_finding(finding_id)
+    assert finding is not None
+    store = EvidenceBundleStore(database, crypto)
+    artifact = store.put_artifact(
+        scan_id=scan_id,
+        tool_run_id=run_id,
+        kind="raw_tool_output",
+        media_type="text/plain",
+        content=b"fixtures/package.env:7:SYNTHETIC_SECRET_MARKER\n",
+    )
+    provenance = {
+        "nodes": [
+            {
+                "id": "detector:fixture.secret.pattern",
+                "kind": "detector",
+                "name": "secret-fixture",
+                "version": "1.0.0",
+                "detector_id": "fixture.secret.pattern",
+                "source": "local-fixture",
+                "source_digest": "c" * 64,
+            }
+        ],
+        "edges": [],
+    }
+    bundle = store.build(
+        finding=finding,
+        scan_id=scan_id,
+        tool_run_id=run_id,
+        flow_ids=[],
+        artifact_sha256=artifact["sha256"],
+        line_start=1,
+        line_end=1,
+        provenance=provenance,
+        exploitability="observed",
+        close=True,
+    )
+    assert bundle["evidence_profile"] == "artifact"
+    assert bundle["completeness"]["closed"] is True
+    assert "flow" not in bundle["completeness"]["required"]
+    assert bundle["reproduction"]["replay_handle"].startswith("artifact:")
+    assert bundle["reproduction"]["steps"][0].startswith("Open the immutable captured detector artifact")
+
+    with pytest.raises(BundleIncompleteError, match="flow"):
+        store.build(
+            finding=finding,
+            scan_id=scan_id,
+            tool_run_id=run_id,
+            flow_ids=[],
+            artifact_sha256=artifact["sha256"],
+            line_start=1,
+            line_end=1,
+            provenance=provenance,
+            exploitability="observed",
+            evidence_profile="http",
+            close=True,
+        )
+
+
+def test_p2_bundle_reuses_canonical_p1_artifact_without_blob_copy(tmp_path: Path) -> None:
+    crypto, database, _target_id, scan_id, run_id, finding, flow_id = _fixture(tmp_path)
+    audit = AuditLog(tmp_path / "audit" / "audit.jsonl")
+    raw_store = RawArtifactStore(database, crypto, audit, chunk_size=32)
+    raw = raw_store.put(
+        scan_id=scan_id,
+        tool_run_id=run_id,
+        kind="tool.stdout",
+        media_type="text/plain; charset=utf-8",
+        content=b"Observed authorization inconsistency\n",
+        reason="fixture canonical runtime output",
+    )
+    bundles = EvidenceBundleStore(database, crypto, audit=audit)
+    bundle = bundles.build(
+        finding=finding,
+        scan_id=scan_id,
+        tool_run_id=run_id,
+        flow_ids=[flow_id],
+        artifact_sha256=raw.sha256,
+        line_start=1,
+        line_end=1,
+        provenance=_provenance(),
+        exploitability="observed",
+        close=True,
+    )
+
+    assert bundle["tool_output"]["artifact_sha256"] == raw.sha256
+    assert bundle["tool_output"]["storage"] == "p1-canonical"
+    assert bundle["tool_output"]["origin_scan_id"] == scan_id
+    resolved = bundles.resolve(int(finding["id"]))
+    assert resolved["tool_output"]["artifact_sha256"] == raw.sha256
+
+    with database._connect() as conn:
+        p1_count = int(
+            conn.execute(
+                "SELECT COUNT(*) AS n FROM artifacts WHERE scan_id = ? AND sha256 = ?",
+                (scan_id, raw.sha256),
+            ).fetchone()["n"]
+        )
+        p2_count = int(
+            conn.execute(
+                "SELECT COUNT(*) AS n FROM evidence_blobs WHERE sha256 = ?",
+                (raw.sha256,),
+            ).fetchone()["n"]
+        )
+    assert p1_count == 1
+    assert p2_count == 0

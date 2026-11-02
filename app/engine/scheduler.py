@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.engine.event_bus import EventBus
+from app.programs.policy import ProgramPolicyViolation, ProgramTestingPolicy
 from app.security.preflight import PreFlightError, PreFlightGuard
 
 Runner = Callable[[Any, Mapping[str, Any]], Awaitable[Any] | Any]
@@ -40,6 +41,7 @@ class TaskSpec:
     weight: float = 1.0
     continue_on_error: bool = False
     rate_cost: float = 1.0
+    execution_kind: str = "automated_tool"
 
 
 @dataclass(slots=True)
@@ -87,6 +89,20 @@ class TaskScheduler:
         self._preflight.authorize_scan(target=target, consent_id=consent_id)
 
         specs = self._validate(tasks)
+        policy_payload = getattr(context, "program_policy", None)
+        if policy_payload:
+            if not isinstance(policy_payload, Mapping):
+                raise PreFlightError("scan context program policy must be a mapping")
+            try:
+                policy = ProgramTestingPolicy.from_mapping(policy_payload)
+                metadata = getattr(context, "metadata", {})
+                if not isinstance(metadata, Mapping):
+                    metadata = {}
+                for spec in specs.values():
+                    policy.assert_execution(spec.execution_kind, target=target, metadata=metadata)
+            except (ProgramPolicyViolation, ValueError) as exc:
+                raise PreFlightError(f"program policy denied scan plan: {exc}") from exc
+
         total_weight = sum(spec.weight for spec in specs.values()) or 1.0
         completed_weight = 0.0
         progress_lock = asyncio.Lock()
@@ -193,6 +209,8 @@ class TaskScheduler:
                 raise PipelineConfigurationError(f"task weight must be > 0: {spec.name}")
             if spec.rate_cost <= 0:
                 raise PipelineConfigurationError(f"task rate_cost must be > 0: {spec.name}")
+            if not spec.execution_kind.strip():
+                raise PipelineConfigurationError(f"task execution_kind cannot be empty: {spec.name}")
             specs[spec.name] = spec
         for spec in specs.values():
             missing = [dependency for dependency in spec.dependencies if dependency not in specs]

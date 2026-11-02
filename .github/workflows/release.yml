@@ -83,7 +83,9 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path reports -Force | Out-Null
           python -m pytest -q --cov=app --cov=launcher --cov-report=term-missing --cov-report=xml:reports/coverage.xml --cov-fail-under=85
+          if ($LASTEXITCODE -ne 0) { throw "pytest or total coverage gate failed: $LASTEXITCODE" }
           python scripts/audit/check_v3_coverage.py reports/coverage.xml app/v3/api.py app/v3/events.py app/v3/triage.py app/v3/reporting.py --minimum 90
+          if ($LASTEXITCODE -ne 0) { throw "v3 coverage gate failed: $LASTEXITCODE" }
 
       - name: G9 Phase D local end-to-end audit
         shell: pwsh
@@ -105,6 +107,7 @@ jobs:
         shell: pwsh
         run: |
           ./installer/setup_tools.ps1
+          if ($LASTEXITCODE -ne 0) { throw "Tool staging failed: $LASTEXITCODE" }
           python scripts/audit/release_audit.py --phase B --require-installed
           if ($LASTEXITCODE -ne 0) { Get-Content reports/tool_liveness.md; exit $LASTEXITCODE }
 

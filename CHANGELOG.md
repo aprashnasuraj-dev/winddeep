@@ -6,6 +6,57 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 Post-freeze changes to the public v3 contracts are released as `3.0.x` patches unless they require a new major/minor compatibility window.
 
+## [5.0.0] - 2026-11-02
+
+### Added
+- Added scan-bound submission drafts with Markdown, HTML, redacted HAR, a structured platform template, and a SHA-256 attachment manifest. Drafts require human review and are never submitted automatically.
+- Connected tool execution output to encrypted, integrity-checked evidence bundles and scan-specific finding observations.
+- Added program-specific testing policies and cross-tool catalog alignment checks.
+
+### Fixed
+- Prevented per-tool options from overriding the authorized target.
+- Classified 23 target-independent catalog commands as diagnostics so they do not create target findings.
+- Preserved structured tool fields and zero confidence; strengthened handling of malformed ranking inputs.
+- Rechecked live authorization before legacy evidence ZIP exports and improved export redaction of URL credentials, fragments, form fields, and authorization headers.
+- Made Windows startup catalog discovery passive and suppressed child console windows.
+
+### Release and limitations
+- V5 retains the v4 execution resolver and its 137 registered integration contracts; actual runtime availability still depends on the host, installed backends, and credentials.
+- Closed evidence bundles verify captured artifacts, not that a vulnerability or its claimed impact is confirmed. Review all drafts and attachments before sharing.
+- The reported Windows startup icon proliferation in issue #22 is not yet independently reproduced; the release smoke checks startup health and report exports, not the number of visible GUI icons.
+
+## [4.1.2] - 2026-11-02
+
+### Added
+- Added a program-policy engine so imported bounty rules constrain execution separately from host scope.
+- Added a real-world StonikByte/Bugcrowd policy fixture that compiles the researcher-owned `bugbounty-test-{name}.atlassian.net` namespace while treating Atlassian Marketplace URLs as reporting identifiers, not scan targets.
+- Added policy-aware Brain guidance so manual-only programs can still use local hypothesis generation, evidence organization, ranking, reporting, and submission workflows without proposing prohibited scanners or pivoting.
+
+### Fixed
+- Preserved manual-import `testing_requirements` instead of discarding program execution rules.
+- Fixed manual program snapshot serialization for slotted `ProgramAsset` records.
+- Prevented Windows startup console/taskbar storms by launching child CLI processes with `CREATE_NO_WINDOW` from the windowed desktop build.
+- Made dashboard catalog/status enumeration passive: opening Windeep no longer actively probes WSL/Docker across the 137-tool catalog; verified external-runtime checks remain at scan planning, explicit probe, and execution time.
+
+### Tests
+- Added fail-closed tests for automated-tool prohibition, exact owned-instance binding, customer/other-researcher instance rejection, marketplace-target rejection, latest-version/app-context requirements, no-pivoting, local-analysis availability, and policy-aware hypothesis generation. Added cross-context isolation coverage proving one program's restrictions cannot affect unrelated authorized targets.
+- Added Windows regressions proving startup catalog/status cannot invoke active WSL/Docker probes and child-process launches request no-console creation flags.
+
+### Security
+- Program rules can only narrow target-facing execution. Scope, signed consent, preflight, redaction, encryption, evidence integrity, rate governance, and audit controls remain mandatory.
+
+## [4.1.1] - 2026-11-02
+
+### Fixed
+- Made the deterministic legacy-v2 wrapper migration recognize the already-installed cancellable v4 runtime and no-op instead of failing on stale exact-text anchors in compatibility CI.
+- Kept the v3 compatibility audit release-aware by accepting later semantic versions only when the full frozen v3 phase map remains present.
+
+### Tests
+- Added regression coverage proving the wrapper migration is byte-stable on the current v4 cancellation/runtime implementation.
+
+### Security
+- No scope, consent, scan preflight, redaction, encryption, evidence-integrity, or audit control was relaxed.
+
 ## [4.1.0] - 2026-09-18
 
 ### Added

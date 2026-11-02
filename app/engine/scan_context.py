@@ -24,6 +24,7 @@ class ScanContext:
     hypotheses: list[Any] = field(default_factory=list)
     proxy_config: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
+    program_policy: dict[str, Any] = field(default_factory=dict)
 
     def scope_enforcer(self) -> ScopeEnforcer:
         """Build the canonical ScopeEnforcer for this scan context."""
@@ -55,4 +56,5 @@ class ScanContext:
                 if "password" not in key.lower() and "token" not in key.lower()
             },
             "metadata": dict(self.metadata),
+            "program_policy": dict(self.program_policy),
         }

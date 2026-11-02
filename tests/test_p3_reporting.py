@@ -340,3 +340,64 @@ def test_submission_lifecycle_is_audited_and_non_regressing(tmp_path: Path) -> N
     ok, count = audit.verify_chain()
     assert ok is True
     assert count == len(REPORT_SUBMISSION_STATUSES)
+
+
+def test_artifact_profile_renders_and_exports_without_synthetic_http_flow(tmp_path: Path) -> None:
+    crypto, database, generator, target_id, scan_id, _first, _second, _flow, _second_flow = _fixture(tmp_path)
+    run_id = database.create_tool_run(
+        tool_name="source-fixture",
+        status="completed",
+        scan_id=scan_id,
+        target_id=target_id,
+        command=["source-fixture", "<scope-bound target>"],
+    )
+    finding_id, _ = database.create_finding(
+        target_id,
+        "Owned source marker disclosure",
+        "medium",
+        scan_id=scan_id,
+        cvss_vector="CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N",
+        vuln_type="source_secret",
+        tool="source-fixture",
+        endpoint="fixtures/package.env",
+        description="A synthetic marker was observed in an owned source fixture.",
+        evidence={"detector_id": "fixture.source.marker"},
+        confidence=0.92,
+        impact="The recorded fixture demonstrates that the detector can identify an exposed marker in source material.",
+        remediation="Remove the marker from the source fixture and use an appropriate secret store.",
+    )
+    finding = database.get_finding(finding_id)
+    assert finding is not None
+    evidence = EvidenceBundleStore(database, crypto)
+    raw = evidence.put_artifact(
+        scan_id=scan_id,
+        tool_run_id=run_id,
+        kind="raw_tool_output",
+        media_type="text/plain",
+        content=b"fixtures/package.env:7:SYNTHETIC_MARKER\n",
+    )
+    evidence.build(
+        finding=finding,
+        scan_id=scan_id,
+        tool_run_id=run_id,
+        flow_ids=[],
+        artifact_sha256=raw["sha256"],
+        line_start=1,
+        line_end=1,
+        provenance=_provenance("fixture.source.marker"),
+        exploitability="observed",
+        close=True,
+    )
+
+    report = generator.render_finding(finding_id)
+    assert "Evidence profile: `artifact`" in report.markdown
+    assert "Raw detector output slice" in report.markdown
+    assert "Captured flow" not in report.markdown
+    assert "artifact:" in report.markdown
+    assert report.flow_ids == ()
+
+    export = ExportBundleBuilder(generator).build_finding(finding_id, platform="github")
+    har = json.loads(export.files["evidence.har"])
+    assert har["log"]["entries"] == []
+    manifest = json.loads(export.files["manifest.json"])
+    assert manifest["flow_ids"] == []

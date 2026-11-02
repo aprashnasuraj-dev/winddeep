@@ -87,6 +87,7 @@ def resolver_descriptor(
         "blocked_reason": blocked_reason,
         "target_types": list(getattr(cls, "target_types", ())),
         "scan_default": bool(getattr(cls, "scan_default", True)),
+        "result_role": str(getattr(cls, "result_role", "finding")),
         "missing_env": missing_env,
         "configured": not missing_env,
         "provisionable": bool(getattr(cls, "provision", None)),

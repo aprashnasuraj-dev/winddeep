@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import math
 import random
 import re
 import threading
@@ -28,7 +29,9 @@ from app.duplicates import DuplicateDetector
 from app.engine.event_bus import EventBus
 from app.engine.scan_context import ScanContext
 from app.engine.scheduler import TaskScheduler, TaskSpec
-from app.engine.tool_wrapper import ToolCancelledError
+from app.engine.tool_wrapper import ToolCancelledError, ToolExecutionError
+from app.evidence.assembler import EvidenceAssembler
+from app.evidence.raw_store import RawArtifactStore
 from app.security.preflight import PreFlightError
 
 _ALLOWED_RESOURCE_CLASSES = frozenset({"recon", "active", "web3", "browser", "llm"})
@@ -108,6 +111,7 @@ class PipelineNode:
     cancellable: bool = True
     tool_name: str | None = None
     rate_cost: float = 1.0
+    execution_kind: str = "local_analysis"
 
     def __post_init__(self) -> None:
         if not self.id.strip():
@@ -125,6 +129,7 @@ class PipelineNode:
             tool_name=self.tool_name or self.id,
             continue_on_error=True,
             rate_cost=self.rate_cost,
+            execution_kind=self.execution_kind,
         )
 
 
@@ -165,6 +170,7 @@ def build_tool_nodes(
                 retry_policy=RetryPolicy(max_attempts=min(8, retries + 1)),
                 cancellable=True,
                 tool_name=name,
+                execution_kind="automated_tool",
             )
         )
     return nodes
@@ -270,7 +276,12 @@ class FindingBatchWriter:
             payload["severity"] = str(payload.get("severity") or "info").lower()
             payload["vuln_type"] = str(payload.get("vuln_type") or "tool_output")
             payload["tool"] = tool_name
-            payload["confidence"] = float(payload.get("confidence") or 0.5)
+            try:
+                raw_confidence = payload.get("confidence")
+                confidence = 0.5 if raw_confidence is None else float(raw_confidence)
+            except (TypeError, ValueError, OverflowError):
+                confidence = 0.5
+            payload["confidence"] = max(0.0, min(1.0, confidence)) if math.isfinite(confidence) else 0.5
             payload["evidence"] = dict(payload.get("evidence") or {})
             endpoint = str(payload.get("endpoint") or "<scope-bound target>")
             payload["steps"] = str(payload.get("steps") or "").strip() or (
@@ -466,6 +477,8 @@ async def run_p0_scan(
     preflight_for: Callable[..., Any],
     broadcast: Callable[[str, dict[str, Any], int | None], None],
     environment: Mapping[str, str],
+    program_policy: Mapping[str, Any] | None = None,
+    program_metadata: Mapping[str, Any] | None = None,
 ) -> None:
     """Execute one v2 scan on one scheduler-owned event loop."""
     target = str(target_row["target"])
@@ -477,10 +490,13 @@ async def run_p0_scan(
         scope=list(target_row.get("scope") or [target]),
         out_of_scope=list(target_row.get("out_of_scope") or []),
         consent_id=consent_id,
+        metadata=dict(program_metadata or {}),
+        program_policy=dict(program_policy or {}),
     )
     event_bus = EventBus(heartbeat_interval=60.0)
     event_log = ScanEventLog(database, crypto)
     writer = FindingBatchWriter(database)
+    raw_store = RawArtifactStore(database, crypto, audit)
     event_log.ensure_schema()
     writer.ensure_schema()
 
@@ -526,8 +542,27 @@ async def run_p0_scan(
                 try:
                     guard.authorize_scan(target=target, consent_id=consent_id)
                     await guard.acquire_rate(_host_rate_key(target))
-                    findings = await asyncio.wait_for(wrapper.run(target, options=options), timeout=timeout)
-                    payloads = [finding.model_dump() for finding in findings]
+                    execution = await asyncio.wait_for(wrapper.run_with_evidence(target, options=options), timeout=timeout)
+                    evidence_record = raw_store.record_execution_result(
+                        scan_id=scan_id,
+                        tool_run_id=run_id,
+                        result=execution,
+                        tool_name=tool_name,
+                        command_template=(tool_name, *execution.argument_template),
+                        working_directory=str(tools_dir),
+                    )
+                    payloads = [finding.model_dump() for finding in execution.findings]
+                    for payload in payloads:
+                        evidence = dict(payload.get("evidence") or {})
+                        evidence["_windeep_execution"] = {
+                            "tool_run_id": run_id,
+                            "backend": execution.backend,
+                            "backend_tier": execution.backend_tier,
+                            "parser": execution.parser_name,
+                            "stdout_sha256": evidence_record["stdout_sha256"],
+                            "stderr_sha256": evidence_record["stderr_sha256"],
+                        }
+                        payload["evidence"] = evidence
                     persisted = writer.persist(
                         scan_id=scan_id,
                         tool_run_id=run_id,
@@ -535,7 +570,13 @@ async def run_p0_scan(
                         tool_name=tool_name,
                         findings=payloads,
                     )
-                    database.finish_tool_run(run_id, status="completed", exit_code=0, stdout_tail=f"{len(persisted)} normalized result(s)")
+                    database.finish_tool_run(
+                        run_id,
+                        status="completed",
+                        exit_code=execution.exit_code,
+                        stdout_tail=f"{len(persisted)} normalized result(s); raw={evidence_record['stdout_sha256'][:12]}",
+                        stderr_tail=f"encrypted-raw={evidence_record['stderr_sha256'][:12]}",
+                    )
                     for item in persisted:
                         public = {key: value for key, value in item.items() if key != "stable_json"}
                         emit("finding", {"finding": public})
@@ -546,6 +587,10 @@ async def run_p0_scan(
                             "tool_run_id": run_id,
                             "finding_count": len(persisted),
                             "fingerprints": [item["fingerprint"] for item in persisted],
+                            "stdout_sha256": evidence_record["stdout_sha256"],
+                            "stderr_sha256": evidence_record["stderr_sha256"],
+                            "backend": execution.backend,
+                            "parser": execution.parser_name,
                         },
                     )
                     return persisted
@@ -558,6 +603,21 @@ async def run_p0_scan(
                 except asyncio.CancelledError:
                     database.finish_tool_run(run_id, status="cancelled", error="cancelled by operator")
                     raise
+                except ToolExecutionError as exc:
+                    if exc.result is not None:
+                        raw_store.record_execution_result(
+                            scan_id=scan_id,
+                            tool_run_id=run_id,
+                            result=exc.result,
+                            tool_name=tool_name,
+                            command_template=(tool_name, *exc.result.argument_template),
+                            working_directory=str(tools_dir),
+                        )
+                    last_error = exc
+                    if attempt >= retry_policy.max_attempts:
+                        database.finish_tool_run(run_id, status="failed", error=str(exc))
+                        raise
+                    await asyncio.sleep(retry_policy.delay(attempt))
                 except Exception as exc:
                     last_error = exc
                     if attempt >= retry_policy.max_attempts:
@@ -648,10 +708,10 @@ async def run_p0_scan(
         return {**ranked, "hypotheses": hypothesis_rows}
 
     stage_nodes = [
-        PipelineNode("stage:dedup", "stage", dedup_stage, depends_on=tool_ids, resource_class="active", timeout=60.0, cancellable=True, tool_name="stage:dedup"),
-        PipelineNode("stage:chain", "stage", chain_stage, depends_on=("stage:dedup",), resource_class="llm", timeout=60.0, cancellable=True, tool_name="stage:chain"),
-        PipelineNode("stage:rank", "stage", rank_stage, depends_on=("stage:chain",), resource_class="active", timeout=30.0, cancellable=True, tool_name="stage:rank"),
-        PipelineNode("stage:hypothesis", "stage", hypothesis_stage, depends_on=("stage:rank",), resource_class="llm", timeout=60.0, cancellable=True, tool_name="stage:hypothesis"),
+        PipelineNode("stage:dedup", "stage", dedup_stage, depends_on=tool_ids, resource_class="active", timeout=60.0, cancellable=True, tool_name="stage:dedup", execution_kind="local_analysis"),
+        PipelineNode("stage:chain", "stage", chain_stage, depends_on=("stage:dedup",), resource_class="llm", timeout=60.0, cancellable=True, tool_name="stage:chain", execution_kind="local_analysis"),
+        PipelineNode("stage:rank", "stage", rank_stage, depends_on=("stage:chain",), resource_class="active", timeout=30.0, cancellable=True, tool_name="stage:rank", execution_kind="local_analysis"),
+        PipelineNode("stage:hypothesis", "stage", hypothesis_stage, depends_on=("stage:rank",), resource_class="llm", timeout=60.0, cancellable=True, tool_name="stage:hypothesis", execution_kind="local_analysis"),
     ]
 
     scheduler = TaskScheduler(
@@ -676,7 +736,23 @@ async def run_p0_scan(
         finding_count = len(final_payload.get("findings", [])) if isinstance(final_payload, Mapping) else 0
         chain_count = len(final_payload.get("chains", [])) if isinstance(final_payload, Mapping) else 0
         ranked_count = len(final_payload.get("ranked", [])) if isinstance(final_payload, Mapping) else 0
+        assembled = EvidenceAssembler(database, crypto, audit).assemble_scan(scan_id)
+        evidence_closed = sum(1 for item in assembled if item.get("state") == "closed")
+        evidence_incomplete = sum(1 for item in assembled if item.get("state") == "incomplete")
+        evidence_blocked = [item for item in assembled if item.get("state") == "blocked"]
+        errors.extend(
+            {
+                "task": f"evidence:{item.get('finding_id')}",
+                "error": str(item.get("reason") or "evidence assembly blocked"),
+            }
+            for item in evidence_blocked
+        )
         status = "completed_with_errors" if errors else "completed"
+        evidence_root = raw_store.seal_scan(
+            scan_id,
+            reason=f"seal terminal v2 scan evidence ({status})",
+            actor="v2-orchestrator",
+        )
         summary = {
             "mode": mode,
             "tools_planned": len(selected),
@@ -685,10 +761,33 @@ async def run_p0_scan(
             "ranked": ranked_count,
             "errors": errors,
             "skipped": list(skipped),
+            "evidence": {
+                "observations": len(assembled),
+                "closed": evidence_closed,
+                "incomplete": evidence_incomplete,
+                "blocked": len(evidence_blocked),
+                "results": assembled,
+            },
+            "evidence_root": {
+                "merkle_root": evidence_root["merkle_root"],
+                "leaf_count": evidence_root["leaf_count"],
+                "audit_hash": evidence_root["audit_hash"],
+            },
         }
+        emit(
+            "evidence",
+            {
+                "scan_id": scan_id,
+                "sealed": True,
+                "closed": evidence_closed,
+                "incomplete": evidence_incomplete,
+                "blocked": len(evidence_blocked),
+                **summary["evidence_root"],
+            },
+        )
         database.update_scan(scan_id, status=status, progress=100.0, finished_at=time.time(), results_summary=summary)
         emit("progress", {"progress": 100.0, "status": status, "summary": summary})
-        audit.append("v2.scan.completed", {"scan_id": scan_id, "status": status, "errors": len(errors)})
+        audit.append("v2.scan.completed", {"scan_id": scan_id, "status": status, "errors": len(errors), "evidence_root": evidence_root["merkle_root"]})
     except asyncio.CancelledError:
         reason = "operator cancellation requested" if cancel_event.is_set() else "scheduler cancellation"
         database.update_scan(scan_id, status="cancelled", finished_at=time.time(), results_summary={"cancel_reason": reason})

@@ -14,19 +14,28 @@ _SECRET_KEY = re.compile(
 )
 _BEARER = re.compile(r"(?i)(\bBearer\s+)[A-Za-z0-9._~+\-/]+=*")
 _ASSIGNMENT = re.compile(
-    r"(?i)(\b(?:api[_-]?key|token|password|passwd|secret|credential|session)\b\s*[:=]\s*)([^\s,;&]+)"
+    r"(?i)(\b[\w-]*(?:api[_-]?key|token|password|passwd|secret|credential|session)[\w-]*\b\s*[:=]\s*)([^\s,;&]+)"
 )
 _JSON_SECRET = re.compile(
     r'(?i)(["\'](?:api[_-]?key|token|password|passwd|secret|credential|session|authorization|cookie)["\']\s*:\s*["\'])(.*?)(["\'])'
 )
+_SENSITIVE_HEADER_LINE = re.compile(
+    r"(?im)^(\s*(?:authorization|proxy-authorization|cookie|set-cookie)\s*:\s*)[^\r\n]*"
+)
+_URL = re.compile(r"https?://[^\s<>`\"']+", re.I)
+
+
+def _redact_plain(value: str) -> str:
+    text = _SENSITIVE_HEADER_LINE.sub(lambda match: match.group(1) + _REDACTED, value)
+    text = _BEARER.sub(lambda match: match.group(1) + _REDACTED, text)
+    text = _JSON_SECRET.sub(lambda match: match.group(1) + _REDACTED + match.group(3), text)
+    return _ASSIGNMENT.sub(lambda match: match.group(1) + _REDACTED, text)
 
 
 def redact_text(value: str) -> str:
     """Return a stable textual redacted view without mutating source evidence."""
-    text = _BEARER.sub(lambda match: match.group(1) + _REDACTED, value)
-    text = _JSON_SECRET.sub(lambda match: match.group(1) + _REDACTED + match.group(3), text)
-    text = _ASSIGNMENT.sub(lambda match: match.group(1) + _REDACTED, text)
-    return text
+    # Also protect URLs embedded in free-form detector output or repro steps.
+    return _URL.sub(lambda match: redact_url(match.group(0)), _redact_plain(value))
 
 
 def redact_mapping(value: Any) -> Any:
@@ -55,15 +64,20 @@ def redact_headers(headers: Mapping[str, Any]) -> dict[str, str]:
 
 
 def redact_url(url: str) -> str:
-    """Redact secret-shaped query parameters while preserving the captured URL."""
+    """Redact URL credentials, fragments and secret-shaped query parameters."""
     try:
         parsed = urlsplit(url)
     except ValueError:
-        return redact_text(url)
+        return _redact_plain(url)
     pairs = []
     for key, value in parse_qsl(parsed.query, keep_blank_values=True):
-        pairs.append((key, _REDACTED if _SECRET_KEY.search(key) else redact_text(value)))
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, urlencode(pairs, doseq=True), parsed.fragment))
+        pairs.append((key, _REDACTED if _SECRET_KEY.search(key) else _redact_plain(value)))
+    authority = parsed.netloc
+    if "@" in authority:
+        # Square brackets in the userinfo would be parsed as an invalid IPv6
+        # authority by urlsplit; keep the redacted URL syntactically valid.
+        authority = f"REDACTED@{authority.rsplit('@', 1)[1]}"
+    return urlunsplit((parsed.scheme, authority, _redact_plain(parsed.path), urlencode(pairs, doseq=True), _REDACTED if parsed.fragment else ""))
 
 
 def redact_body(body: bytes | str, *, content_type: str = "") -> str:
@@ -72,6 +86,11 @@ def redact_body(body: bytes | str, *, content_type: str = "") -> str:
         text = body.decode("utf-8", errors="replace")
     else:
         text = str(body)
+    if "application/x-www-form-urlencoded" in content_type.casefold():
+        return urlencode([
+            (key, _REDACTED if _SECRET_KEY.search(key) else _redact_plain(value))
+            for key, value in parse_qsl(text, keep_blank_values=True)
+        ], doseq=True)
     if "json" in content_type.casefold() or text.lstrip().startswith(("{", "[")):
         try:
             parsed = json.loads(text)
@@ -84,7 +103,7 @@ def redact_body(body: bytes | str, *, content_type: str = "") -> str:
 def redacted_http_request(flow: Mapping[str, Any]) -> str:
     """Render one captured request as a redacted deterministic HTTP transcript."""
     headers = redact_headers(flow.get("request_headers") or {})
-    path = str(flow.get("path") or "/")
+    path = _redact_plain(str(flow.get("path") or "/"))
     query = str(flow.get("query") or "")
     if query:
         url = redact_url(f"https://placeholder.invalid{path}?{query}")
@@ -94,7 +113,7 @@ def redacted_http_request(flow: Mapping[str, Any]) -> str:
         target = path
     lines = [f"{str(flow.get('method') or 'GET')} {target} HTTP/1.1"]
     if not any(key.casefold() == "host" for key in headers):
-        lines.append(f"Host: {flow.get('host') or ''}")
+        lines.append(f"Host: {redact_text(str(flow.get('host') or ''))}")
     lines.extend(f"{key}: {value}" for key, value in headers.items())
     content_type = next((value for key, value in headers.items() if key.casefold() == "content-type"), "")
     body = redact_body(flow.get("request_body") or b"", content_type=content_type)

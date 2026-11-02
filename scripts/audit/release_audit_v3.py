@@ -97,11 +97,18 @@ def contract_check() -> Check:
 
 def all_findings_check() -> Check:
     triage = text("app/v3/triage.py")
+    observations = text("app/finding_observations.py")
     report = text("app/v3/reporting.py")
     api = text("app/v3/api.py")
     policy_terms = ("handling_policy", "handling_rule", "policy: unspecified")
+    observation_union = (
+        "self.observations.scan_cases" in triage
+        and "FROM scan_findings" in observations
+        and "SELECT id FROM findings WHERE scan_id = ? ORDER BY id ASC" in observations
+        and "by_id.setdefault" in observations
+    )
     ok = (
-        "SELECT id FROM findings WHERE scan_id = ?" in triage
+        observation_union
         and '"disposition": "needs-review"' in triage
         and "for index, item in enumerate(ranked" in report
         and "not-recorded" in report
@@ -110,7 +117,12 @@ def all_findings_check() -> Check:
         and '"policy_required": False' in api
         and '"verification_required_for_inclusion": False' in api
     )
-    return Check("all-findings non-suppression", ok, "classification/verification affect display, never inclusion" if ok else "all-findings markers are incomplete")
+    detail = (
+        "scan observation union plus legacy/manual rows; classification/verification affect display, never inclusion"
+        if ok
+        else "all-findings observation-union markers are incomplete"
+    )
+    return Check("all-findings non-suppression", ok, detail)
 
 
 def preflight_check() -> Check:
@@ -172,8 +184,15 @@ def version_changelog_check() -> Check:
     version = text("VERSION").strip()
     changelog = text("CHANGELOG.md")
     required = ["## [3.0.0]", "### Breaking changes", "P0", "P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"]
-    ok = version == "3.0.0" and all(marker in changelog for marker in required)
-    return Check("version/changelog cut", ok, f"VERSION={version}; v3 phase map={'present' if ok else 'incomplete'}")
+    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+    version_is_v3_or_later = bool(match and tuple(int(part) for part in match.groups()) >= (3, 0, 0))
+    phase_map_present = all(marker in changelog for marker in required)
+    ok = version_is_v3_or_later and phase_map_present
+    detail = (
+        f"VERSION={version}; v3 phase map={'present' if phase_map_present else 'incomplete'}; "
+        f"compatibility floor={'satisfied' if version_is_v3_or_later else 'failed'}"
+    )
+    return Check("version/changelog cut", ok, detail)
 
 
 def threat_model_check() -> Check:
