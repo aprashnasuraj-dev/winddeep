@@ -235,3 +235,8 @@ def test_v4_runtime_overlay_is_registered_from_root_config() -> None:
     data = json.loads(overlay.read_text(encoding="utf-8"))
     assert data["schema_version"] == 4
     assert data["defaults"]["runtime_strategy"] == "auto"
+
+
+def test_v4_contract_matrix_runs_runtime_regressions_on_windows_and_linux() -> None:
+    workflow = (ROOT / ".github" / "workflows" / "v4-runtime-gate.yml").read_text(encoding="utf-8")
+    assert "tests/test_v4_runtime_regressions.py" in workflow
