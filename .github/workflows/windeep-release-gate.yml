@@ -1,0 +1,32 @@
+name: Windeep Hourly Release Gate
+on:
+  schedule:
+    - cron: '35 * * * *' # :20 NPT
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: windeep-release-gate
+  cancel-in-progress: false
+jobs:
+  readiness:
+    runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Verify tests and benchmark history prerequisite
+        shell: pwsh
+        run: |
+          python -m pytest -q
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path scripts/benchmarks/release_readiness.py)) { throw "No three-night history verifier: release NOT READY" }
+          python scripts/benchmarks/release_readiness.py --require-three-nightly --no-p0-p1 --require-report-rate 1.0 --max-regression 0.05 --installer-audit --sbom --checksums --draft-only
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: No automated tags or public releases
+        run: echo "Read-only candidate evaluation; RC tagging and draft release require a separate human-approved workflow."
