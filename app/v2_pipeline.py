@@ -535,8 +535,27 @@ async def run_p0_scan(
                 try:
                     guard.authorize_scan(target=target, consent_id=consent_id)
                     await guard.acquire_rate(_host_rate_key(target))
-                    findings = await asyncio.wait_for(wrapper.run(target, options=options), timeout=timeout)
-                    payloads = [finding.model_dump() for finding in findings]
+                    execution = await asyncio.wait_for(wrapper.run_with_evidence(target, options=options), timeout=timeout)
+                    evidence_record = raw_store.record_execution_result(
+                        scan_id=scan_id,
+                        tool_run_id=run_id,
+                        result=execution,
+                        tool_name=tool_name,
+                        command_template=(tool_name, *execution.argument_template),
+                        working_directory=str(tools_dir),
+                    )
+                    payloads = [finding.model_dump() for finding in execution.findings]
+                    for payload in payloads:
+                        evidence = dict(payload.get("evidence") or {})
+                        evidence["_windeep_execution"] = {
+                            "tool_run_id": run_id,
+                            "backend": execution.backend,
+                            "backend_tier": execution.backend_tier,
+                            "parser": execution.parser_name,
+                            "stdout_sha256": evidence_record["stdout_sha256"],
+                            "stderr_sha256": evidence_record["stderr_sha256"],
+                        }
+                        payload["evidence"] = evidence
                     persisted = writer.persist(
                         scan_id=scan_id,
                         tool_run_id=run_id,
@@ -544,7 +563,13 @@ async def run_p0_scan(
                         tool_name=tool_name,
                         findings=payloads,
                     )
-                    database.finish_tool_run(run_id, status="completed", exit_code=0, stdout_tail=f"{len(persisted)} normalized result(s)")
+                    database.finish_tool_run(
+                        run_id,
+                        status="completed",
+                        exit_code=execution.exit_code,
+                        stdout_tail=f"{len(persisted)} normalized result(s); raw={evidence_record['stdout_sha256'][:12]}",
+                        stderr_tail=execution.stderr[-2000:],
+                    )
                     for item in persisted:
                         public = {key: value for key, value in item.items() if key != "stable_json"}
                         emit("finding", {"finding": public})
@@ -555,6 +580,10 @@ async def run_p0_scan(
                             "tool_run_id": run_id,
                             "finding_count": len(persisted),
                             "fingerprints": [item["fingerprint"] for item in persisted],
+                            "stdout_sha256": evidence_record["stdout_sha256"],
+                            "stderr_sha256": evidence_record["stderr_sha256"],
+                            "backend": execution.backend,
+                            "parser": execution.parser_name,
                         },
                     )
                     return persisted
@@ -567,6 +596,21 @@ async def run_p0_scan(
                 except asyncio.CancelledError:
                     database.finish_tool_run(run_id, status="cancelled", error="cancelled by operator")
                     raise
+                except ToolExecutionError as exc:
+                    if exc.result is not None:
+                        raw_store.record_execution_result(
+                            scan_id=scan_id,
+                            tool_run_id=run_id,
+                            result=exc.result,
+                            tool_name=tool_name,
+                            command_template=(tool_name, *exc.result.argument_template),
+                            working_directory=str(tools_dir),
+                        )
+                    last_error = exc
+                    if attempt >= retry_policy.max_attempts:
+                        database.finish_tool_run(run_id, status="failed", error=str(exc))
+                        raise
+                    await asyncio.sleep(retry_policy.delay(attempt))
                 except Exception as exc:
                     last_error = exc
                     if attempt >= retry_policy.max_attempts:
