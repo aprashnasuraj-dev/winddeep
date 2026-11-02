@@ -107,3 +107,28 @@ def test_snapshot_is_encrypted_and_hashes_plaintext_policy(tmp_path) -> None:
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
     import hashlib
     assert digest == hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def test_manual_import_preserves_testing_requirements(tmp_path) -> None:
+    repository, snapshots, importer = _parts(tmp_path, lambda request: httpx.Response(500))
+    result = importer.import_manual(
+        platform="bugcrowd",
+        program_handle="manual-demo",
+        assets=[ProgramAsset("Great Gadgets for Jira Cloud", "application")],
+        source_url="https://bugcrowd.com/engagements/manual-demo",
+        policy={
+            "testing_requirements": {
+                "automated_tooling_allowed": False,
+                "no_pivoting": True,
+                "allowed_host_templates": ["bugbounty-test-{bugcrowd_name}.atlassian.net"],
+            }
+        },
+    )
+
+    assert result.testing_requirements["automated_tooling_allowed"] is False
+    assert result.testing_requirements["no_pivoting"] is True
+    assert result.testing_requirements["allowed_host_templates"] == [
+        "bugbounty-test-{bugcrowd_name}.atlassian.net"
+    ]
+    assert snapshots.load(result.snapshot_path)["policy"]["testing_requirements"]["no_pivoting"] is True
+    assert repository.list("bugcrowd", "manual-demo")[0].asset_type == "application"
