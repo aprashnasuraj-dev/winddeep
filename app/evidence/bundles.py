@@ -412,12 +412,15 @@ class EvidenceBundleStore:
         flows = [self._flow_ref(int(flow_id)) for flow_id in sorted({int(value) for value in flow_ids})]
         tool_output: dict[str, Any] | None = None
         if artifact_sha256:
-            artifact = self.read_artifact(artifact_sha256)
+            artifact = self.read_artifact(artifact_sha256, scan_id=scan_id)
             line_ref = self._validate_line_range(artifact["content"], line_start, line_end)
             if line_ref is None:
                 raise ValueError("artifact line range is required when tool output is referenced")
             tool_output = {
                 "artifact_sha256": artifact_sha256,
+                "origin_scan_id": int(artifact["origin_scan_id"]),
+                "origin_tool_run_id": artifact.get("origin_tool_run_id"),
+                "storage": str(artifact.get("storage") or "p2-legacy"),
                 "media_type": artifact["media_type"],
                 "size": artifact["size"],
                 **line_ref,
@@ -432,7 +435,7 @@ class EvidenceBundleStore:
             screenshot = dict(browser_observation)
             screenshot_sha = str(screenshot.get("screenshot_sha256") or "")
             if screenshot_sha:
-                self.read_artifact(screenshot_sha)
+                self.read_artifact(screenshot_sha, scan_id=scan_id)
             else:
                 screenshot = None
 
@@ -549,7 +552,10 @@ class EvidenceBundleStore:
                 raise EvidenceIntegrityError(f"flow hash mismatch: {flow_ref['id']}")
         tool_output = payload.get("tool_output")
         if isinstance(tool_output, Mapping):
-            artifact = self.read_artifact(str(tool_output["artifact_sha256"]))
+            artifact = self.read_artifact(
+                str(tool_output["artifact_sha256"]),
+                scan_id=int(tool_output.get("origin_scan_id") or item["scan_id"]),
+            )
             current_slice = self._validate_line_range(
                 artifact["content"],
                 int(tool_output["line_start"]),
@@ -559,7 +565,7 @@ class EvidenceBundleStore:
                 raise EvidenceIntegrityError("tool output slice hash mismatch")
         browser = payload.get("browser_observation")
         if isinstance(browser, Mapping) and browser.get("screenshot_sha256"):
-            self.read_artifact(str(browser["screenshot_sha256"]))
+            self.read_artifact(str(browser["screenshot_sha256"]), scan_id=int(item["scan_id"]))
 
         return {
             **payload,
