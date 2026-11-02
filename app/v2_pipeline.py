@@ -29,6 +29,7 @@ from app.engine.event_bus import EventBus
 from app.engine.scan_context import ScanContext
 from app.engine.scheduler import TaskScheduler, TaskSpec
 from app.engine.tool_wrapper import ToolCancelledError, ToolExecutionError
+from app.evidence.assembler import EvidenceAssembler
 from app.evidence.raw_store import RawArtifactStore
 from app.security.preflight import PreFlightError
 
@@ -729,6 +730,17 @@ async def run_p0_scan(
         finding_count = len(final_payload.get("findings", [])) if isinstance(final_payload, Mapping) else 0
         chain_count = len(final_payload.get("chains", [])) if isinstance(final_payload, Mapping) else 0
         ranked_count = len(final_payload.get("ranked", [])) if isinstance(final_payload, Mapping) else 0
+        assembled = EvidenceAssembler(database, crypto, audit).assemble_scan(scan_id)
+        evidence_closed = sum(1 for item in assembled if item.get("state") == "closed")
+        evidence_incomplete = sum(1 for item in assembled if item.get("state") == "incomplete")
+        evidence_blocked = [item for item in assembled if item.get("state") == "blocked"]
+        errors.extend(
+            {
+                "task": f"evidence:{item.get('finding_id')}",
+                "error": str(item.get("reason") or "evidence assembly blocked"),
+            }
+            for item in evidence_blocked
+        )
         status = "completed_with_errors" if errors else "completed"
         evidence_root = raw_store.seal_scan(
             scan_id,
@@ -743,13 +755,30 @@ async def run_p0_scan(
             "ranked": ranked_count,
             "errors": errors,
             "skipped": list(skipped),
+            "evidence": {
+                "observations": len(assembled),
+                "closed": evidence_closed,
+                "incomplete": evidence_incomplete,
+                "blocked": len(evidence_blocked),
+                "results": assembled,
+            },
             "evidence_root": {
                 "merkle_root": evidence_root["merkle_root"],
                 "leaf_count": evidence_root["leaf_count"],
                 "audit_hash": evidence_root["audit_hash"],
             },
         }
-        emit("evidence", {"scan_id": scan_id, "sealed": True, **summary["evidence_root"]})
+        emit(
+            "evidence",
+            {
+                "scan_id": scan_id,
+                "sealed": True,
+                "closed": evidence_closed,
+                "incomplete": evidence_incomplete,
+                "blocked": len(evidence_blocked),
+                **summary["evidence_root"],
+            },
+        )
         database.update_scan(scan_id, status=status, progress=100.0, finished_at=time.time(), results_summary=summary)
         emit("progress", {"progress": 100.0, "status": status, "summary": summary})
         audit.append("v2.scan.completed", {"scan_id": scan_id, "status": status, "errors": len(errors), "evidence_root": evidence_root["merkle_root"]})
