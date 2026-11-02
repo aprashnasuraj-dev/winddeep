@@ -18,7 +18,7 @@ Post-freeze changes to the public v3 contracts are released as `3.0.x` patches u
 - Fixed manual program snapshot serialization for slotted `ProgramAsset` records.
 
 ### Tests
-- Added fail-closed tests for automated-tool prohibition, exact owned-instance binding, customer/other-researcher instance rejection, marketplace-target rejection, latest-version/app-context requirements, no-pivoting, local-analysis availability, and policy-aware hypothesis generation.
+- Added fail-closed tests for automated-tool prohibition, exact owned-instance binding, customer/other-researcher instance rejection, marketplace-target rejection, latest-version/app-context requirements, no-pivoting, local-analysis availability, and policy-aware hypothesis generation. Added cross-context isolation coverage proving one program's restrictions cannot affect unrelated authorized targets.
 
 ### Security
 - Program rules can only narrow target-facing execution. Scope, signed consent, preflight, redaction, encryption, evidence integrity, rate governance, and audit controls remain mandatory.
