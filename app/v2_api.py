@@ -616,10 +616,12 @@ def register_v2_api(
             auth_row = conn.execute("SELECT target_id FROM reports WHERE id = ?", (report_id,)).fetchone()
         if auth_row is None:
             return jsonify({"error": "report not found"}), 404
-        # The report row is an artifact the operator already generated and can
-        # already preview/download; exporting it uses the same authenticated
-        # local-session gate as /api/reports, not a fresh scan authorization.
-        target_row = database.get_target(int(auth_row["target_id"])) or {}
+        # Evidence ZIP contains raw proof and must meet the same live target
+        # authorization gate as the report download route before any read.
+        try:
+            target_row = require_target_access(int(auth_row["target_id"]))
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
         with database._connect() as conn:
             row = conn.execute("SELECT * FROM reports WHERE id = ?", (report_id,)).fetchone()
         if row is None:
