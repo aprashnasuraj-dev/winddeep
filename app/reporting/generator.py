@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import html
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
@@ -66,6 +67,35 @@ class ReportGenerator:
         if finding is None:
             raise ReportingError(f"finding not found: {finding_id}")
         return finding
+
+    def _scan_finding(self, finding_id: int, scan_id: int, bundle: Mapping[str, Any]) -> dict[str, Any]:
+        """Use the matching scan observation when a case was first seen elsewhere."""
+        with self.database._connect() as conn:
+            row = conn.execute(
+                "SELECT id, scan_id, target_id, fingerprint, status FROM findings WHERE id = ?", (int(finding_id),)
+            ).fetchone()
+            if row is None:
+                raise ReportingError(f"finding not found: {finding_id}")
+            metadata = dict(row)
+            if metadata["scan_id"] == int(scan_id):
+                return self._finding(finding_id)
+            run_id = bundle.get("tool_run_id")
+            observation = conn.execute(
+                "SELECT payload FROM scan_findings WHERE scan_id = ? AND finding_id = ? AND tool_run_id = ?",
+                (int(scan_id), int(finding_id), run_id),
+            ).fetchone() if run_id is not None else None
+        if observation is None:
+            raise ReportingError("the evidence bundle has no matching scan-specific observation")
+        try:
+            payload = json.loads(self.database._dec(str(observation["payload"]), field="scan_finding.payload"))
+        except Exception as exc:
+            raise ReportingError("the scan-specific observation could not be decrypted") from exc
+        if not isinstance(payload, dict):
+            raise ReportingError("the scan-specific observation is malformed")
+        # Identity and workflow state come from the canonical case, not from
+        # untrusted detector output. Narrative fields come only from this scan.
+        return {**payload, **{key: metadata[key] for key in ("id", "target_id", "fingerprint", "status")},
+                "scan_id": int(scan_id)}
 
     def _bundle(self, finding_id: int, *, scan_id: int | None = None) -> dict[str, Any]:
         try:
@@ -243,9 +273,10 @@ class ReportGenerator:
         external_duplicates: Sequence[Mapping[str, Any]] | None = None,
         scan_id: int | None = None,
         allow_unscored: bool = False,
+        include_duplicates: bool = True,
     ) -> dict[str, Any]:
-        finding = self._finding(finding_id)
         bundle = self._bundle(finding_id, scan_id=scan_id)
+        finding = self._scan_finding(finding_id, scan_id, bundle) if scan_id is not None else self._finding(finding_id)
         vector = str(finding.get("cvss_vector") or "").strip()
         if not vector and not allow_unscored:
             raise ReportingError(f"finding {finding_id} has no explicit CVSS v3.1 vector")
@@ -304,7 +335,7 @@ class ReportGenerator:
             "impact": redact_text(str(finding.get("impact") or "").strip()),
             "remediation": redact_text(str(finding.get("remediation") or "").strip()),
             "provenance": provenance,
-            "duplicates": self._dedup_context(finding, external_duplicates=external_duplicates),
+            "duplicates": self._dedup_context(finding, external_duplicates=external_duplicates) if include_duplicates else {},
             "images": self._redacted_images(bundle),
             "browser_observation_present": isinstance(bundle.get("browser_observation"), Mapping),
             "captured_at": flows[0]["created_at"] if flows else self._iso_timestamp(bundle.get("created_at")),

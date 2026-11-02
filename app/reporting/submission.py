@@ -35,7 +35,9 @@ class SubmissionDraftGenerator:
 
     def render_finding(self, finding_id: int, *, scan_id: int, scan_status: str) -> ReportArtifact:
         """Build a deterministic, redacted draft for a specific scan observation."""
-        model = self.generator._finding_model(int(finding_id), scan_id=int(scan_id), allow_unscored=True)
+        model = self.generator._finding_model(
+            int(finding_id), scan_id=int(scan_id), allow_unscored=True, include_duplicates=False
+        )
         issues: list[str] = []
         for key, message in (
             ("description", "Add a clear description of the observed behavior."),

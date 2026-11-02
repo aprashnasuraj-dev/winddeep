@@ -612,6 +612,7 @@ class EvidenceBundleStore:
             "canonical_json": canonical_text,
             "bundle_id": int(item["id"]),
             "scan_id": int(item["scan_id"]),
+            "tool_run_id": int(item["tool_run_id"]) if item.get("tool_run_id") is not None else None,
             "state": str(item["state"]),
             "created_at": float(item["created_at"]),
         }

@@ -23,6 +23,7 @@ from app.security.audit import AuditLog
 from app.v2_pipeline import FindingBatchWriter
 from app.v3.api import register_v3_api
 from test_p3_reporting import _fixture, _provenance
+from test_v2_product import session, target_and_consent, v2_client, wait_scan
 
 ROOT = Path(__file__).resolve().parents[1]
 DIAGNOSTICS = {
@@ -200,3 +201,50 @@ def test_submission_selects_authorized_scan_and_rejects_cross_scan_evidence(subm
     denied = client.get(second_url, headers=headers)
     assert denied.status_code == 409 and "different scan" in denied.get_json()["error"]
     assert client.get(f"/api/v3/scans/{first_scan}/findings/999999/submission", headers=headers).status_code == 404
+
+    second_flow = database.insert_flow({
+        "target_id": target_id, "scan_id": second_scan, "method": "GET", "url": finding["endpoint"],
+        "scheme": "https", "host": "example.test", "port": 443, "path": "/api/object/7", "query": "",
+        "request_headers": {}, "response_headers": {}, "request_body": b"", "response_body": b"second-scan-only",
+        "status": 200, "timing_ms": 1.0, "tls_info": {}, "tags": [], "created_at": 1_700_000_100.0,
+    })
+    observation = {"title": finding["title"], "severity": finding["severity"], "vuln_type": finding["vuln_type"],
+                   "endpoint": finding["endpoint"], "description": "Description from second scan only.",
+                   "steps": "Second scan instructions.", "impact": "Second scan impact.", "evidence": {},
+                   "confidence": 0.8}
+    persisted = FindingBatchWriter(database).persist(scan_id=second_scan, tool_run_id=run_id, target_id=target_id,
+                                                      tool_name="fixture", findings=[observation])
+    assert persisted[0]["finding_id"] == finding_id
+    store.build(finding=finding, scan_id=second_scan, tool_run_id=run_id, flow_ids=[second_flow],
+                artifact_sha256=artifact["sha256"], line_start=1, line_end=1, provenance=_provenance("second.scan"),
+                exploitability="observed", close=True)
+    second = client.get(second_url, headers=headers)
+    assert second.status_code == 200
+    body = second.get_json()["payload"]["body"]
+    assert "Description from second scan only." in body and "Second scan impact." in body
+    assert "Read-only response differed from the authorized baseline." not in body
+
+
+def test_owned_source_scan_to_submission_draft_through_product_api(v2_client) -> None:
+    client, tmp_path = v2_client
+    headers = session(client)
+    source = tmp_path / "owned-source.txt"
+    source.write_text("api_key = abcdefghijklmnopqrstuvwxyz012345\n", encoding="utf-8")
+    target, consent = target_and_consent(client, headers, target=str(source), target_type="repo")
+    started = client.post(
+        "/api/v2/scans",
+        json={"target_id": target["id"], "consent_id": consent["id"], "mode": "selected", "tools": ["custom_regex"], "modules": []},
+        headers=headers,
+    )
+    assert started.status_code == 202
+    scan_id = started.get_json()["scan_id"]
+    assert wait_scan(client, scan_id, {"completed", "failed"})["status"] == "completed"
+    finding = client.get(f"/api/findings?target_id={target['id']}").get_json()[0]
+    url = f"/api/v3/scans/{scan_id}/findings/{finding['id']}/submission"
+    draft = client.get(url + "?platform=bugcrowd")
+    assert draft.status_code == 200, draft.get_data(as_text=True)
+    assert draft.get_json()["payload"]["readiness"]["state"] == "human_review_required"
+    exported = client.get(url + "?format=zip&platform=bugcrowd")
+    assert exported.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(exported.data)) as archive:
+        assert b"abcdefghijklmnopqrstuvwxyz012345" not in b"\n".join(archive.read(name) for name in archive.namelist())
