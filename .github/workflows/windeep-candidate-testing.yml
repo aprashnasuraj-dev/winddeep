@@ -1,7 +1,7 @@
 name: Windeep Candidate Testing
 on:
   schedule:
-    - cron: '3 * * * *' # :48 NPT
+    - cron: '14 * * * *' # :59 NPT
   workflow_dispatch:
 permissions:
   contents: read
