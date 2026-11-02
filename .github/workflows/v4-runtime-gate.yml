@@ -46,7 +46,7 @@ jobs:
       - name: Compile v4 runtime
         run: python -m compileall -q app launcher.py scripts/generate_v4_metadata.py scripts/probe_v4_container.py scripts/validate_v4_doctor_report.py scripts/validate_v4_runtime_matrix.py
       - name: Enforce catalog route and resolver contracts
-        run: python -m pytest -q tests/test_v4_runtime.py tests/test_v4_alias_rejection_fallback.py tests/test_v4_legacy_scan_filtering.py
+        run: python -m pytest -q tests/test_v4_runtime.py tests/test_v4_runtime_regressions.py tests/test_v4_alias_rejection_fallback.py tests/test_v4_legacy_scan_filtering.py
       - name: Show host backend capabilities
         run: python launcher.py doctor --backends --json
 
