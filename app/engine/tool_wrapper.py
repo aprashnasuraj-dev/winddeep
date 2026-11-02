@@ -82,8 +82,9 @@ def _line_parser(raw: str, tool: str, target: str) -> list[Finding]:
                 tool=tool,
                 endpoint=target,
                 description="Normalized line emitted by tool integration.",
-                evidence={"raw": line, "_windeep_line_number": line_number},
+                evidence={"raw": line},
                 confidence=0.3,
+                source_line=line_number,
             )
         )
     return findings
@@ -105,8 +106,9 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
                     tool=tool,
                     endpoint=target,
                     description="Non-JSON diagnostic line emitted alongside structured output.",
-                    evidence={"raw": line, "line_number": line_number, "_windeep_line_number": line_number},
+                    evidence={"raw": line, "line_number": line_number},
                     confidence=0.2,
+                    source_line=line_number,
                 )
             )
             continue
@@ -124,8 +126,9 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
                 tool=tool,
                 endpoint=str(item.get("endpoint") or item.get("url") or item.get("host") or target),
                 description=str(item.get("description") or ""),
-                evidence={**item, "_windeep_line_number": line_number},
+                evidence=item,
                 confidence=max(0.0, min(1.0, confidence)),
+                source_line=line_number,
             )
         )
     return findings
