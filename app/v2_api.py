@@ -787,13 +787,24 @@ def register_v2_api(
         except Exception:
             finding_ids = []
         if fmt == "json":
-            payload = {
-                "report_id": report_id,
-                "title": title,
-                "target_id": item.get("target_id"),
-                "generated_at": item.get("created_at"),
-                "findings": [finding for fid in finding_ids if (finding := database.get_finding(fid)) is not None],
-            }
+            snapshot = load_snapshot(report_id)
+            if snapshot is not None:
+                payload = {
+                    "report_id": report_id,
+                    "title": title,
+                    "target_id": item.get("target_id"),
+                    "generated_at": item.get("created_at"),
+                    "snapshot": snapshot,
+                }
+            else:
+                payload = {
+                    "report_id": report_id,
+                    "title": title,
+                    "target_id": item.get("target_id"),
+                    "generated_at": item.get("created_at"),
+                    "findings": [finding for fid in finding_ids if (finding := database.get_finding(fid)) is not None],
+                    "snapshot": None,
+                }
             response = Response(json.dumps(payload, indent=2, ensure_ascii=False, default=str), mimetype="application/json")
             response.headers["Content-Disposition"] = f'attachment; filename="{_safe_filename(title)}.json"'
             return response
