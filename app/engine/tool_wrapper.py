@@ -210,8 +210,8 @@ class ToolWrapperBase:
     def resolve_binary(self) -> Path | None:
         return self.resolve_local_binary() or self.resolve_provisioned_binary()
 
-    def runtime_status(self) -> dict[str, Any]:
-        status = self.resolver.status(self)
+    def runtime_status(self, *, active_probe: bool = True) -> dict[str, Any]:
+        status = self.resolver.status(self, active_probe=active_probe)
         status.update(
             {
                 "execution_name": self.execution_name,
