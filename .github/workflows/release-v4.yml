@@ -37,7 +37,161 @@ jobs:
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
-          if ($version -ne '4.1.0') { throw "This release trigger is pinned to VERSION 4.1.0; found $version" }
+          if ($version -notmatch '^4\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt pyinstaller cyclonedx-bom
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
+      - name: Stage embedded Python and Chromium
+        shell: pwsh
+        run: ./installer/install_python.ps1
+
+      - name: Build Windeep application
+        shell: pwsh
+        run: pyinstaller --clean --noconfirm Windeep.spec
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path -LiteralPath $iscc)) { throw "ISCC.exe not found at $iscc" }
+          & $iscc "/DMyAppVersion=${{ steps.version.outputs.version }}" 'installer\BugBountyInstaller.iss'
+          if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed with exit code $LASTEXITCODE" }
+
+      - name: Create portable and source archives
+        shell: pwsh
+        run: |
+          if (Test-Path -LiteralPath dist\Windeep-Portable.zip) { Remove-Item dist\Windeep-Portable.zip -Force }
+          Compress-Archive -Path dist\Windeep\* -DestinationPath dist\Windeep-Portable.zip -CompressionLevel Optimal
+          git archive --format=zip --output="dist\windeep-source-${{ steps.version.outputs.tag }}.zip" HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'git archive failed' }
+
+      - name: Generate v4 release notes
+        shell: pwsh
+        run: |
+          $notes = @'
+          # Windeep v${{ steps.version.outputs.version }}
+
+          Windeep 4.x keeps the multi-backend execution runtime and native desktop workspace while preserving authorized research, evidence, reporting, and compatibility contracts. This release also prevents Windows startup console storms by keeping catalog enumeration passive and suppressing child console windows.
+
+          ## Highlights
+
+          - Native desktop window launch by default, with browser and headless server modes still available through `WINDEEP_UI`.
+          - Real app icon assets for browser favicon, desktop window, PyInstaller, and installer packaging.
+          - Stored report generation fixed, including no-scan fallback for all-findings reports.
+          - Evidence/PoC bundle export endpoint and UI buttons.
+          - Human-like Brain audit endpoint/panel plus encrypted Anthropic/OpenAI key settings.
+          - 137 registered integrations retained for compatibility; 109 active v4.1 launch integrations remain after excluding 28 dead/deprecated/catalog-only tools.
+          - Ordered resolver across native, Windeep-managed provisioned, container, WSL, authenticated remote-worker and builtin-fallback routes.
+          - `winddeep doctor --heal` for explicit, consented dependency recovery and post-heal liveness checks.
+          - Windows-native launcher handling plus WSL recovery for Linux-oriented tools.
+          - Content-addressed provision cache and portable/offline runtime bundle support.
+          - Shared OCI backend for heavy or Windows-hostile integrations.
+          - Pure-Python maintained fallbacks for selected API-shaped, legacy and secret-scanning integrations.
+          - Resolver-aware scan planning so unavailable tools are treated as setup state rather than mid-scan executable failures.
+          - Cross-platform runtime contracts covering the full 137-entry catalog, including explicit host/credential/release contracts where generic public runners cannot execute a route.
+          - Existing v3 evidence, reporting, scope, consent and compatibility behavior remains available.
+
+          ## Runtime model
+
+          Runtime availability is host-dependent. Use `python launcher.py doctor --json` to inspect the active host and `python launcher.py doctor --heal` to provision declared routes with explicit confirmation.
+
+          ## Packages
+
+          - `Windeep-Setup.exe` — Windows installer.
+          - `Windeep-Portable.zip` — portable Windows package.
+          - Source snapshot, SBOM and SHA-256 manifest are included with this release.
+
+          Use Windeep only against systems you own or are explicitly authorized to test.
+          '@
+          $notes.Trim() | Set-Content -LiteralPath dist\RELEASE-NOTES.md -Encoding utf8
+
+      - name: Generate SBOM and SHA256 manifest
+        shell: pwsh
+        run: |
+          python scripts/audit/generate_sbom.py --output dist/SBOM.json
+          if ($LASTEXITCODE -ne 0) { throw 'SBOM generation failed' }
+          $files = @(
+            'Windeep-Setup.exe',
+            'Windeep-Portable.zip',
+            "windeep-source-${{ steps.version.outputs.tag }}.zip",
+            'RELEASE-NOTES.md',
+            'SBOM.json'
+          )
+          $lines = foreach ($name in $files) {
+            $path = Join-Path 'dist' $name
+            if (-not (Test-Path -LiteralPath $path)) { throw "Missing release asset: $path" }
+            $hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $name"
+          }
+          $lines | Set-Content -LiteralPath dist\SHA256SUMS.txt -Encoding ascii
+
+      - name: Attest v4 release artifacts
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/Windeep-Setup.exe
+            dist/Windeep-Portable.zip
+            dist/windeep-source-*.zip
+            dist/SHA256SUMS.txt
+            dist/RELEASE-NOTES.md
+            dist/SBOM.json
+
+      - name: Bind SBOM attestation to installer
+        uses: actions/attest@v4
+        with:
+          subject-path: dist/Windeep-Setup.exe
+          sbom-path: dist/SBOM.json
+
+      - name: Publish Windeep v${{ steps.version.outputs.version }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Windeep v${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false
+          make_latest: true
+          fail_on_unmatched_files: true
+          body_path: dist/RELEASE-NOTES.md
+          files: |
+            dist/Windeep-Setup.exe
+            dist/Windeep-Portable.zip
+            dist/windeep-source-*.zip
+            dist/SHA256SUMS.txt
+            dist/RELEASE-NOTES.md
+            dist/SBOM.json
+
+      - name: Preserve build outputs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Windeep-v${{ steps.version.outputs.version }}-release-output
+          if-no-files-found: warn
+          path: |
+            dist/*.exe
+            dist/*.zip
+            dist/*.txt
+            dist/*.md
+            dist/*.json
+) { throw "Windeep v4 release requires a valid 4.x semantic VERSION; found $version" }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "tag=v$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
