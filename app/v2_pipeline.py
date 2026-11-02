@@ -730,6 +730,11 @@ async def run_p0_scan(
         chain_count = len(final_payload.get("chains", [])) if isinstance(final_payload, Mapping) else 0
         ranked_count = len(final_payload.get("ranked", [])) if isinstance(final_payload, Mapping) else 0
         status = "completed_with_errors" if errors else "completed"
+        evidence_root = raw_store.seal_scan(
+            scan_id,
+            reason=f"seal terminal v2 scan evidence ({status})",
+            actor="v2-orchestrator",
+        )
         summary = {
             "mode": mode,
             "tools_planned": len(selected),
@@ -738,10 +743,16 @@ async def run_p0_scan(
             "ranked": ranked_count,
             "errors": errors,
             "skipped": list(skipped),
+            "evidence_root": {
+                "merkle_root": evidence_root["merkle_root"],
+                "leaf_count": evidence_root["leaf_count"],
+                "audit_hash": evidence_root["audit_hash"],
+            },
         }
+        emit("evidence", {"scan_id": scan_id, "sealed": True, **summary["evidence_root"]})
         database.update_scan(scan_id, status=status, progress=100.0, finished_at=time.time(), results_summary=summary)
         emit("progress", {"progress": 100.0, "status": status, "summary": summary})
-        audit.append("v2.scan.completed", {"scan_id": scan_id, "status": status, "errors": len(errors)})
+        audit.append("v2.scan.completed", {"scan_id": scan_id, "status": status, "errors": len(errors), "evidence_root": evidence_root["merkle_root"]})
     except asyncio.CancelledError:
         reason = "operator cancellation requested" if cancel_event.is_set() else "scheduler cancellation"
         database.update_scan(scan_id, status="cancelled", finished_at=time.time(), results_summary={"cancel_reason": reason})
