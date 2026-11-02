@@ -6,6 +6,23 @@ All notable changes to Windeep are documented here. This project follows Semanti
 
 Post-freeze changes to the public v3 contracts are released as `3.0.x` patches unless they require a new major/minor compatibility window.
 
+## [4.1.2] - 2026-11-02
+
+### Added
+- Added a program-policy engine so imported bounty rules constrain execution separately from host scope.
+- Added a real-world StonikByte/Bugcrowd policy fixture that compiles the researcher-owned `bugbounty-test-{name}.atlassian.net` namespace while treating Atlassian Marketplace URLs as reporting identifiers, not scan targets.
+- Added policy-aware Brain guidance so manual-only programs can still use local hypothesis generation, evidence organization, ranking, reporting, and submission workflows without proposing prohibited scanners or pivoting.
+
+### Fixed
+- Preserved manual-import `testing_requirements` instead of discarding program execution rules.
+- Fixed manual program snapshot serialization for slotted `ProgramAsset` records.
+
+### Tests
+- Added fail-closed tests for automated-tool prohibition, exact owned-instance binding, customer/other-researcher instance rejection, marketplace-target rejection, latest-version/app-context requirements, no-pivoting, local-analysis availability, and policy-aware hypothesis generation.
+
+### Security
+- Program rules can only narrow target-facing execution. Scope, signed consent, preflight, redaction, encryption, evidence integrity, rate governance, and audit controls remain mandatory.
+
 ## [4.1.1] - 2026-11-02
 
 ### Fixed
