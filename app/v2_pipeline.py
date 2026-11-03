@@ -275,6 +275,12 @@ class FindingBatchWriter:
         normalized: list[dict[str, Any]] = []
         for raw in findings:
             payload = dict(raw)
+            evidence = payload.get("evidence") if isinstance(payload.get("evidence"), Mapping) else {}
+            declared_role = str(payload.get("result_role") or evidence.get("result_role") or "").casefold()
+            if declared_role == "observation" or payload.get("submission_candidate") is False or evidence.get("submission_candidate") is False:
+                raise ValueError(
+                    f"{tool_name} observation reached FindingBatchWriter; route reconnaissance through AssetObservationStore"
+                )
             payload["title"] = str(payload.get("title") or "Untitled finding")
             payload["severity"] = str(payload.get("severity") or "info").lower()
             payload["vuln_type"] = str(payload.get("vuln_type") or "tool_output")
