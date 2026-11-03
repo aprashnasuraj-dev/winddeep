@@ -134,6 +134,15 @@ class SubmissionDraftGenerator:
             blocking_reasons.append("impact_statement_missing")
         if not model.get("endpoint"):
             blocking_reasons.append("affected_asset_missing")
+        source_role = str(model.get("source_result_role") or "").casefold()
+        source_candidate = model.get("source_submission_candidate")
+        source_vuln_type = str(model.get("vuln_type") or "").casefold()
+        if source_role == "observation":
+            blocking_reasons.append("source_is_reconnaissance_observation")
+        if source_candidate is False:
+            blocking_reasons.append("source_explicitly_not_submission_candidate")
+        if source_vuln_type in {"asset_observation", "builtin_fallback"}:
+            blocking_reasons.append(f"source_type_{source_vuln_type}_is_not_vulnerability_proof")
         profile = str(model.get("evidence_profile") or "")
         if profile in {"http", "browser"} and not model.get("flows"):
             blocking_reasons.append("captured_http_flow_missing")
