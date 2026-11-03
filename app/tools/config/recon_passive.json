@@ -11,7 +11,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Subfinder integration adapter.",
       "target_types": [
@@ -22,7 +22,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "amass": {
       "category": "recon_passive",
@@ -36,7 +37,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Amass integration adapter.",
       "target_types": [
@@ -47,7 +48,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "assetfinder": {
       "category": "recon_passive",
@@ -59,7 +61,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Assetfinder integration adapter.",
       "target_types": [
@@ -70,7 +72,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "chaos": {
       "category": "recon_passive",
@@ -83,7 +86,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Chaos integration adapter.",
       "required_env": [
@@ -97,7 +100,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "dnsx": {
       "category": "recon_passive",
@@ -110,7 +114,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Dnsx integration adapter.",
       "target_types": [
@@ -121,7 +125,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "shuffledns": {
       "category": "recon_passive",
@@ -133,7 +138,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Shuffledns integration adapter.",
       "target_types": [
@@ -144,7 +149,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "gau": {
       "category": "recon_passive",
@@ -155,7 +161,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Gau integration adapter.",
       "target_types": [
@@ -166,7 +172,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "waybackurls": {
       "category": "recon_passive",
@@ -175,7 +182,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Waybackurls integration adapter.",
       "stdin": "{target}\n",
@@ -187,7 +194,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "getjs": {
       "category": "recon_passive",
@@ -200,7 +208,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Getjs integration adapter.",
       "target_types": [
@@ -211,7 +219,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "whois": {
       "category": "recon_passive",
@@ -222,7 +231,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Whois integration adapter.",
       "target_types": [
@@ -233,7 +242,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "dig": {
       "category": "recon_passive",
@@ -247,7 +257,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Dig integration adapter.",
       "target_types": [
@@ -258,7 +268,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "crtsh": {
       "category": "recon_passive",
@@ -270,7 +281,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Crtsh integration adapter.",
       "target_types": [
@@ -281,7 +292,8 @@
       ],
       "runtime_strategy": "builtin",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "shodan": {
       "category": "recon_passive",
@@ -293,7 +305,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Shodan integration adapter.",
       "required_env": [
@@ -307,7 +319,8 @@
       ],
       "runtime_strategy": "builtin",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "censys": {
       "category": "recon_passive",
@@ -319,7 +332,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Censys integration adapter.",
       "required_env": [
@@ -334,7 +347,8 @@
       ],
       "runtime_strategy": "builtin",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "cloud_enum": {
       "category": "recon_passive",
@@ -346,7 +360,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Cloud Enum integration adapter.",
       "target_types": [
@@ -357,7 +371,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "theharvester": {
       "category": "recon_passive",
@@ -371,7 +386,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Theharvester integration adapter.",
       "target_types": [
@@ -382,7 +397,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "recon_ng": {
       "category": "recon_passive",
@@ -396,7 +412,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Recon Ng integration adapter.",
       "target_types": [
@@ -407,7 +423,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": false
+      "scan_default": false,
+      "result_role": "observation"
     },
     "github_subdomains": {
       "category": "recon_passive",
@@ -419,7 +436,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Github Subdomains integration adapter.",
       "required_env": [
@@ -433,7 +450,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "gitlab_subdomains": {
       "category": "recon_passive",
@@ -445,7 +463,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Gitlab Subdomains integration adapter.",
       "required_env": [
@@ -459,7 +477,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "crobat": {
       "category": "recon_passive",
@@ -471,7 +490,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Crobat integration adapter.",
       "target_types": [
@@ -482,7 +501,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "findomain": {
       "category": "recon_passive",
@@ -495,7 +515,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Findomain integration adapter.",
       "target_types": [
@@ -506,7 +526,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "sublist3r": {
       "category": "recon_passive",
@@ -518,7 +539,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Sublist3R integration adapter.",
       "target_types": [
@@ -529,7 +550,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "knockpy": {
       "category": "recon_passive",
@@ -541,7 +563,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Knockpy integration adapter.",
       "target_types": [
@@ -552,7 +574,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "puredns": {
       "category": "recon_passive",
@@ -564,7 +587,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Puredns integration adapter.",
       "target_types": [
@@ -575,7 +598,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     },
     "dnsgen": {
       "category": "recon_passive",
@@ -584,7 +608,7 @@
       "parser": "lines",
       "timeout": 180,
       "retries": 1,
-      "rate_limit": 1.0,
+      "rate_limit": 1,
       "requires_scope": true,
       "description": "Dnsgen integration adapter.",
       "stdin": "{target}\n",
@@ -596,7 +620,8 @@
       ],
       "runtime_strategy": "process",
       "ui_group": "recon_passive",
-      "scan_default": true
+      "scan_default": true,
+      "result_role": "observation"
     }
   }
 }
