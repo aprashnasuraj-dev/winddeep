@@ -27,6 +27,7 @@ on:
         default: 300
 permissions:
   contents: read
+  statuses: write
 concurrency:
   group: etn-worker-b-certified-${{ github.ref }}
   cancel-in-progress: false
@@ -42,6 +43,12 @@ jobs:
         with:
           ref: electroneum-sc-master-audit
           fetch-depth: 0
+          persist-credentials: false
+      - name: Publish class B CI run ID for scheduled audit monitor
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/electroneum_ci_status.sh B start
       - name: Bootstrap immutable source
         shell: bash
         run: |
@@ -196,3 +203,11 @@ jobs:
           cd "$RUNNER_TEMP/worker-b-scratch"
           go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerBOversizeSealAdmission$' -fuzztime="${minutes}m" -v ./consensus/istanbul/engine
           echo "CERTIFIED_CLASS_B_FUZZ_PASS; minutes_requested=$minutes"
+
+      - name: Publish class B final CI outcome
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: bash tools/electroneum_ci_status.sh B finish
