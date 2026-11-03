@@ -1,3 +1,3 @@
 # Worker A — Latest
 
-2026-11-03 15:56 NPT: **BLOCKED** — local Git checkout unavailable because github.com DNS resolution failed (git ls-remote exit 128). Certified bootstrap and target tests were not executed; no security finding claimed. See [run report](RUN_20261103_1556.md). Report commit: `533f375c08adc1d3ea3221d35228b0c8e6d939b5`.
+2026-11-03 16:06 NPT: **BLOCKED** — local Git checkout failed DNS resolution of github.com (git ls-remote exit 128); certified bootstrap/source tests could not run. GitHub connector verified contract and certificate documents only. No finding claimed. [Report](RUN_20261103_1606.md); report commit `f285e4da971ee387bbad9e1f80f1c42c6ca7d4ba`.
