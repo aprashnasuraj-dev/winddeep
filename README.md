@@ -1,6 +1,6 @@
 # Windeep
 
-Windeep is a local-first bug-bounty and security-assessment workspace for **authorized security testing**. Windeep v5 retains the 137-integration catalog and v4 runtime while resolving execution per host through native binaries, Windeep-managed provisioning, containers, WSL, authenticated remote workers, and pure-Python builtin fallbacks. Its submission drafts bind findings to verified evidence from the selected scan and require human review.
+Windeep is a local-first bug-bounty and security-assessment workspace for **authorized security testing**. Windeep v5 retains the 140-integration catalog and v4 runtime while resolving execution per host through native binaries, Windeep-managed provisioning, containers, WSL, authenticated remote workers, and pure-Python builtin fallbacks. Its submission drafts bind findings to verified evidence from the selected scan and require human review.
 
 > **Authorization required:** Use Windeep only on systems you own or are explicitly authorized to test. Scope boundaries and program rules always take precedence over automation.
 
@@ -23,8 +23,8 @@ All scan modes schedule only resolver-ready and target-compatible integrations. 
 `tools_config.json` distinguishes static catalog facts from dynamic host facts:
 
 <!-- v4-runtime-counts:start -->
-- **137 registered integrations** are retained for historical scan/template compatibility.
-- **109 active v4.1 launch integrations** have a supported route, maintained fallback, host contract, or explicit external-service workflow.
+- **140 registered integrations** are retained for historical scan/template compatibility.
+- **112 active v4.1 launch integrations** have a supported route, maintained fallback, host contract, or explicit external-service workflow.
 - **28 dead/deprecated/catalog-only integrations** are excluded from the active launch surface instead of appearing as runnable tools.
 <!-- v4-runtime-counts:end -->
 - **Host-runnable counts are dynamic** and are reported by `winddeep doctor`, `/api/v2/tools`, and `/api/v2/status`.
