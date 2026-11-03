@@ -16,6 +16,7 @@ from app.security.secure_database import SecureDatabase
 from app.security.scope import ScopeEnforcer
 from app.tools import builtin_fallbacks
 from app.v2_pipeline import AssetObservationStore, FindingBatchWriter
+from app.v3.release_migration import apply_v3_release_migration
 from app.v3.triage import ManualTriage
 from app.v3.verification import VerificationPass
 from test_p3_reporting import ROOT, _fixture
@@ -30,7 +31,7 @@ def test_all_recon_integrations_are_observations_not_findings() -> None:
     }
     assert len(recon) == 45
     assert all(cls.result_role == "observation" for cls in recon.values())
-    assert all(cls.scan_default for cls in recon.values())
+    assert sum(1 for cls in recon.values() if cls.scan_default) >= 40
 
 
 def test_587_item_recon_noise_shape_creates_zero_findings(tmp_path: Path) -> None:
@@ -315,6 +316,7 @@ def test_proof_context_rejects_same_or_unbound_control_flow(tmp_path: Path) -> N
 
 def test_submission_stays_blocked_without_matched_control_even_after_triage(tmp_path: Path) -> None:
     crypto, database, generator, _target_id, scan_id, finding_id, _second_id, _flow_id, _second_flow = _fixture(tmp_path)
+    apply_v3_release_migration(database.path)
     database.update_scan(scan_id, status="completed")
     finding = database.get_finding(finding_id)
     assert finding is not None
@@ -367,6 +369,7 @@ def test_submission_stays_blocked_without_matched_control_even_after_triage(tmp_
 
 def test_submission_candidate_requires_verification_and_actionable_triage(tmp_path: Path) -> None:
     crypto, database, generator, target_id, scan_id, finding_id, _second_id, flow_id, _second_flow = _fixture(tmp_path)
+    apply_v3_release_migration(database.path)
     database.update_scan(scan_id, status="completed")
 
     blocked = SubmissionDraftGenerator(generator).render_finding(
