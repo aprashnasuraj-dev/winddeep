@@ -269,6 +269,58 @@ def test_finding_writer_fails_closed_on_misrouted_observation(tmp_path: Path) ->
     assert database.list_findings(target_id=target_id, limit=100) == []
 
 
+def test_submission_stays_blocked_without_matched_control_even_after_triage(tmp_path: Path) -> None:
+    crypto, database, generator, _target_id, scan_id, finding_id, _second_id, _flow_id, _second_flow = _fixture(tmp_path)
+    database.update_scan(scan_id, status="completed")
+    finding = database.get_finding(finding_id)
+    assert finding is not None
+    with database._connect() as conn:
+        conn.execute(
+            "UPDATE findings SET steps = ? WHERE id = ?",
+            (
+                database._enc(
+                    "1. Replay the captured authorized request.\n2. Compare it with an authorized control before making any claim.",
+                    field="finding.steps",
+                ),
+                finding_id,
+            ),
+        )
+
+    audit = AuditLog(tmp_path / "audit" / "v6-no-control.jsonl")
+    raw_store = RawArtifactStore(database, crypto, audit)
+    bundle = generator.evidence.resolve(finding_id, scan_id=scan_id)
+    record = VerificationPass(database, raw_store).verify_finding(
+        finding_id=finding_id,
+        scan_id=scan_id,
+        bundle=bundle,
+    )
+    states = {claim["claim"]: claim["state"] for claim in record["claims"]}
+    assert states["expected_observed"] == "needs-review"
+    assert states["control"] == "needs-review"
+    assert states["impact"] == "needs-review"
+    assert states["reproduction"] == "needs-review"
+
+    ManualTriage(database, audit).classify(
+        finding_id,
+        disposition="actionable",
+        tester_priority=95,
+        duplicate_risk="low",
+        rationale="Tester suspects an authorization issue but no matched control is captured yet.",
+        asset_class="https",
+    )
+    draft = SubmissionDraftGenerator(generator).render_finding(
+        finding_id,
+        scan_id=scan_id,
+        scan_status="completed",
+    )
+    readiness = draft.model["submission_readiness"]
+    assert readiness["submission_candidate"] is False
+    assert "expected_observed_not_verified" in readiness["blocking_reasons"]
+    assert "control_not_verified" in readiness["blocking_reasons"]
+    assert "security_property_missing" in readiness["blocking_reasons"]
+    assert "matched_control_missing" in readiness["blocking_reasons"]
+
+
 def test_submission_candidate_requires_verification_and_actionable_triage(tmp_path: Path) -> None:
     crypto, database, generator, target_id, scan_id, finding_id, _second_id, flow_id, _second_flow = _fixture(tmp_path)
     database.update_scan(scan_id, status="completed")
