@@ -30,7 +30,14 @@ def _block(value: Any, *, language: str = "text", limit: int = 16384) -> str:
 class SubmissionDraftGenerator:
     """Create a human-review draft from one closed, revalidated scan bundle."""
 
-    _REQUIRED_VERIFIED_CLAIMS = ("title", "affected_asset", "technical_detail", "reproduction")
+    _REQUIRED_VERIFIED_CLAIMS = (
+        "title",
+        "affected_asset",
+        "technical_detail",
+        "expected_observed",
+        "control",
+        "reproduction",
+    )
 
     def __init__(self, generator: ReportGenerator) -> None:
         self.generator = generator
@@ -134,6 +141,17 @@ class SubmissionDraftGenerator:
             blocking_reasons.append("impact_statement_missing")
         if not model.get("endpoint"):
             blocking_reasons.append("affected_asset_missing")
+        proof_context = model.get("proof_context") if isinstance(model.get("proof_context"), Mapping) else {}
+        if not str(proof_context.get("security_property") or "").strip():
+            blocking_reasons.append("security_property_missing")
+        if not str(proof_context.get("expected_behavior") or "").strip():
+            blocking_reasons.append("expected_behavior_missing")
+        if not str(proof_context.get("observed_behavior") or "").strip():
+            blocking_reasons.append("observed_behavior_missing")
+        if not proof_context.get("candidate_flows"):
+            blocking_reasons.append("candidate_flow_missing")
+        if not proof_context.get("control_flows"):
+            blocking_reasons.append("matched_control_missing")
         source_role = str(model.get("source_result_role") or "").casefold()
         source_candidate = model.get("source_submission_candidate")
         source_vuln_type = str(model.get("vuln_type") or "").casefold()
