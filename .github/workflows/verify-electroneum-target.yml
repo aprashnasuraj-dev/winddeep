@@ -1,0 +1,31 @@
+name: Verify Electroneum certified target
+
+on:
+  push:
+    branches:
+      - electroneum-sc-master-audit
+    paths:
+      - tools/electroneum_target_bootstrap.sh
+      - tests/electroneum_target_bootstrap_test.sh
+      - reports/electroneum/TARGET_CERTIFICATE.json
+      - reports/electroneum/TARGET_MANIFEST.md
+      - reports/electroneum/MASTER_AUDIT_CONTRACT.md
+      - vendor/electroneum-sc/**
+      - .github/workflows/verify-electroneum-target.yml
+  workflow_dispatch:
+
+jobs:
+  bootstrap-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: electroneum-sc-master-audit
+          fetch-depth: 0
+
+      - name: Run certified-target positive, negative, and equivalence tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/electroneum_target_bootstrap_test.sh
