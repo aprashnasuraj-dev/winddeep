@@ -44,7 +44,7 @@ class FakeBackend(ExecutionBackend):
 
 def test_v4_factory_keeps_complete_catalog_and_runtime_strategy() -> None:
     classes = ToolWrapperFactory(REGISTRY).load()
-    assert len(classes) == 137
+    assert len(classes) == 140
     assert all(cls.runtime_strategy in ALLOWED_STRATEGIES for cls in classes.values())
     assert all(cls.requires_scope for cls in classes.values())
 
@@ -267,8 +267,8 @@ def test_offline_bundle_round_trip_preserves_and_verifies_cached_runtime(tmp_pat
 def test_v4_runtime_overlay_is_registered_from_root_config() -> None:
     root = json.loads(REGISTRY.read_text(encoding="utf-8"))
     assert root["schema_version"] == 4
-    assert root["registered_tool_count"] == 137
-    assert root["active_tool_count"] == 109
+    assert root["registered_tool_count"] == 140
+    assert root["active_tool_count"] == 112
     overlay = ROOT / root["runtime_overlays"]
     assert overlay.is_file()
     data = json.loads(overlay.read_text(encoding="utf-8"))
