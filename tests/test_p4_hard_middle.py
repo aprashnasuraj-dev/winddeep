@@ -82,6 +82,50 @@ class _Replay:
         }
 
 
+class _ProofFlows:
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+        self.source = {
+            "id": 12,
+            "target_id": 7,
+            "scan_id": 9,
+            "method": "GET",
+            "url": "https://example.test/object/7?token=source-secret&id=7",
+            "host": "example.test",
+            "path": "/object/7",
+            "tags": ["captured"],
+        }
+
+    def get_flow_by_id(self, flow_id: int):
+        return dict(self.source) if flow_id == 12 else None
+
+    def insert_flow(self, flow: dict) -> int:
+        self.rows.append(dict(flow))
+        return 100 + len(self.rows)
+
+
+class _ProofReplay(_Replay):
+    def __init__(self) -> None:
+        super().__init__()
+        self.flows = _ProofFlows()
+
+    def prepare(self, flow_id: int) -> _Plan:
+        return _Plan(
+            flow_id=flow_id,
+            url="https://example.test/object/7?token=replay-secret&id=7",
+            headers={"Accept": "application/json"},
+        )
+
+    async def execute(self, plan: _Plan) -> dict:
+        result = await super().execute(plan)
+        result["url"] = plan.url
+        result["response_headers"] = {
+            "content-type": "application/json",
+            "set-cookie": "session=server-secret",
+        }
+        return result
+
+
 class _LLM:
     def __init__(self, value) -> None:
         self.value = value
@@ -133,6 +177,40 @@ def test_authorization_diff_is_preflight_gated_and_read_only() -> None:
     ]
     assert len(preflight.rates) == 2
     assert audit.events[-1][0] == "p4.authorization_diff.observed"
+
+
+def test_authorization_diff_captures_distinct_redacted_proof_flows() -> None:
+    preflight = _Preflight()
+    replay = _ProofReplay()
+    audit = _Audit()
+    differ = AuthorizationDiffer(preflight=preflight, replay=replay, audit=audit)
+    result = asyncio.run(
+        differ.compare_for_proof(
+            target="https://example.test/object/7",
+            consent_id="consent-1",
+            flow_id=12,
+            candidate_session={"Authorization": "Bearer candidate-secret"},
+            control_session={"Authorization": "Bearer control-secret"},
+            security_property="Object reads must enforce caller authorization.",
+            expected_behavior="The control role is denied access to object 7.",
+            observed_behavior="The candidate role receives object 7 data.",
+        )
+    )
+
+    assert result["candidate_flow_id"] == 101
+    assert result["control_flow_id"] == 102
+    assert result["candidate_flow_id"] != result["control_flow_id"]
+    assert result["proof_context"]["candidate_flow_ids"] == [101]
+    assert result["proof_context"]["control_flow_ids"] == [102]
+    assert len(replay.flows.rows) == 2
+    assert {row["tags"][-1] for row in replay.flows.rows} == {"proof:candidate", "proof:control"}
+    assert all(row["request_headers"]["Authorization"] == "[REDACTED]" for row in replay.flows.rows)
+    assert all(row["response_headers"]["set-cookie"] == "[REDACTED]" for row in replay.flows.rows)
+    assert all("candidate-secret" not in json.dumps(row) for row in replay.flows.rows)
+    assert all("control-secret" not in json.dumps(row) for row in replay.flows.rows)
+    assert all("replay-secret" not in row["url"] for row in replay.flows.rows)
+    assert all("REDACTED" in row["url"] for row in replay.flows.rows)
+    assert audit.events[-1][0] == "p4.authorization_proof.captured"
 
 
 def test_malicious_evidence_cannot_trigger_out_of_scope_replay() -> None:
