@@ -17,6 +17,7 @@ _EVIDENCE_TABLES = {
     "flows",
     "scan_events",
     "scan_findings",
+    "scan_asset_observations",
     "artifacts",
     "artifact_chunks",
     "artifact_manifests",
