@@ -8,6 +8,11 @@ from pathlib import Path
 
 import pytest
 
+from app.security.audit import AuditLog
+from app.security.crypto import CryptoManager
+from app.security.secure_database import SecureDatabase
+from app.v2_api import recover_interrupted_scans
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -56,3 +61,51 @@ def test_v6_release_checklist_has_exactly_ten_open_critical_blockers() -> None:
     assert blockers == [f"{index:02d}" for index in range(1, 11)]
     assert "Status: **BLOCKED / DRAFT**" in checklist
     assert "0 submission-ready findings" in checklist
+
+def test_v6_restart_recovery_fails_stale_active_scans_without_touching_terminal_or_pending(tmp_path: Path) -> None:
+    crypto = CryptoManager(wrapped_key_path=tmp_path / "crypto" / "dek.bin")
+    database = SecureDatabase(tmp_path / "windeep.db", crypto=crypto)
+    audit = AuditLog(tmp_path / "audit" / "restart.jsonl")
+    target_id = database.create_target("restart", "domain", "example.test", scope=["example.test"])
+
+    active_ids: list[int] = []
+    for status in ("queued", "running", "cancelling"):
+        scan_id = database.create_scan(target_id, "v2:selected", ["fixture"])
+        database.update_scan(
+            scan_id,
+            status=status,
+            results_summary={"runtime": {"phase": "heartbeat"}, "errors": []},
+        )
+        active_ids.append(scan_id)
+
+    completed_id = database.create_scan(target_id, "v2:selected", ["fixture"])
+    database.update_scan(completed_id, status="completed", progress=100.0)
+    pending_id = database.create_scan(target_id, "v2:selected", ["fixture"])
+
+    recovered = recover_interrupted_scans(database, audit)
+    assert recovered == active_ids
+
+    with database._connect() as conn:
+        rows = {
+            int(row["id"]): dict(row)
+            for row in conn.execute(
+                "SELECT id, status, results_summary, finished_at FROM scans ORDER BY id"
+            ).fetchall()
+        }
+        recovery_logs = conn.execute(
+            "SELECT scan_id, module, message FROM scan_logs WHERE module = 'runtime-recovery' ORDER BY scan_id"
+        ).fetchall()
+
+    for scan_id in active_ids:
+        assert rows[scan_id]["status"] == "failed"
+        assert rows[scan_id]["finished_at"] is not None
+        summary = __import__("json").loads(rows[scan_id]["results_summary"])
+        assert summary["runtime"]["phase"] == "heartbeat"
+        assert summary["restart_recovery"]["previous_status"] in {"queued", "running", "cancelling"}
+        assert summary["restart_recovery"]["resumable"] is False
+        assert summary["errors"][-1]["code"] == "V6_RESTART_INTERRUPTED"
+
+    assert rows[completed_id]["status"] == "completed"
+    assert rows[pending_id]["status"] == "pending"
+    assert [int(row["scan_id"]) for row in recovery_logs] == active_ids
+
