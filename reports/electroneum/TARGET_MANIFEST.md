@@ -1,11 +1,32 @@
 # Electroneum Audit Target Manifest
 
-- Canonical source archive: `electroneum-sc-master.zip`, stored in Windeep Git commit `7d93d2435750ef258445f4a57142bb7b43a644f4`.
-- Required archive SHA-256: `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b`.
-- Pinned Electroneum source identity: `3aeb14db0d6384243302f3a025bdff904dc28bf6`.
+- Canonical certified source path: `vendor/electroneum-sc/`.
+- Immutable Windeep source commit: `21162f549d95e4117bb954426cba436262ef4b2f`.
+- Canonical Git subtree SHA: `3571f9f8e31ca3f2e85c2a32acbc002bc3a177cc`.
+- Pinned upstream Electroneum source identity: `electroneum/electroneum-sc@3aeb14db0d6384243302f3a025bdff904dc28bf6`.
+- One-time provenance archive SHA-256: `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b`.
+- One-time archive Git blob: `581c984e3e0d6451bc6273c19edf1bdb78dfed0a`.
+- Certified file count: 1,921 (sanity metadata only; not the identity check).
 - Working branch: `aprashnasuraj-dev/winddeep:electroneum-sc-master-audit`.
-- Verified extraction: GitHub Actions run `41603929945` established the archive hash and extracted 1,921 files.
+- Machine-readable certificate: `reports/electroneum/TARGET_CERTIFICATE.json`.
 
-For every A–E audit, start from a full Windeep Git checkout and run `source tools/electroneum_target_bootstrap.sh`. The script fetches the canonical ZIP from Git history, checks its exact SHA-256, extracts it into a local scratch directory, and exports `WINDEEP_ETN_SOURCE` as the only permitted audit target. Its machine-readable outputs include `WINDEEP_ETN_ARCHIVE_SHA256` and `WINDEEP_ETN_PINNED_SOURCE_COMMIT`.
+The archive was used once to establish provenance and was compared against the pinned upstream commit before the canonical source tree was committed. Continuous Workers A-E MUST NOT re-extract or re-hash the ZIP on every run.
 
-A conversation attachment is **not** required. Never substitute a differently obtained Electroneum source tree. An actual inaccessible Git object, checksum mismatch, corrupt ZIP, or missing local extraction dependency must be reported specifically as a bootstrap failure; an absent chat attachment is not a blocker.
+For every A-E audit, synchronize the latest audit branch and run:
+
+```bash
+source tools/electroneum_target_bootstrap.sh
+```
+
+The bootstrap verifies that `HEAD:vendor/electroneum-sc` resolves to the certified subtree SHA, materializes those Git-object bytes into a fresh scratch directory, makes that materialization read-only, and exports `WINDEEP_ETN_SOURCE`.
+
+Required runtime identities:
+
+```text
+WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT=21162f549d95e4117bb954426cba436262ef4b2f
+WINDEEP_ETN_SOURCE_TREE_SHA=3571f9f8e31ca3f2e85c2a32acbc002bc3a177cc
+WINDEEP_ETN_PINNED_SOURCE_COMMIT=3aeb14db0d6384243302f3a025bdff904dc28bf6
+WINDEEP_ETN_ARCHIVE_SHA256=3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b
+```
+
+The Git tree SHA is the everyday canonical target identity. The archive hash is retained as provenance evidence, not recomputed per worker run. A chat attachment is never required, and workers must never substitute a differently obtained upstream tree.
