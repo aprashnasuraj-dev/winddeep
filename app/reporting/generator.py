@@ -303,6 +303,36 @@ class ReportGenerator:
         endpoint_fallback = flows[0]["url"] if flows else "artifact-bound observation"
         endpoint = redact_url(str(finding.get("endpoint") or endpoint_fallback))
         exploitability = str(bundle.get("exploitability") or "observed")
+        raw_proof = bundle.get("proof_context") if isinstance(bundle.get("proof_context"), Mapping) else None
+        proof_context: dict[str, Any] | None = None
+        if raw_proof is not None:
+            proof_context = {
+                "security_property": redact_text(str(raw_proof.get("security_property") or "")),
+                "expected_behavior": redact_text(str(raw_proof.get("expected_behavior") or "")),
+                "observed_behavior": redact_text(str(raw_proof.get("observed_behavior") or "")),
+                "candidate_flows": [
+                    {
+                        "id": int(item["id"]),
+                        "sha256": str(item["sha256"]),
+                        "method": str(item.get("method") or ""),
+                        "url": redact_url(str(item.get("url") or "")),
+                        "status": item.get("status"),
+                    }
+                    for item in raw_proof.get("candidate_flows") or []
+                    if isinstance(item, Mapping) and item.get("id") is not None and item.get("sha256")
+                ],
+                "control_flows": [
+                    {
+                        "id": int(item["id"]),
+                        "sha256": str(item["sha256"]),
+                        "method": str(item.get("method") or ""),
+                        "url": redact_url(str(item.get("url") or "")),
+                        "status": item.get("status"),
+                    }
+                    for item in raw_proof.get("control_flows") or []
+                    if isinstance(item, Mapping) and item.get("id") is not None and item.get("sha256")
+                ],
+            }
         source_evidence = finding.get("evidence") if isinstance(finding.get("evidence"), Mapping) else {}
         source_result_role = str(
             finding.get("result_role") or source_evidence.get("result_role") or ""
@@ -345,6 +375,7 @@ class ReportGenerator:
             "flows": flows,
             "tool_output": self._tool_output(bundle),
             "reproduction": redact_mapping(bundle.get("reproduction") or {}),
+            "proof_context": proof_context,
             "impact": redact_text(str(finding.get("impact") or "").strip()),
             "remediation": redact_text(str(finding.get("remediation") or "").strip()),
             "provenance": provenance,
