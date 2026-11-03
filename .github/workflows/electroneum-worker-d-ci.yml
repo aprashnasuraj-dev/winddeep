@@ -7,6 +7,7 @@ on:
       - reports/electroneum/D/test_historical_root_guards.py
       - reports/electroneum/D/test_historical_roots_test.go
       - reports/electroneum/D/test_historical_import_test.go
+      - reports/electroneum/D/test_partial_receipt_runtime_test.go
       - tools/electroneum_target_bootstrap.sh
       - reports/electroneum/TARGET_CERTIFICATE.json
   workflow_dispatch:
@@ -99,6 +100,16 @@ jobs:
           cp "$WINDEEP_ETN_SOURCE/core/block_validator.go" "$scratch/core/block_validator.go"
           go test -count=1 -timeout=10m -run '^TestWorkerDHistoricalImportAdmission$/^bad_transaction_root$' -v ./core
           echo "WORKER_D_GUARD_RESTORE_PASS"
+      - name: Test source-verified partial receipt delivery and safe retry
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/worker-d-scratch"
+          chmod u+w "$scratch/eth/downloader"
+          cp reports/electroneum/D/test_partial_receipt_runtime_test.go "$scratch/eth/downloader/worker_d_receipt_partial_test.go"
+          cd "$scratch"
+          go test -count=1 -timeout=12m -run TestWorkerDReceiptPartialDelivery -v ./eth/downloader
+          echo WORKER_D_RECEIPT_PARTIAL_CHARACTERIZATION_PASS
       - name: Stateful full-import semantic adversarial fuzz campaign
         shell: bash
         env:
