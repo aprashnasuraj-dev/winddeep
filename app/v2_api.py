@@ -294,6 +294,8 @@ def register_v2_api(
     event_log.ensure_schema()
     asset_observations.ensure_schema()
     settings_path = state / "settings.enc"
+    tool_probe_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+    tool_probe_ttl_seconds = 45.0
 
     def read_settings() -> dict[str, Any]:
         if not settings_path.exists():
@@ -371,7 +373,17 @@ def register_v2_api(
         env = runtime_environment()
         wrapper = cls(tools_dir=tools_dir, scope_validator=lambda _value: True, environment=env)
         missing_env = list(wrapper.missing_environment())
-        runtime_state = wrapper.runtime_status(active_probe=active_probe)
+        now = time.monotonic()
+        cached = tool_probe_cache.get(name)
+        if active_probe:
+            runtime_state = wrapper.runtime_status(active_probe=True)
+            tool_probe_cache[name] = (now, dict(runtime_state))
+        elif cached and now - cached[0] <= tool_probe_ttl_seconds:
+            runtime_state = dict(cached[1])
+        else:
+            if cached:
+                tool_probe_cache.pop(name, None)
+            runtime_state = wrapper.runtime_status(active_probe=False)
         runtime_tier = str(runtime_state.get("tier") or "unavailable")
         backend = runtime_state.get("backend")
         binary_path = wrapper.resolve_binary()
@@ -564,6 +576,27 @@ def register_v2_api(
             "windows_certified": sum(1 for row in rows if row["windows_certified"]),
             "tools": rows,
         })
+
+    @app.post("/api/v2/tools/<string:tool_name>/probe")
+    @authenticated
+    def v2_tool_probe(tool_name: str) -> tuple[Response, int] | Response:
+        cls = wrapper_classes.get(tool_name)
+        if cls is None:
+            return jsonify({"error": "unknown integration", "tool": tool_name}), 404
+        body = request.get_json(silent=True) or {}
+        target_type = str(body.get("target_type") or request.args.get("target_type") or "").strip() or None
+        row = tool_descriptor(tool_name, cls, target_type=target_type, active_probe=True)
+        audit.append(
+            "v2.tool.probed",
+            {
+                "tool": tool_name,
+                "ready": bool(row["ready"]),
+                "runtime_tier": row["runtime_tier"],
+                "backend": row["backend"],
+                "readiness_state": row["readiness_state"],
+            },
+        )
+        return jsonify(row)
 
     @app.get("/api/v2/scan-plan")
     @authenticated
