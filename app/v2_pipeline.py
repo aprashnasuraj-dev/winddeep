@@ -602,6 +602,41 @@ def _host_rate_key(target: str) -> str:
     return f"host:{(parsed.hostname or target).casefold()}"
 
 
+async def execute_scheduler_with_cancel(
+    scheduler: TaskScheduler,
+    task_specs: Sequence[TaskSpec],
+    context: Any,
+    *,
+    scan_id: str,
+    cancel_event: threading.Event,
+    poll_interval: float = 0.10,
+) -> dict[str, Any]:
+    """Bind the thread-safe operator stop flag to the asyncio scheduler task."""
+    if poll_interval <= 0:
+        raise ValueError("poll_interval must be positive")
+    scheduler_task = asyncio.create_task(
+        scheduler.execute(task_specs, context, scan_id=scan_id),
+        name=f"windeep:{scan_id}:scheduler",
+    )
+
+    async def watch_cancel() -> None:
+        while not scheduler_task.done():
+            if cancel_event.is_set():
+                scheduler_task.cancel()
+                return
+            await asyncio.sleep(poll_interval)
+
+    watcher = asyncio.create_task(
+        watch_cancel(),
+        name=f"windeep:{scan_id}:cancel-watcher",
+    )
+    try:
+        return await scheduler_task
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
+
+
 async def run_p0_scan(
     *,
     scan_id: int,
@@ -961,10 +996,12 @@ async def run_p0_scan(
     await asyncio.sleep(0)
     try:
         try:
-            results = await scheduler.execute(
+            results = await execute_scheduler_with_cancel(
+                scheduler,
                 [node.to_task_spec() for node in [*tool_nodes, *stage_nodes]],
                 context,
                 scan_id=str(scan_id),
+                cancel_event=cancel_event,
             )
         finally:
             # FIFO flush markers ensure fast scans cannot leave queued progress/tool
