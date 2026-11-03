@@ -4,14 +4,14 @@
 
 - Audit framework repository: `aprashnasuraj-dev/winddeep`
 - Write branch ONLY: `electroneum-sc-master-audit`
-- Canonical target archive: `electroneum-sc-master.zip` retained at the current `electroneum-sc-master-audit` branch HEAD, Git blob `581c984e3e0d6451bc6273c19edf1bdb78dfed0a`, SHA-256 `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b`. Provenance is additionally anchored by historical commit `7d93d2435750ef258445f4a57142bb7b43a644f4`, which contains the same blob.
-- Source identity reference (not a substitution): `electroneum/electroneum-sc` at immutable commit `3aeb14db0d6384243302f3a025bdff904dc28bf6`.
-- Every A–E worker must first source `tools/electroneum_target_bootstrap.sh` from a checkout of this audit branch; a full-history clone is no longer required when the canonical archive is present at branch HEAD. The bootstrap verifies the tracked Git blob identity and worktree content, verifies the archive SHA-256, then extracts a fresh source tree and exports `$WINDEEP_ETN_SOURCE`. Audit only that path. Chat attachments and GitHub upstream access are not prerequisites.
+- Canonical certified source: `vendor/electroneum-sc/` at immutable Windeep source commit `21162f549d95e4117bb954426cba436262ef4b2f`, Git subtree SHA `3571f9f8e31ca3f2e85c2a32acbc002bc3a177cc`.
+- Provenance: `electroneum-sc-master.zip`, Git blob `581c984e3e0d6451bc6273c19edf1bdb78dfed0a`, SHA-256 `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b`, was used once to certify the tree against `electroneum/electroneum-sc@3aeb14db0d6384243302f3a025bdff904dc28bf6`.
+- Every A–E worker must source `tools/electroneum_target_bootstrap.sh`. The bootstrap verifies `HEAD:vendor/electroneum-sc` resolves to tree `3571f9f8e31ca3f2e85c2a32acbc002bc3a177cc`, materializes a fresh read-only scratch copy, and exports `$WINDEEP_ETN_SOURCE`. Routine runs must not re-extract or re-hash the historical ZIP and must not fetch a substitute upstream tree. Audit only `$WINDEEP_ETN_SOURCE`.
 - Never write to Electroneum upstream. Never run exploit traffic against public/mainnet/testnet infrastructure. All adversarial validation must be local, fixture-based, simulated, or unit/integration-test based.
 
 ## Target verification efficiency
 
-Per-run verification deliberately avoids hashing all 1,921 extracted files. Trust is established by the tracked archive's pinned Git blob identity plus the stronger pinned SHA-256 of the single 14.57 MB archive; the source is then freshly extracted into a scratch directory. Any archive change alters the worktree Git blob and/or SHA-256 and must fail closed. Full-history availability is not required for the normal fast path.
+Per-run verification deliberately avoids hashing 1,921 files or the 14.57 MB archive. Trust is established by the certified Git subtree SHA `3571f9f8e31ca3f2e85c2a32acbc002bc3a177cc`; changing any tracked source byte changes the corresponding blob and therefore the subtree SHA. The ZIP hash remains one-time provenance evidence. Workers materialize fresh bytes from the verified Git tree into a read-only scratch directory.
 
 ## Mission
 
@@ -28,7 +28,7 @@ Component safety is not sufficient evidence of system safety. Trace full call/da
 ## Required run loop for every worker
 
 1. Sync/read the latest `electroneum-sc-master-audit` branch. Never force-push.
-2. In an audit-branch Git checkout, run `source tools/electroneum_target_bootstrap.sh`; require the certified Git blob `581c984e3e0d6451bc6273c19edf1bdb78dfed0a`, archive SHA-256 `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b`, and use only `$WINDEEP_ETN_SOURCE`. Shallow checkouts are valid because the canonical archive is retained at branch HEAD. The historical commit is fallback/provenance, not a per-run dependency. Do not substitute another tree. If bootstrap fails, report the precise checkout/tool/blob/hash failure; never report a missing chat attachment as a blocker.
+2. In an audit-branch Git checkout, run `source tools/electroneum_target_bootstrap.sh`; require `WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT=21162f549d95e4117bb954426cba436262ef4b2f`, `WINDEEP_ETN_SOURCE_TREE_SHA=3571f9f8e31ca3f2e85c2a32acbc002bc3a177cc`, upstream source commit `3aeb14db0d6384243302f3a025bdff904dc28bf6`, and use only `$WINDEEP_ETN_SOURCE`. Do not re-extract the ZIP, hash all source files, or substitute another upstream tree. If bootstrap fails, report the precise branch/tree/object/materialization/tool failure; never report a missing chat attachment as a blocker.
 3. Read this master contract plus the worker's previous state, findings, tests, and cross-worker handoffs.
 4. Pick the highest-value unclosed hypothesis in the worker's threat class. Prefer system invariants and attacker-controlled boundaries over keyword scans.
 5. Map the full mechanism before testing: source -> validation -> state mutation -> persistence/finality -> externally observed result.
@@ -120,7 +120,7 @@ Prioritize depth over raw issue count. One verified system-level bug is more val
 Every scheduled run MUST write a durable Markdown report under its worker directory before it ends, even when no vulnerability is confirmed. Use a timestamped filename such as `RUN_YYYYMMDD_HHMM.md` and update a lightweight `LATEST.md` pointer/summary when practical.
 
 A run is incomplete unless it records all of the following:
-1. exact target ZIP SHA-256 `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b` and pinned source commit `3aeb14db0d6384243302f3a025bdff904dc28bf6`;
+1. exact certified Windeep source commit `21162f549d95e4117bb954426cba436262ef4b2f`, Git tree SHA `3571f9f8e31ca3f2e85c2a32acbc002bc3a177cc`, upstream source commit `3aeb14db0d6384243302f3a025bdff904dc28bf6`, and provenance ZIP SHA-256 `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b`;
 2. assigned threat class and invariant;
 3. concrete files/functions/call paths traced this run;
 4. attacker-controlled input or trust boundary analyzed;
