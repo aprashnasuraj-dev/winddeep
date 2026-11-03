@@ -31,8 +31,10 @@ from app.engine.scan_context import ScanContext
 from app.engine.scheduler import TaskScheduler, TaskSpec
 from app.engine.tool_wrapper import ToolCancelledError, ToolExecutionError
 from app.evidence.assembler import EvidenceAssembler
+from app.evidence.bundles import EvidenceBundleStore
 from app.evidence.raw_store import RawArtifactStore
 from app.security.preflight import PreFlightError
+from app.v3.verification import VerificationError, VerificationPass
 
 _ALLOWED_RESOURCE_CLASSES = frozenset({"recon", "active", "web3", "browser", "llm"})
 _EXPORT_EVENT_TYPES = frozenset({"finding", "progress", "log", "evidence", "chain", "ranked"})
@@ -1014,6 +1016,42 @@ async def run_p0_scan(
         evidence_closed = sum(1 for item in assembled if item.get("state") == "closed")
         evidence_incomplete = sum(1 for item in assembled if item.get("state") == "incomplete")
         evidence_blocked = [item for item in assembled if item.get("state") == "blocked"]
+
+        verification_pass = VerificationPass(database, raw_store)
+        bundle_store = EvidenceBundleStore(database, crypto, audit)
+        verification_rows: list[dict[str, Any]] = []
+        for item in assembled:
+            if item.get("state") != "closed":
+                continue
+            finding_id = int(item["finding_id"])
+            try:
+                bundle = bundle_store.resolve(finding_id, scan_id=scan_id)
+                record = verification_pass.verify_finding(
+                    finding_id=finding_id,
+                    scan_id=scan_id,
+                    bundle=bundle,
+                )
+                claims = list(record.get("claims") or [])
+                verification_rows.append(
+                    {
+                        "finding_id": finding_id,
+                        "state": "verified_recorded",
+                        "claims": {
+                            str(claim.get("claim")): str(claim.get("state"))
+                            for claim in claims
+                            if isinstance(claim, Mapping)
+                        },
+                        "record_sha256": str(record.get("record_sha256") or ""),
+                    }
+                )
+            except (VerificationError, KeyError, ValueError) as exc:
+                verification_rows.append(
+                    {
+                        "finding_id": finding_id,
+                        "state": "needs_review",
+                        "reason": str(exc),
+                    }
+                )
         errors.extend(
             {
                 "task": f"evidence:{item.get('finding_id')}",
@@ -1039,6 +1077,11 @@ async def run_p0_scan(
                 "current_or_unspecified": len(asset_observations) - historical_observations,
                 "by_tool": dict(sorted(observation_tools.items())),
                 "submission_candidates": 0,
+            },
+            "verification": {
+                "records": verification_rows,
+                "verified_recorded": sum(1 for item in verification_rows if item["state"] == "verified_recorded"),
+                "needs_review": sum(1 for item in verification_rows if item["state"] == "needs_review"),
             },
             "errors": errors,
             "skipped": list(skipped),
