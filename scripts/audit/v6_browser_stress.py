@@ -132,6 +132,14 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                 "() => document.getElementById('sessionState')?.textContent.includes('Local session protected')",
                 timeout=30_000,
             )
+            # The scan list is rendered during boot but lives in the hidden
+            # Scan Center view until selected. Switch views before measuring
+            # visibility/responsiveness so hidden DOM is not mistaken for a freeze.
+            await page.locator('#nav button[data-view="scans"]').click(timeout=5_000)
+            await page.wait_for_function(
+                "() => document.getElementById('scans')?.classList.contains('active')",
+                timeout=5_000,
+            )
             card = page.locator(f'[data-scan-id="{scan_id}"]')
             await card.wait_for(state="visible", timeout=30_000)
             if "15%" not in await card.inner_text():
