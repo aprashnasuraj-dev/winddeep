@@ -77,6 +77,21 @@ def test_587_item_recon_noise_shape_creates_zero_findings(tmp_path: Path) -> Non
     assert database.list_findings(target_id=target_id, limit=5000) == []
 
 
+def test_root_target_tools_continue_after_upstream_recon_failure_contract() -> None:
+    source = (ROOT / "app" / "v2_pipeline.py").read_text(encoding="utf-8")
+    start = source.index("async def run_tool(scan_context")
+    end = source.index("run_id = database.create_tool_run", start)
+    runner_prefix = source[start:end]
+    assert "_dependency_failures(dependencies)" in runner_prefix
+    assert "_successful_dependencies(dependencies)" not in runner_prefix
+    assert "Continuing" in runner_prefix and "authorized root" in runner_prefix
+
+    dedup_start = source.index("async def dedup_stage")
+    dedup_end = source.index("async def chain_stage", dedup_start)
+    dedup_source = source[dedup_start:dedup_end]
+    assert "_successful_dependencies(dependencies)" not in dedup_source
+
+
 @pytest.mark.asyncio
 async def test_wayback_inventory_paginates_until_resume_key_is_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, str]] = []
