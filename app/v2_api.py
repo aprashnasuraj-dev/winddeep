@@ -734,17 +734,24 @@ def register_v2_api(
         items = asset_observations.list_scan(scan_id)
         by_tool: dict[str, int] = {}
         historical = 0
+        authorization_relation = {"in_scope": 0, "out_of_scope": 0, "unknown": 0}
         for item in items:
             tool = str(item.get("tool") or "unknown")
             by_tool[tool] = by_tool.get(tool, 0) + 1
             if item.get("temporal_scope") == "historical":
                 historical += 1
+            relation = str(item.get("authorization_relation") or "unknown")
+            if relation not in authorization_relation:
+                relation = "unknown"
+            authorization_relation[relation] += 1
         return jsonify(
             {
                 "scan_id": scan_id,
                 "count": len(items),
                 "historical": historical,
                 "current_or_unspecified": len(items) - historical,
+                "authorization_relation": authorization_relation,
+                "scope_behavior": "classify-only; observations are retained regardless of relation and do not rewrite scope",
                 "submission_candidates": 0,
                 "by_tool": dict(sorted(by_tool.items())),
                 "observations": items,
