@@ -235,5 +235,5 @@ def test_release_docs_and_ui_expose_simplified_v3_contract() -> None:
 def test_ui_smoke_respects_strict_csp_without_unsafe_eval() -> None:
     source = (ROOT / "scripts" / "audit" / "ui_v2_smoke.py").read_text(encoding="utf-8")
     assert "wait_for_function(" not in source
-    assert 'to_have_count(137' in source
+    assert 'to_have_count(140' in source
     assert 'to_have_attribute(' in source
