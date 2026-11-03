@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +19,7 @@ from app.v2_pipeline import (
     ScanEventLog,
     build_tool_nodes,
     canonical_bytes,
+    execute_scheduler_with_cancel,
 )
 
 
@@ -219,3 +221,40 @@ async def test_chain_builder_accepts_scan_finding_id_and_is_deterministic() -> N
     assert [edge.model_dump() for edge in first] == [edge.model_dump() for edge in second]
     assert [(edge.source_finding_id, edge.target_finding_id, edge.edge_type) for edge in first] == [(10, 20, "enables")]
     await bus.close()
+
+@pytest.mark.asyncio
+async def test_operator_cancel_flag_cancels_entire_scheduler_dag() -> None:
+    bus = EventBus(heartbeat_interval=60)
+    guard = SpyPreflight()
+    cancel_event = threading.Event()
+    started = asyncio.Event()
+    cleaned_up = asyncio.Event()
+
+    async def stage(context: object, deps: dict[str, object]) -> None:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaned_up.set()
+
+    scheduler = TaskScheduler(bus, preflight=guard)
+    task = asyncio.create_task(
+        execute_scheduler_with_cancel(
+            scheduler,
+            [PipelineNode("stage:slow", "stage", stage, timeout=60.0, tool_name="stage:slow").to_task_spec()],
+            SimpleNamespace(target="example.test", consent_id="c1"),
+            scan_id="v6-cancel-all",
+            cancel_event=cancel_event,
+            poll_interval=0.01,
+        )
+    )
+    await asyncio.wait_for(started.wait(), timeout=1.0)
+    cancel_event.set()
+
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=1.0)
+
+    assert cleaned_up.is_set()
+    assert scheduler.states["stage:slow"].status == "cancelled"
+    await bus.close()
+
