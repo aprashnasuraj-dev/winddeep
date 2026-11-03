@@ -252,3 +252,55 @@ async def test_program_policy_is_context_local_and_does_not_restrict_other_targe
     assert result == {"scanner": "ok"}
     assert calls == ["https://other-authorized.example"]
     await bus.close()
+
+@pytest.mark.asyncio
+async def test_scheduler_emits_live_activity_heartbeat_and_reserves_terminal_progress() -> None:
+    bus = EventBus(heartbeat_interval=60)
+    events: list[dict[str, object]] = []
+
+    async def collect() -> None:
+        async for event in bus.subscribe("scan.progress"):
+            events.append(dict(event.payload))
+            if event.payload.get("phase") == "finished":
+                return
+
+    collector = asyncio.create_task(collect())
+    await asyncio.sleep(0)
+
+    async def slow_runner(context: object, deps: dict[str, object]) -> str:
+        await asyncio.sleep(0.06)
+        return "ok"
+
+    scheduler = TaskScheduler(
+        bus,
+        preflight=FakePreflight(),
+        progress_heartbeat_interval=0.01,
+    )
+    result = await scheduler.execute(
+        [TaskSpec("slow", slow_runner, tool_name="slow-tool")],
+        _context(),
+        scan_id="v6-live-progress",
+    )
+    await asyncio.wait_for(collector, timeout=1.0)
+
+    assert result == {"slow": "ok"}
+    phases = [str(event.get("phase")) for event in events]
+    assert "started" in phases
+    assert "heartbeat" in phases
+    assert "finished" in phases
+    assert all(0.0 <= float(event.get("progress", 0.0)) <= 99.0 for event in events)
+    assert any(
+        task.get("tool") == "slow-tool"
+        for event in events
+        for task in event.get("running_tasks", [])
+        if isinstance(task, dict)
+    )
+    assert any(int(event.get("total_tasks", 0)) == 1 for event in events)
+    await bus.close()
+
+
+def test_scheduler_rejects_invalid_progress_heartbeat_interval() -> None:
+    bus = EventBus(heartbeat_interval=60)
+    with pytest.raises(ValueError, match="progress_heartbeat_interval"):
+        TaskScheduler(bus, preflight=FakePreflight(), progress_heartbeat_interval=0)
+
