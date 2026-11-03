@@ -5,6 +5,7 @@ on:
     paths:
       - 'reports/electroneum/A/tests/**'
       - 'reports/electroneum/A/test_supply_journal_test.go'
+      - 'reports/electroneum/A/test_fee_accounting_runtime_test.go'
       - '.github/workflows/electroneum-worker-a-ci.yml'
   workflow_dispatch:
     inputs:
@@ -76,6 +77,15 @@ jobs:
           cd "$scratch"
           go test -count=1 -timeout=30m -run '^TestWorkerA' -v ./core/state
           echo "WORKER_A_RUNTIME_REGRESSION_PASS"
+      - name: Certified EVM fee burn revert and priority waiver accounting oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod u+w "$WORKER_A_SCRATCH/core"
+          cp reports/electroneum/A/test_fee_accounting_runtime_test.go "$WORKER_A_SCRATCH/core/worker_a_fee_accounting_test.go"
+          cd "$WORKER_A_SCRATCH"
+          go test -count=1 -timeout=12m -run TestWorkerAFeeAndBurnStateTransition -v ./core
+          echo WORKER_A_REAL_EVM_FEE_ACCOUNTING_PASS
       - name: Sustained coverage-guided dual-oracle supply fuzz
         shell: bash
         env:
