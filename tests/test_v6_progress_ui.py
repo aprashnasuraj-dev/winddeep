@@ -45,6 +45,8 @@ def test_v6_ui_coalesces_event_refreshes_and_blocks_unrunnable_tools() -> None:
     assert 'probeTool(p.dataset.toolProbe)' in source
     assert 'active=(runtime.running_tasks||[])[0]' in source
     assert 'scheduleUiRefresh({scans:true,findings:true,overview:true})' in source
+    assert 'window.addEventListener("online"' in source
+    assert 'document.addEventListener("visibilitychange"' in source
     assert 'globalStreamConnected=false' in source
     assert 'setInterval(()=>{if(scans.some' in source
     assert 'terminalTransition' in source
