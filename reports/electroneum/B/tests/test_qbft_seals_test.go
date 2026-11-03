@@ -62,3 +62,23 @@ func FuzzWorkerBActualCommittedSeals(f *testing.F){
  f.Add(uint8(9),uint8(5),uint32(7))
  f.Fuzz(func(t *testing.T,n uint8,mode uint8,round uint32){workerBCase(t,int(n%13)+1,mode,round)})
 }
+
+// TestWorkerBRoundDomainCollision characterizes the real QBFT signing-domain
+// boundary. A digest collision alone is NOT a reachable consensus exploit.
+func TestWorkerBRoundDomainCollision(t *testing.T) {
+ engine,h,keys,vs:=workerBFixture(t,4)
+ round0:=big.NewInt(0)
+ roundHigh:=new(big.Int).Lsh(big.NewInt(1),32)
+ d0:=PrepareCommittedSeal(h,0)
+ dh:=PrepareCommittedSeal(h,uint32(roundHigh.Uint64()))
+ if string(d0)!=string(dh) {t.Fatal("expected exact 32-bit domain alias for same header")}
+ seals:=make([][]byte,3)
+ for i:=0;i<3;i++ {s,e:=crypto.Sign(d0,keys[i]);if e!=nil{t.Fatal(e)};seals[i]=s}
+ if e:=engine.CommitHeader(h,seals,roundHigh);e!=nil{t.Fatal(e)}
+ extra,e:=types.ExtractQBFTExtra(h);if e!=nil{t.Fatal(e)}
+ if extra.Round!=0 {t.Fatalf("2^32 round encoded as %d, expected 0",extra.Round)}
+ if e:=engine.VerifyCommittedSeals(nil,h,vs);e!=nil{t.Fatalf("round-zero signatures failed against high-round encoded header: %v",e)}
+ if e:=engine.CommitHeader(h,seals,round0);e!=nil{t.Fatal(e)}
+ if e:=engine.VerifyCommittedSeals(nil,h,vs);e!=nil{t.Fatal(e)}
+ t.Log("SOURCE_RUNTIME_DOMAIN_ALIAS round=0 and 2^32; 3/4 synthetic signers; consensus reachability NOT established")
+}
