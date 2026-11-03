@@ -189,5 +189,5 @@ def test_create_app_applies_evidence_and_v3_schema_before_routes(monkeypatch: py
         v3_rows = int(
             conn.execute("SELECT COUNT(*) AS n FROM v3_release_migrations WHERE version = 30").fetchone()["n"]
         )
-    assert versions == list(range(1, 9))
+    assert versions == list(range(1, 10))
     assert v3_rows == 1
