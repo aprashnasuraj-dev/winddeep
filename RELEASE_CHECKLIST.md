@@ -36,3 +36,8 @@ The final V6 candidate must include both:
 - [ ] Windows clean install/upgrade/uninstall and portable launch are verified.
 - [ ] Limitations and unsupported tool/runtime combinations are documented.
 - [ ] Only then set the release version, cut the V6 tag, and move PR #34 out of draft for final review.
+
+
+## Compatibility gates retained during V6 hardening
+
+V6 does not remove the existing release evidence contracts. The candidate must still pass `python scripts/audit/release_audit.py --phase V3` (or the workflow-equivalent invocation) and preserve durable SSE replay using `Last-Event-ID`. These compatibility checks are necessary but are not sufficient to close any V6 blocker above.
