@@ -505,11 +505,20 @@ async def run_p0_scan(
         broadcast(event_type, dict(event["data"]), scan_id)
         return event
 
+    progress_bridge_drained = asyncio.Event()
+    tool_bridge_drained = asyncio.Event()
+
     async def bridge_scheduler_events(topic: str) -> None:
         """Persist scheduler activity so UI progress cannot disappear inside EventBus."""
         async for scheduler_event in event_bus.subscribe(topic):
             payload = dict(scheduler_event.payload)
             payload.pop("scan_id", None)
+            if scheduler_event.topic == "scan.progress" and payload.get("phase") == "_bridge_flush":
+                progress_bridge_drained.set()
+                continue
+            if scheduler_event.topic == "tool.bridge_flush":
+                tool_bridge_drained.set()
+                continue
             if scheduler_event.topic == "scan.progress":
                 try:
                     progress = float(payload.get("progress", 0.0))
@@ -792,9 +801,25 @@ async def run_p0_scan(
                 scan_id=str(scan_id),
             )
         finally:
-            for bridge_task in bridge_tasks:
-                bridge_task.cancel()
-            await asyncio.gather(*bridge_tasks, return_exceptions=True)
+            # FIFO flush markers ensure fast scans cannot leave queued progress/tool
+            # events behind when the scheduler returns in the same loop turn.
+            await event_bus.publish(
+                "scan.progress",
+                {"scan_id": str(scan_id), "phase": "_bridge_flush"},
+            )
+            await event_bus.publish(
+                "tool.bridge_flush",
+                {"scan_id": str(scan_id)},
+            )
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(progress_bridge_drained.wait(), tool_bridge_drained.wait()),
+                    timeout=1.0,
+                )
+            finally:
+                for bridge_task in bridge_tasks:
+                    bridge_task.cancel()
+                await asyncio.gather(*bridge_tasks, return_exceptions=True)
         errors = [
             {"task": task_id, "error": state.error or "task failed"}
             for task_id, state in sorted(scheduler.states.items())
