@@ -446,6 +446,7 @@ class AssetObservationStore:
         tool_run_id: int,
         tool_name: str,
         observations: Sequence[Mapping[str, Any]],
+        scope_check: Callable[[str], bool] | None = None,
     ) -> list[dict[str, Any]]:
         now = time.time()
         normalized: list[dict[str, Any]] = []
@@ -455,9 +456,16 @@ class AssetObservationStore:
             endpoint = str(payload.get("endpoint") or "")
             title = str(payload.get("title") or endpoint or "Reconnaissance observation")
             temporal_scope = self._temporal_scope(tool_name, payload)
+            authorization_relation = "unknown"
+            if endpoint and scope_check is not None:
+                try:
+                    authorization_relation = "in_scope" if scope_check(endpoint) else "out_of_scope"
+                except Exception:
+                    authorization_relation = "unknown"
             evidence["result_role"] = "observation"
             evidence["submission_candidate"] = False
             evidence["temporal_scope"] = temporal_scope
+            evidence["authorization_relation"] = authorization_relation
             payload.update(
                 {
                     "title": title,
@@ -468,6 +476,7 @@ class AssetObservationStore:
                     "result_role": "observation",
                     "submission_candidate": False,
                     "temporal_scope": temporal_scope,
+                    "authorization_relation": authorization_relation,
                     "evidence": evidence,
                 }
             )
@@ -476,6 +485,7 @@ class AssetObservationStore:
                 "endpoint": endpoint,
                 "title": title,
                 "temporal_scope": temporal_scope,
+                "authorization_relation": authorization_relation,
             }
             payload["observation_fingerprint"] = hashlib.sha256(canonical_bytes(fingerprint_source)).hexdigest()
             normalized.append(payload)
@@ -595,8 +605,16 @@ class DependencyBlocked(RuntimeError):
     pass
 
 
+def _dependency_failures(dependencies: Mapping[str, Any]) -> dict[str, BaseException]:
+    return {
+        key: value
+        for key, value in dependencies.items()
+        if isinstance(value, BaseException)
+    }
+
+
 def _successful_dependencies(dependencies: Mapping[str, Any]) -> dict[str, Any]:
-    failures = {key: value for key, value in dependencies.items() if isinstance(value, BaseException)}
+    failures = _dependency_failures(dependencies)
     if failures:
         detail = ", ".join(f"{key}: {value}" for key, value in sorted(failures.items()))
         raise DependencyBlocked(detail)
@@ -768,7 +786,20 @@ async def run_p0_scan(
         retry_policy = RetryPolicy(max_attempts=min(8, max(0, int(getattr(cls, "retries", 0))) + 1))
 
         async def run_tool(scan_context: ScanContext, dependencies: Mapping[str, Any]) -> list[dict[str, Any]]:
-            _successful_dependencies(dependencies)
+            upstream_failures = _dependency_failures(dependencies)
+            if upstream_failures:
+                emit(
+                    "log",
+                    {
+                        "level": "warning",
+                        "module": tool_name,
+                        "message": (
+                            f"Continuing {tool_name} against the authorized root despite "
+                            f"{len(upstream_failures)} failed upstream reconnaissance task(s)."
+                        ),
+                        "upstream_failures": sorted(upstream_failures)[:16],
+                    },
+                )
             if cancel_event.is_set():
                 raise asyncio.CancelledError
             guard.authorize_scan(target=target, consent_id=consent_id)
@@ -824,6 +855,7 @@ async def run_p0_scan(
                             tool_run_id=run_id,
                             tool_name=tool_name,
                             observations=payloads,
+                            scope_check=scope.is_allowed,
                         )
                         persisted: list[dict[str, Any]] = []
                     else:
@@ -1051,11 +1083,16 @@ async def run_p0_scan(
         asset_observations = observations.list_scan(scan_id)
         observation_tools: dict[str, int] = {}
         historical_observations = 0
+        authorization_relations = {"in_scope": 0, "out_of_scope": 0, "unknown": 0}
         for item in asset_observations:
             tool = str(item.get("tool") or "unknown")
             observation_tools[tool] = observation_tools.get(tool, 0) + 1
             if item.get("temporal_scope") == "historical":
                 historical_observations += 1
+            relation = str(item.get("authorization_relation") or "unknown")
+            if relation not in authorization_relations:
+                relation = "unknown"
+            authorization_relations[relation] += 1
         assembled = EvidenceAssembler(database, crypto, audit).assemble_scan(scan_id)
         evidence_closed = sum(1 for item in assembled if item.get("state") == "closed")
         evidence_incomplete = sum(1 for item in assembled if item.get("state") == "incomplete")
@@ -1120,6 +1157,8 @@ async def run_p0_scan(
                 "historical": historical_observations,
                 "current_or_unspecified": len(asset_observations) - historical_observations,
                 "by_tool": dict(sorted(observation_tools.items())),
+                "authorization_relation": authorization_relations,
+                "scope_behavior": "classify-only; discovered observations never rewrite scan authorization or abort sibling tools",
                 "submission_candidates": 0,
             },
             "verification": {
