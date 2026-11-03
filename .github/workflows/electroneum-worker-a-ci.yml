@@ -4,6 +4,7 @@ on:
     branches: [electroneum-sc-master-audit]
     paths:
       - 'reports/electroneum/A/tests/**'
+      - 'reports/electroneum/A/test_supply_journal_test.go'
       - '.github/workflows/electroneum-worker-a-ci.yml'
   workflow_dispatch:
     inputs:
@@ -20,9 +21,6 @@ on:
         default: 300
 permissions:
   contents: read
-concurrency:
-  group: etn-worker-a-${{ github.ref }}
-  cancel-in-progress: false
 concurrency:
   group: etn-worker-a-certified-campaign
   cancel-in-progress: false
