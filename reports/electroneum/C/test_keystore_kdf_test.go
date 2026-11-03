@@ -14,6 +14,9 @@ func TestWorkerCKDFMalformedInputCharacterization(t *testing.T) {
  if err != nil || string(plain) != "synthetic-only" { t.Fatalf("valid control: %q %v", plain, err) }
  t.Log("C_KDF_VALID_CONTROL_PASS")
  cases := []struct{name string; change func(*CryptoJSON)}{
+  {"invalid_iv_length",func(c *CryptoJSON){c.CipherParams.IV="00"}},
+  {"invalid_cipher",func(c *CryptoJSON){c.Cipher="aes-256-ctr"}},
+  {"invalid_mac_hex",func(c *CryptoJSON){c.MAC="zz"}},
   {"missing_salt",func(c *CryptoJSON){delete(c.KDFParams,"salt")}},
   {"numeric_salt",func(c *CryptoJSON){c.KDFParams["salt"]=42}},
   {"string_dklen",func(c *CryptoJSON){c.KDFParams["dklen"]="32"}},
