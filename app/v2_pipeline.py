@@ -505,6 +505,64 @@ async def run_p0_scan(
         broadcast(event_type, dict(event["data"]), scan_id)
         return event
 
+    async def bridge_scheduler_events(topic: str) -> None:
+        """Persist scheduler activity so UI progress cannot disappear inside EventBus."""
+        async for scheduler_event in event_bus.subscribe(topic):
+            payload = dict(scheduler_event.payload)
+            payload.pop("scan_id", None)
+            if scheduler_event.topic == "scan.progress":
+                try:
+                    progress = float(payload.get("progress", 0.0))
+                except (TypeError, ValueError, OverflowError):
+                    progress = 0.0
+                progress = max(0.0, min(99.0, progress))
+                running_tasks = payload.get("running_tasks")
+                if not isinstance(running_tasks, list):
+                    running_tasks = []
+                runtime_summary = {
+                    "task": payload.get("task"),
+                    "phase": str(payload.get("phase") or "activity"),
+                    "completed_tasks": int(payload.get("completed_tasks") or 0),
+                    "failed_tasks": int(payload.get("failed_tasks") or 0),
+                    "cancelled_tasks": int(payload.get("cancelled_tasks") or 0),
+                    "total_tasks": int(payload.get("total_tasks") or 0),
+                    "running_tasks": running_tasks[:16],
+                    "last_event_at": time.time(),
+                }
+                database.update_scan(
+                    scan_id,
+                    status="running",
+                    progress=progress,
+                    results_summary={"runtime": runtime_summary},
+                )
+                emit(
+                    "progress",
+                    {
+                        **payload,
+                        "progress": progress,
+                        "status": "running",
+                        "source": "scheduler",
+                    },
+                )
+                continue
+            if scheduler_event.topic.startswith("tool."):
+                phase = scheduler_event.topic.split(".", 1)[1]
+                module = str(payload.get("tool") or payload.get("task") or "scheduler")
+                detail = str(payload.get("error") or "").strip()
+                message = f"{module} {phase}"
+                if detail and phase == "failed":
+                    message = f"{message}: {detail[:500]}"
+                emit(
+                    "log",
+                    {
+                        "level": "error" if phase == "failed" else "info",
+                        "module": module,
+                        "message": message,
+                        "task": payload.get("task"),
+                        "phase": phase,
+                    },
+                )
+
     database.update_scan(scan_id, status="running", started_at=time.time(), progress=0.0)
     emit("log", {"level": "info", "module": "v2-orchestrator", "message": f"{mode} DAG scan starting with {len(selected)} integration(s)."})
 
@@ -720,12 +778,23 @@ async def run_p0_scan(
         global_concurrency=max(1, min(8, len(tool_nodes) or 1)),
         per_tool_concurrency={"*": 1},
     )
+    bridge_tasks = [
+        asyncio.create_task(bridge_scheduler_events("scan.progress"), name=f"windeep:{scan_id}:bridge-progress"),
+        asyncio.create_task(bridge_scheduler_events("tool.*"), name=f"windeep:{scan_id}:bridge-tools"),
+    ]
+    # Give subscriptions one event-loop turn to register before the scheduler emits.
+    await asyncio.sleep(0)
     try:
-        results = await scheduler.execute(
-            [node.to_task_spec() for node in [*tool_nodes, *stage_nodes]],
-            context,
-            scan_id=str(scan_id),
-        )
+        try:
+            results = await scheduler.execute(
+                [node.to_task_spec() for node in [*tool_nodes, *stage_nodes]],
+                context,
+                scan_id=str(scan_id),
+            )
+        finally:
+            for bridge_task in bridge_tasks:
+                bridge_task.cancel()
+            await asyncio.gather(*bridge_tasks, return_exceptions=True)
         errors = [
             {"task": task_id, "error": state.error or "task failed"}
             for task_id, state in sorted(scheduler.states.items())
