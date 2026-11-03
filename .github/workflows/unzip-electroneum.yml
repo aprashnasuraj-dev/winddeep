@@ -1,0 +1,36 @@
+name: Unzip Electroneum snapshot
+
+on:
+  push:
+    branches:
+      - electroneum-sc-master-audit
+    paths:
+      - .github/workflows/unzip-electroneum.yml
+  workflow_dispatch:
+
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract and verify pinned snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show 7d93d2435750ef258445f4a57142bb7b43a644f4:electroneum-sc-master.zip > /tmp/electroneum-sc-master.zip
+          echo "3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b  /tmp/electroneum-sc-master.zip" | sha256sum -c -
+          mkdir -p /tmp/electroneum-sc
+          unzip -q /tmp/electroneum-sc-master.zip -d /tmp/electroneum-sc
+          echo "Extracted files: $(find /tmp/electroneum-sc -type f | wc -l)"
+
+      - name: Upload extracted snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: electroneum-sc-master-extracted
+          path: /tmp/electroneum-sc
+          retention-days: 1
+          compression-level: 0
