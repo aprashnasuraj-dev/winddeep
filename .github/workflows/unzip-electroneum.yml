@@ -26,11 +26,3 @@ jobs:
           mkdir -p /tmp/electroneum-sc
           unzip -q /tmp/electroneum-sc-master.zip -d /tmp/electroneum-sc
           echo "Extracted files: $(find /tmp/electroneum-sc -type f | wc -l)"
-
-      - name: Upload extracted snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: electroneum-sc-master-extracted
-          path: /tmp/electroneum-sc
-          retention-days: 1
-          compression-level: 0
