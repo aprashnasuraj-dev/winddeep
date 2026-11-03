@@ -269,6 +269,50 @@ def test_finding_writer_fails_closed_on_misrouted_observation(tmp_path: Path) ->
     assert database.list_findings(target_id=target_id, limit=100) == []
 
 
+def test_proof_context_rejects_same_or_unbound_control_flow(tmp_path: Path) -> None:
+    _crypto, database, generator, _target_id, scan_id, finding_id, _second_id, flow_id, _second_flow = _fixture(tmp_path)
+    finding = database.get_finding(finding_id)
+    assert finding is not None
+    bundle = generator.evidence.resolve(finding_id, scan_id=scan_id)
+    tool_output = bundle["tool_output"]
+    common = {
+        "finding": finding,
+        "scan_id": scan_id,
+        "tool_run_id": bundle["tool_run_id"],
+        "flow_ids": [flow_id],
+        "artifact_sha256": tool_output["artifact_sha256"],
+        "line_start": tool_output["line_start"],
+        "line_end": tool_output["line_end"],
+        "provenance": bundle["provenance"],
+        "exploitability": "observed",
+        "close": True,
+    }
+
+    with pytest.raises(ValueError, match="distinct"):
+        generator.evidence.build(
+            **common,
+            proof_context={
+                "security_property": "Authorization boundary",
+                "expected_behavior": "Unauthorized role is denied.",
+                "observed_behavior": "Candidate role receives data.",
+                "candidate_flow_ids": [flow_id],
+                "control_flow_ids": [flow_id],
+            },
+        )
+
+    with pytest.raises(ValueError, match="outside this bundle"):
+        generator.evidence.build(
+            **common,
+            proof_context={
+                "security_property": "Authorization boundary",
+                "expected_behavior": "Unauthorized role is denied.",
+                "observed_behavior": "Candidate role receives data.",
+                "candidate_flow_ids": [flow_id],
+                "control_flow_ids": [999999],
+            },
+        )
+
+
 def test_submission_stays_blocked_without_matched_control_even_after_triage(tmp_path: Path) -> None:
     crypto, database, generator, _target_id, scan_id, finding_id, _second_id, _flow_id, _second_flow = _fixture(tmp_path)
     database.update_scan(scan_id, status="completed")
