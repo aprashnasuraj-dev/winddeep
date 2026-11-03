@@ -1,0 +1,38 @@
+name: Electroneum pinned source gate
+
+on:
+  push:
+    branches:
+      - electroneum-sc-master-audit
+    paths:
+      - tools/electroneum_target_bootstrap.sh
+      - tests/electroneum_target_bootstrap_test.sh
+      - reports/electroneum/TARGET_CERTIFICATE.json
+      - reports/electroneum/TARGET_MANIFEST.md
+      - reports/electroneum/MASTER_AUDIT_CONTRACT.md
+      - reports/electroneum/SOURCE_PROVENANCE.json
+      - vendor/electroneum-sc/**
+      - .github/workflows/electroneum-pinned-source-gate.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: electroneum-pinned-source-gate
+  cancel-in-progress: false
+
+jobs:
+  source-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: electroneum-sc-master-audit
+          fetch-depth: 0
+      - name: Run positive, negative, and legacy-equivalence tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash tests/electroneum_target_bootstrap_test.sh

@@ -18,7 +18,7 @@ For every A-E audit, synchronize the latest audit branch and run:
 source tools/electroneum_target_bootstrap.sh
 ```
 
-The bootstrap verifies that `HEAD:vendor/electroneum-sc` resolves to the certified subtree SHA, materializes those Git-object bytes into a fresh scratch directory, makes that materialization read-only, and exports `WINDEEP_ETN_SOURCE`.
+The bootstrap verifies the schema-2 certificate, requires the immutable Windeep source commit object, checks both that commit and `HEAD:vendor/electroneum-sc` resolve to the certified subtree SHA, rejects dirty source checkouts, materializes bytes from the immutable source commit into a fresh read-only scratch directory, and exports `WINDEEP_ETN_SOURCE`.
 
 Required runtime identities:
 
@@ -35,3 +35,10 @@ The Git tree SHA is the everyday canonical target identity. The archive hash is 
 ## Certification repair note
 
 The earlier Windeep source commit `21162f549d95e4117bb954426cba436262ef4b2f` / tree `3571f9f8e31ca3f2e85c2a32acbc002bc3a177cc` is superseded and MUST NOT be used. Its enclosing Git add respected nested upstream ignore rules and omitted 77 upstream-tracked blobs. The repaired immutable source commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0` force-staged the extracted certified source and was verified against `electroneum/electroneum-sc@3aeb14db0d6384243302f3a025bdff904dc28bf6`: 1,921 upstream blobs, 1,921 Windeep blobs, zero missing, zero extra, zero blob-SHA mismatches. The two upstream gitlinks are recorded in the certificate but are not materialized into the extracted audit target.
+
+
+## Migration gate
+
+- Provenance chain: `reports/electroneum/SOURCE_PROVENANCE.json`.
+- Required gate before A-E worker switch: `.github/workflows/electroneum-pinned-source-gate.yml`.
+- The gate compares the historical ZIP extraction with the pinned Git-object materialization path-for-path and byte-for-byte, then exercises all required negative controls.

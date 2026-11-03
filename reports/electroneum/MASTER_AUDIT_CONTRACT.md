@@ -160,3 +160,12 @@ Style: clear, direct, active voice; no fluff; no first-person discovery narrativ
 ## No-finding report standard
 
 A run with no confirmed vulnerability is still required to produce a report. It must state exactly what was tested, which hypotheses were disproven or remain open, which negative controls held, what Windeep coverage was added, and what should be tested next. Never write only “no issue found”, “scanner clean”, or equivalent.
+
+
+## Pinned-source migration gate
+
+The immutable source identity is commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, subtree `de7f3c75a2db7e87a89918f1257820703d5b731e`, with machine-readable target identity in `reports/electroneum/TARGET_CERTIFICATE.json` and provenance chain in `reports/electroneum/SOURCE_PROVENANCE.json`.
+
+Before any A-E scheduled worker is switched from the historical ZIP path, `.github/workflows/electroneum-pinned-source-gate.yml` MUST pass. The gate proves valid bootstrap success; rejection of a wrong tree, a modified checkout, a missing certified Git object, and a malicious symlink; and path-for-path, byte-for-byte equivalence between the legacy ZIP extraction and immutable Git-object materialization.
+
+Workers must not fetch an alternate upstream source as fallback. In a shallow checkout they may fetch the exact Windeep certified source commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0` so the immutable object exists locally; any other substitution is a hard failure.
