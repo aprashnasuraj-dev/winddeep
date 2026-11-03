@@ -59,3 +59,41 @@ func TestWorkerCChainDomainAndAuthorization(t *testing.T) {
     }
     t.Log("WORKER_C_MALFORMED_SIGNATURE_REJECTED")
 }
+
+ 
+// Coverage-guided, synthetic-only transaction signing attack surface.
+// Fuzzing varies value, nonce, recipient, payload and signing-domain semantics.
+func FuzzWorkerCTransactionBinding(f *testing.F) {
+    f.Add([]byte{1, 2, 3, 4, 5, 6})
+    f.Add([]byte{0, 0, 0, 0, 255, 128, 1, 9})
+    f.Add([]byte{255, 255, 127, 5, 1, 9, 0})
+    f.Fuzz(func(t *testing.T, data []byte) {
+        if len(data) < 4 || len(data) > 256 { return }
+        key, err := crypto.HexToECDSA("0c28fca386c7a22798d919f56938b5d1be56451eae0f9d6f74ddc89348e16ee1")
+        if err != nil { t.Fatal(err) }
+        signer := NewEIP155Signer(big.NewInt(52014))
+        owner := crypto.PubkeyToAddress(key.PublicKey)
+        to := common.BytesToAddress(data)
+        nonce := uint64(data[0])<<8 | uint64(data[1])
+        amount := new(big.Int).SetBytes(data[2:])
+        tx := NewTransaction(nonce, to, amount, 21000+uint64(data[2]), big.NewInt(1), data[3:])
+        signed, err := SignTx(tx, signer, key)
+        if err != nil { t.Fatalf("sign baseline: %v", err) }
+        if recovered, err := Sender(signer, signed); err != nil || recovered != owner {
+            t.Fatalf("valid signer mismatch: %s %v", recovered, err)
+        }
+        if _, err := Sender(NewEIP155Signer(big.NewInt(52015)), signed); err == nil {
+            t.Fatal("cross-chain replay accepted")
+        }
+        v, r, s := signed.RawSignatureValues()
+        otherAmount := new(big.Int).Add(amount, big.NewInt(1))
+        changed := NewTx(&LegacyTx{
+            Nonce: nonce, To: &to, Value: otherAmount, Gas: 21000+uint64(data[2]),
+            GasPrice: big.NewInt(1), Data: data[3:],
+            V: new(big.Int).Set(v), R: new(big.Int).Set(r), S: new(big.Int).Set(s),
+        })
+        if recovered, err := Sender(signer, changed); err == nil && recovered == owner {
+            t.Fatal("mutated value incorrectly authorized as original sender")
+        }
+    })
+}
