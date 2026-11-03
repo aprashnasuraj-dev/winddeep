@@ -97,11 +97,18 @@ class _ProofFlows:
         }
 
     def get_flow_by_id(self, flow_id: int):
-        return dict(self.source) if flow_id == 12 else None
+        if flow_id == 12:
+            return dict(self.source)
+        for row in self.rows:
+            if row.get("id") == flow_id:
+                return dict(row)
+        return None
 
     def insert_flow(self, flow: dict) -> int:
-        self.rows.append(dict(flow))
-        return 100 + len(self.rows)
+        row = dict(flow)
+        row["id"] = 101 + len(self.rows)
+        self.rows.append(row)
+        return row["id"]
 
 
 class _ProofReplay(_Replay):
@@ -117,12 +124,25 @@ class _ProofReplay(_Replay):
         )
 
     async def execute(self, plan: _Plan) -> dict:
-        result = await super().execute(plan)
-        result["url"] = plan.url
-        result["response_headers"] = {
-            "content-type": "application/json",
-            "set-cookie": "session=server-secret",
+        auth = (plan.headers or {}).get("Authorization", "")
+        candidate = auth.endswith("candidate-secret")
+        result = {
+            "flow_id": plan.flow_id,
+            "method": plan.method,
+            "url": plan.url,
+            "status": 200 if candidate else 403,
+            "response_headers": {
+                "content-type": "application/json",
+                "set-cookie": "session=server-secret",
+            },
+            "response_body": (
+                b'{"id":7,"owner":"other-account"}'
+                if candidate
+                else b'{"error":"forbidden"}'
+            ),
+            "diff": {"body": {"changed": True}},
         }
+        self.executed.append(plan)
         return result
 
 
@@ -194,6 +214,7 @@ def test_authorization_diff_captures_distinct_redacted_proof_flows() -> None:
             security_property="Object reads must enforce caller authorization.",
             expected_behavior="The control role is denied access to object 7.",
             observed_behavior="The candidate role receives object 7 data.",
+            candidate_expected_denied=True,
         )
     )
 
@@ -211,6 +232,25 @@ def test_authorization_diff_captures_distinct_redacted_proof_flows() -> None:
     assert all("replay-secret" not in row["url"] for row in replay.flows.rows)
     assert all("REDACTED" in row["url"] for row in replay.flows.rows)
     assert audit.events[-1][0] == "p4.authorization_proof.captured"
+
+
+def test_authorization_proof_capture_rejects_unproven_or_unexpected_candidate() -> None:
+    preflight = _Preflight()
+    replay = _ProofReplay()
+    audit = _Audit()
+    differ = AuthorizationDiffer(preflight=preflight, replay=replay, audit=audit)
+    kwargs = {
+        "target": "https://example.test/object/7",
+        "consent_id": "consent-1",
+        "flow_id": 12,
+        "candidate_session": {"Authorization": "Bearer candidate-secret"},
+        "control_session": {"Authorization": "Bearer control-secret"},
+        "security_property": "Object reads must enforce caller authorization.",
+        "expected_behavior": "The candidate should be denied.",
+        "observed_behavior": "The candidate receives object data.",
+    }
+    with pytest.raises(ValueError, match="candidate_expected_denied"):
+        asyncio.run(differ.compare_for_proof(**kwargs, candidate_expected_denied=False))
 
 
 def test_malicious_evidence_cannot_trigger_out_of_scope_replay() -> None:
