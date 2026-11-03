@@ -35,6 +35,7 @@ jobs:
           test "$WINDEEP_ETN_PINNED_SOURCE_COMMIT" = "3aeb14db0d6384243302f3a025bdff904dc28bf6"
           test "$WINDEEP_ETN_ARCHIVE_SHA256" = "3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b"
           printf 'CERTIFIED_E_SOURCE=%s\n' "$WINDEEP_ETN_SOURCE"
+          printf 'WINDEEP_ETN_SOURCE=%s\n' "$WINDEEP_ETN_SOURCE" >> "$GITHUB_ENV"
           printf 'ETN_WORKER_E_BOOTSTRAP_PASS\n'
       - name: Setup Go from certified source version
         uses: actions/setup-go@v5
@@ -65,7 +66,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 reports/electroneum/E/mutation_oracle.py "$ETN_E_SCRATCH" inject
+          python3 "$GITHUB_WORKSPACE/reports/electroneum/E/mutation_oracle.py" "$ETN_E_SCRATCH" inject
           cd "$ETN_E_SCRATCH"
           set +e
           go test -count=1 -timeout=8m -run '^TestWorkerE' -v ./core/rawdb 2>&1 | tee "$RUNNER_TEMP/worker-e-mutant.log"
