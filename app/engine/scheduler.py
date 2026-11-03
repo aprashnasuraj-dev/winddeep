@@ -42,6 +42,7 @@ class TaskSpec:
     continue_on_error: bool = False
     rate_cost: float = 1.0
     execution_kind: str = "automated_tool"
+    timeout: float | None = None
 
 
 @dataclass(slots=True)
@@ -176,7 +177,10 @@ class TaskScheduler:
                         await self._preflight.acquire_rate(tool_key, cost=spec.rate_cost)
                         value = spec.runner(context, dependency_results)
                         if inspect.isawaitable(value):
-                            value = await value
+                            if spec.timeout is not None:
+                                value = await asyncio.wait_for(value, timeout=spec.timeout)
+                            else:
+                                value = await value
                 results[name] = value
                 state.status = "completed"
                 return value
@@ -184,6 +188,25 @@ class TaskScheduler:
                 state.status = "cancelled"
                 await self._event_bus.publish("tool.cancelled", {"scan_id": scan_id, "task": name})
                 raise
+            except asyncio.TimeoutError as exc:
+                state.status = "failed"
+                timeout_text = f"{float(spec.timeout):g}" if spec.timeout is not None else "configured"
+                state.error = f"task timed out after {timeout_text} seconds"
+                await self._event_bus.publish(
+                    "tool.failed",
+                    {
+                        "scan_id": scan_id,
+                        "task": name,
+                        "error": state.error,
+                        "reason": "timeout",
+                        "timeout_seconds": spec.timeout,
+                    },
+                )
+                timeout_error = TimeoutError(state.error)
+                if spec.continue_on_error:
+                    results[name] = timeout_error
+                    return timeout_error
+                raise PipelineExecutionError(name, timeout_error) from exc
             except Exception as exc:
                 state.status = "failed"
                 state.error = str(exc)
@@ -260,6 +283,8 @@ class TaskScheduler:
                 raise PipelineConfigurationError(f"task weight must be > 0: {spec.name}")
             if spec.rate_cost <= 0:
                 raise PipelineConfigurationError(f"task rate_cost must be > 0: {spec.name}")
+            if spec.timeout is not None and spec.timeout <= 0:
+                raise PipelineConfigurationError(f"task timeout must be > 0: {spec.name}")
             if not spec.execution_kind.strip():
                 raise PipelineConfigurationError(f"task execution_kind cannot be empty: {spec.name}")
             specs[spec.name] = spec
