@@ -307,6 +307,66 @@ class EvidenceBundleStore:
         return "artifact"
 
     @staticmethod
+    def _normalize_proof_context(
+        proof_context: Mapping[str, Any] | None,
+        flows: Sequence[Mapping[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Bind expected/observed claims to distinct captured candidate and control flows."""
+        if proof_context is None:
+            return None
+        if not isinstance(proof_context, Mapping):
+            raise ValueError("proof_context must be an object")
+        security_property = str(proof_context.get("security_property") or "").strip()
+        expected_behavior = str(proof_context.get("expected_behavior") or "").strip()
+        observed_behavior = str(proof_context.get("observed_behavior") or "").strip()
+        if not security_property:
+            raise ValueError("proof_context.security_property is required")
+        if not expected_behavior:
+            raise ValueError("proof_context.expected_behavior is required")
+        if not observed_behavior:
+            raise ValueError("proof_context.observed_behavior is required")
+
+        def ids_for(key: str) -> list[int]:
+            raw = proof_context.get(key)
+            if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+                raise ValueError(f"proof_context.{key} must be a sequence of flow ids")
+            values = sorted({int(value) for value in raw})
+            if not values:
+                raise ValueError(f"proof_context.{key} must not be empty")
+            return values
+
+        candidate_ids = ids_for("candidate_flow_ids")
+        control_ids = ids_for("control_flow_ids")
+        overlap = sorted(set(candidate_ids).intersection(control_ids))
+        if overlap:
+            raise ValueError(f"proof candidate/control flows must be distinct: {overlap}")
+
+        flow_by_id = {int(flow["id"]): dict(flow) for flow in flows if flow.get("id") is not None}
+        missing = sorted((set(candidate_ids) | set(control_ids)).difference(flow_by_id))
+        if missing:
+            raise ValueError(f"proof_context references flow ids outside this bundle: {missing}")
+
+        def refs(ids: Sequence[int]) -> list[dict[str, Any]]:
+            return [
+                {
+                    "id": flow_id,
+                    "sha256": str(flow_by_id[flow_id]["sha256"]),
+                    "method": str(flow_by_id[flow_id].get("method") or ""),
+                    "url": str(flow_by_id[flow_id].get("url") or ""),
+                    "status": flow_by_id[flow_id].get("status"),
+                }
+                for flow_id in ids
+            ]
+
+        return {
+            "security_property": security_property,
+            "expected_behavior": expected_behavior,
+            "observed_behavior": observed_behavior,
+            "candidate_flows": refs(candidate_ids),
+            "control_flows": refs(control_ids),
+        }
+
+    @staticmethod
     def _reproduction(
         flows: Sequence[Mapping[str, Any]],
         tool_output: Mapping[str, Any] | None,
@@ -403,6 +463,7 @@ class EvidenceBundleStore:
         reflected_marker: Mapping[str, Any] | None = None,
         browser_observation: Mapping[str, Any] | None = None,
         evidence_profile: str | None = None,
+        proof_context: Mapping[str, Any] | None = None,
         close: bool = False,
     ) -> dict[str, Any]:
         """Build a deterministic bundle and optionally require it to be complete."""
@@ -429,6 +490,7 @@ class EvidenceBundleStore:
         plan = tuple(str(item) for item in human_plan if str(item).strip())
         profile = self._profile(finding, flows=flows, explicit=evidence_profile)
         reproduction = self._reproduction(flows, tool_output, plan, profile=profile)
+        normalized_proof_context = self._normalize_proof_context(proof_context, flows)
 
         screenshot: dict[str, Any] | None = None
         if browser_observation:
@@ -475,6 +537,7 @@ class EvidenceBundleStore:
             "tool_output": tool_output,
             "provenance": normalized_provenance,
             "reproduction": reproduction,
+            "proof_context": normalized_proof_context,
             "reflected_marker": reflection,
             "browser_observation": screenshot,
             "confidence": self._confidence(finding.get("confidence")),
