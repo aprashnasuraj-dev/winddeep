@@ -4,7 +4,7 @@ This is an **unconfirmed candidate ledger**, not the confirmed-vulnerability rep
 
 ## R-E-010 — Counterexample-first analysis of nil-header handling in transaction receipt RPC
 
-**Status:** SOURCE-SUPPORTED, independent actual Go runtime **RUNNING/WAITING_CI** at initial report time. **Security exploitability:** NOT CONFIRMED. **Order:** Reverse pass #1, newest open E topic (followed by older E items, then D, C, B, A). **Threat:** untrusted or lower-privilege caller sends `eth_getTransactionReceipt` for an actual transaction; requires block header lookup to disappear while transaction index and receipts remain retrievable. No public node has been probed.
+**Status:** CONFIRMED TARGET-RUNTIME SOFTWARE DEFECT for a synthetically missing London header; **attacker-reachable security vulnerability remains OPEN/UNCONFIRMED**. Independent fail-closed oracle and scratch-only corrective mutation executed successfully. **Order:** Reverse pass #1, newest open E topic (followed by older E items, then D, C, B, A). **Threat:** untrusted or lower-privilege caller sends `eth_getTransactionReceipt` for an actual transaction; requires block header lookup to disappear while transaction index and receipts remain retrievable. No public node has been probed.
 
 ### 1. Vulnerability Detail with Proof of /electroneum-sc Git Codes/Sources
 
@@ -25,13 +25,19 @@ This is an **unconfirmed candidate ledger**, not the confirmed-vulnerability rep
 
 **Synthetic, local only.** Independent worker file [`reverse_e_rpc_header_test.go`](https://github.com/aprashnasuraj-dev/winddeep/blob/electroneum-sc-master-audit/reports/electroneum/C/reverse/reverse_e_rpc_header_test.go) calls the **real** certified `PublicTransactionPoolAPI.GetTransactionReceipt` with a controlled backend and five cases: coherent London receipt; no receipt; pre-London nil header; London nil header; and mismatched receipt identity.
 
-**Executable CI:** [run 41742642862](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41742642862), isolated class R workflow `.github/workflows/electroneum-reverse-independent-ci.yml`. First run was IN_PROGRESS at report creation. Bootstrap/check source identities, clone certified bytes into private `$RUNNER_TEMP/worker-r-scratch`, run:
+**Executed CI:** [run 41742642862](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41742642862), isolated class R workflow `.github/workflows/electroneum-reverse-independent-ci.yml`. Run 41742642862, job 126287716651, completed SUCCESS; the certificate/bootstrap step, all five Go defense-matrix subtests, negative fail-closed oracle sensitivity and scratch-only guard recovery succeeded. Bootstrap/check source identities, clone certified bytes into private `$RUNNER_TEMP/worker-r-scratch`, run:
 ```bash
 go test -count=1 -timeout=10m -run '^TestReverseEReceiptDefenseMatrix$' -v ./internal/ethapi
 ```
 Then run strict independent fail-closed oracle expected to fail on actual source **only when a named mismatch assertion fires**, patch a *scratch-only* missing-header guard, and require the same oracle to pass; verify immutable certified source unchanged. Do not count a pre-execution YAML/Go compile error as a vulnerability.
 
-**Expected behavior, not observed at this checkpoint:** synthetic London missing-header path likely panics. The counterexamples and patch sensitivity must be certified by completed CI step/log outcomes. Exact target-runtime outputs and exit codes are **PENDING**, not invented.
+**Decisive actual logs (certified Go runtime):**
+- `REVERSE_E_VALID_LONDON_CONTROL_PASS`, `REVERSE_E_NO_RECEIPT_DEFENSE_PASS`, `REVERSE_E_PRE_LONDON_COUNTEREXAMPLE_PASS` — controls passed.
+- `REVERSE_E_RUNTIME_NIL_HEADER_PANIC_OBSERVED type=runtime.errorString value=runtime error: invalid memory address or nil pointer dereference` — runtime defect reproduced by actual exported receipt handler using synthetic Backend.
+- `REVERSE_E_SYNTHETIC_RECEIPT_MISMATCH` — separate source-level observation, not real full-node proof.
+- `TestReverseEFailClosedOracle` **intentionally failed** with `REVERSE_E_FAIL_CLOSED_ORACLE_MISMATCH`, exit code **1**. Workflow verified the exact marker; an unrelated Go compilation or runner failure would not qualify.
+- Scratch-only `reverse_e_guard_patch.py` inserted a defensive missing-header error into `internal/ethapi/api.go`; rerunning the same strict oracle and defense matrix **PASSED**, including `REVERSE_E_FAIL_CLOSED_ORACLE_PASS`. `sha256sum --check` validated the read-only certified file remained unchanged. Complete Actions run status SUCCESS, not a claim of production exploitation.
+- The Go runtime result is a **conditional nil-header panic**. Real full-node race/pruning preconditions, RPC panic-recovery behavior and ability of an untrusted caller to force those conditions remain **UNTESTED**; no transaction loss or node outage demonstrated.
 
 ### 4. Recommendation
 
