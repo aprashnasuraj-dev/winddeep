@@ -221,7 +221,7 @@ def test_custom_regex_can_assess_literal_text() -> None:
     assert rows[0]["evidence"]["source"] == "<target>"
 
 
-def test_operational_factory_exposes_137_and_builtin_execution(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_operational_factory_exposes_140_and_builtin_execution(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     # The branch migration runs before this suite and expands the runtime includes
     # to the complete eight-file catalog while preserving the six certified
     # Windows payloads as a separate packaging concern.
@@ -229,7 +229,7 @@ def test_operational_factory_exposes_137_and_builtin_execution(monkeypatch: pyte
 
     root = Path(__file__).resolve().parents[1]
     classes = ToolWrapperFactory(root / "tools_config.json").load()
-    assert len(classes) == 137
+    assert len(classes) == 140
     assert {"crtsh", "shodan", "censys", "etherscan", "mobsf", "remix", "custom_regex"}.issubset(classes)
 
     async def fake_run(name: str, target: str, *, environment=None):
