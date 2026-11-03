@@ -37,7 +37,7 @@ DIAGNOSTICS = {
 
 def test_catalog_target_binding_and_diagnostic_classification() -> None:
     classes = ToolWrapperFactory(ROOT / "tools_config.json").load()
-    assert len(classes) == 137
+    assert len(classes) == 140
     assert {name for name, cls in classes.items() if cls.result_role == "diagnostic"} == DIAGNOSTICS
     assert Counter(cls.output_parser.__name__ for cls in classes.values()) == {"_line_parser": 130, "_jsonl_parser": 7}
     for name, cls in classes.items():
