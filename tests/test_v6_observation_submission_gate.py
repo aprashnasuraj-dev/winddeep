@@ -314,6 +314,20 @@ def test_proof_context_rejects_same_or_unbound_control_flow(tmp_path: Path) -> N
         )
 
 
+def test_submission_preview_fails_closed_when_verification_schema_is_absent(tmp_path: Path) -> None:
+    _crypto, database, generator, _target_id, scan_id, finding_id, _second_id, _flow_id, _second_flow = _fixture(tmp_path)
+    database.update_scan(scan_id, status="completed")
+    draft = SubmissionDraftGenerator(generator).render_finding(
+        finding_id,
+        scan_id=scan_id,
+        scan_status="completed",
+    )
+    readiness = draft.model["submission_readiness"]
+    assert readiness["submission_candidate"] is False
+    assert readiness["verification"]["recorded"] is False
+    assert "claim_verification_not_recorded" in readiness["blocking_reasons"]
+
+
 def test_submission_stays_blocked_without_matched_control_even_after_triage(tmp_path: Path) -> None:
     crypto, database, generator, _target_id, scan_id, finding_id, _second_id, _flow_id, _second_flow = _fixture(tmp_path)
     apply_v3_release_migration(database.path)
