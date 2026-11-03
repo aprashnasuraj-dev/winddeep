@@ -23,6 +23,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from app.tools import builtin_fallbacks, builtin_integrations
+from app.tools.source_parsers import parse_gosec_json, parse_govulncheck_json, parse_staticcheck_jsonl
 from app.tools.backends import BackendExecutionError, BackendUnavailableError, ExecutionResolver
 from app.tools.provisioning import provisioned_candidates, restore_cached_binary
 
@@ -142,7 +143,13 @@ def _jsonl_parser(raw: str, tool: str, target: str) -> list[Finding]:
     return findings
 
 
-_BUILTIN_PARSERS: dict[str, Parser] = {"lines": _line_parser, "jsonl": _jsonl_parser}
+_BUILTIN_PARSERS: dict[str, Parser] = {
+    "lines": _line_parser,
+    "jsonl": _jsonl_parser,
+    "gosec_json": parse_gosec_json,
+    "govulncheck_json": parse_govulncheck_json,
+    "staticcheck_jsonl": parse_staticcheck_jsonl,
+}
 _TYPE_MAP: dict[str, Any] = {
     "str": str,
     "int": int,
@@ -219,6 +226,7 @@ class ToolWrapperBase:
     builtin_fallback: ClassVar[str] = ""
     alias_to: ClassVar[str] = ""
     probe: ClassVar[tuple[str, ...]] = ()
+    working_directory_template: ClassVar[str] = ""
 
     def __init__(
         self,
@@ -498,10 +506,25 @@ class ToolWrapperBase:
                 await asyncio.sleep(delay)
             self._last_started = time.monotonic()
 
+    def _working_directory(self) -> Path | None:
+        template = str(self.working_directory_template or "").strip()
+        if not template:
+            return None
+        # Active probes run before a target is bound. Real source analyzers are
+        # target-bound and resolve their module root only during scan execution.
+        if not self.current_target:
+            return None
+        rendered = template.format_map({"target": self.current_target})
+        path = Path(rendered).expanduser().resolve(strict=True)
+        if not path.is_dir():
+            raise ValueError(f"working directory is not a directory: {path}")
+        return path
+
     async def _run_process(self, argv: Sequence[str], stdin_data: bytes | None = None) -> tuple[str, str, int]:
         creationflags = 0
         if os.name == "nt":
             creationflags = getattr(__import__("subprocess"), "CREATE_NO_WINDOW", 0)
+        working_directory = self._working_directory()
         process = await asyncio.create_subprocess_exec(
             *argv,
             stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
@@ -509,6 +532,7 @@ class ToolWrapperBase:
             stderr=asyncio.subprocess.PIPE,
             creationflags=creationflags,
             env=self.environment,
+            cwd=str(working_directory) if working_directory is not None else None,
         )
         try:
             stdout, stderr = await self._await_with_cancel(process.communicate(stdin_data), timeout=self.timeout)
@@ -623,6 +647,9 @@ class ToolWrapperFactory:
         stdin_template = definition.get("stdin")
         if stdin_template is not None and not isinstance(stdin_template, str):
             raise ValueError(f"tool stdin must be a string template: {name}")
+        working_directory_template = definition.get("working_directory", "")
+        if not isinstance(working_directory_template, str):
+            raise ValueError(f"working_directory must be a string template: {name}")
         parser_name = str(definition.get("parser", "lines"))
         if parser_name not in self.parsers:
             raise ValueError(f"unknown parser '{parser_name}' for tool '{name}'")
@@ -682,6 +709,7 @@ class ToolWrapperFactory:
                 "builtin_fallback": str(definition.get("builtin_fallback") or ""),
                 "alias_to": str(definition.get("alias_to") or ""),
                 "probe": tuple(probe),
+                "working_directory_template": working_directory_template,
                 "__module__": __name__,
             },
         )
