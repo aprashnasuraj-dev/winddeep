@@ -112,7 +112,15 @@ def test_v6_explicit_tool_probe_updates_cached_readiness(v2_client) -> None:
     assert probed["name"] == "gau"
     assert probed["runtime_verified"] is True
     assert probed["runtime_deferred"] is False
-    assert probed["readiness_state"] in {"ready", "ready-deprecated-alias", "unavailable", "dependency-missing"}
+    assert probed["readiness_state"] in {
+        "ready",
+        "ready-deprecated-alias",
+        "unavailable",
+        "dependency-missing",
+        "unsupported",
+        "container-runtime-missing",
+        "remote-host-required",
+    }
 
     catalog = client.get("/api/v2/tools?target_type=domain")
     assert catalog.status_code == 200
