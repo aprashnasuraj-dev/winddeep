@@ -63,10 +63,4 @@ jobs:
               print(f"N={n} quorum={required} duplicate/non-validator controls=REJECT")
           print("Worker B: independent oracle fixture PASS; NOT proof of target-runtime signature enforcement")
           PY
-      - name: Upload reproducible checker evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: worker-b-source-contract
-          path: ${{ runner.temp }}/worker-b-source-contract.json
-          if-no-files-found: ignore
+      # Evidence remains in this GitHub Actions job log; avoid artifact storage quota.
