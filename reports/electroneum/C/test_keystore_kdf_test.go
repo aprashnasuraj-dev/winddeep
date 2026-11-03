@@ -20,6 +20,8 @@ func TestWorkerCKDFMalformedInputCharacterization(t *testing.T) {
   {"short_dklen",func(c *CryptoJSON){c.KDFParams["dklen"]=8}},
   {"missing_n",func(c *CryptoJSON){delete(c.KDFParams,"n")}},
   {"invalid_scrypt_n",func(c *CryptoJSON){c.KDFParams["n"]=3}},
+  {"missing_pbkdf2_prf",func(c *CryptoJSON){c.KDF="pbkdf2";c.KDFParams["c"]=1;delete(c.KDFParams,"prf")}},
+  {"numeric_pbkdf2_prf",func(c *CryptoJSON){c.KDF="pbkdf2";c.KDFParams["c"]=1;c.KDFParams["prf"]=123}},
  }
  for _,tc:=range cases {t.Run(tc.name,func(t *testing.T){
   c:=baseline
