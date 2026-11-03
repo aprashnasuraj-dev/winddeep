@@ -26,14 +26,29 @@ jobs:
           ref: electroneum-sc-master-audit
           fetch-depth: 1
 
-      - name: Refuse to overwrite an existing certified target
+      - name: Guard certification creation or one-time parity repair
         shell: bash
         run: |
           set -euo pipefail
-          if [[ -e vendor/electroneum-sc || -e reports/electroneum/TARGET_CERTIFICATE.json ]]; then
-            echo "Certified target already exists; refusing to replace it from the certification workflow." >&2
+          old_tree="3571f9f8e31ca3f2e85c2a32acbc002bc3a177cc"
+          if [[ ! -e vendor/electroneum-sc && ! -e reports/electroneum/TARGET_CERTIFICATE.json ]]; then
+            echo "No existing certification; normal certification path."
+            exit 0
+          fi
+          test -d vendor/electroneum-sc
+          test -f reports/electroneum/TARGET_CERTIFICATE.json
+          current_tree="$(git rev-parse HEAD:vendor/electroneum-sc)"
+          cert_tree="$(python - <<'PY'
+          import json
+          print(json.load(open("reports/electroneum/TARGET_CERTIFICATE.json", encoding="utf-8"))["git_tree_sha"])
+          PY
+          )"
+          if [[ "$current_tree" != "$old_tree" || "$cert_tree" != "$old_tree" ]]; then
+            echo "Certified target already exists and is not the known incomplete tree; refusing replacement." >&2
+            echo "current_tree=$current_tree cert_tree=$cert_tree" >&2
             exit 60
           fi
+          echo "Known incomplete certification detected; permitting one-time parity repair."
 
       - name: Verify archive provenance and materialize canonical source
         shell: bash
@@ -48,43 +63,109 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- vendor/electroneum-sc
+          # Force-add is required because the upstream source intentionally
+          # contains tracked files below paths matched by nested .gitignore rules.
+          git add -f -- vendor/electroneum-sc
           test -n "$(git diff --cached --name-only)"
-          git commit -m "audit: certify immutable Electroneum source tree"
+          git commit -m "audit: repair immutable Electroneum source tree parity"
           source_commit="$(git rev-parse HEAD)"
           tree_sha="$(git rev-parse HEAD:vendor/electroneum-sc)"
-          file_count="$(find vendor/electroneum-sc -type f | wc -l | tr -d ' ')"
-          test "$file_count" = "1921"
+          tracked_blobs="$(git ls-tree -r "$tree_sha" | awk '$2 == "blob" {n++} END {print n+0}')"
+          test "$tracked_blobs" = "1921"
+          if git ls-tree -r "$tree_sha" | awk '$1 == "120000" {found=1} END {exit found ? 0 : 1}'; then
+            echo "Certified vendor tree unexpectedly contains a symlink." >&2
+            exit 62
+          fi
           echo "source_commit=$source_commit" >> "$GITHUB_OUTPUT"
           echo "tree_sha=$tree_sha" >> "$GITHUB_OUTPUT"
-          echo "file_count=$file_count" >> "$GITHUB_OUTPUT"
+          echo "tracked_blobs=$tracked_blobs" >> "$GITHUB_OUTPUT"
+
+      - name: Prove exact upstream tracked-blob parity
+        shell: bash
+        env:
+          SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
+        run: |
+          set -euo pipefail
+          upstream_commit="3aeb14db0d6384243302f3a025bdff904dc28bf6"
+          git remote add etn-cert-upstream https://github.com/electroneum/electroneum-sc.git
+          git fetch -q --depth=1 etn-cert-upstream "$upstream_commit"
+          python - "$upstream_commit" "$SOURCE_COMMIT" <<'PY'
+          import subprocess, sys
+
+          upstream_commit, source_commit = sys.argv[1:3]
+
+          def entries(spec):
+              raw = subprocess.check_output(["git", "ls-tree", "-rz", spec])
+              blobs = {}
+              gitlinks = {}
+              for rec in raw.split(b"\0"):
+                  if not rec:
+                      continue
+                  meta, path = rec.split(b"\t", 1)
+                  mode, typ, sha = meta.split()
+                  p = path.decode("utf-8", "surrogateescape")
+                  if typ == b"blob":
+                      blobs[p] = sha.decode()
+                  elif typ == b"commit":
+                      gitlinks[p] = sha.decode()
+              return blobs, gitlinks
+
+          upstream_blobs, upstream_gitlinks = entries(f"{upstream_commit}^{{tree}}")
+          vendor_blobs, vendor_gitlinks = entries(f"{source_commit}:vendor/electroneum-sc")
+
+          assert len(upstream_blobs) == 1921, len(upstream_blobs)
+          assert len(vendor_blobs) == 1921, len(vendor_blobs)
+          missing = sorted(set(upstream_blobs) - set(vendor_blobs))
+          extra = sorted(set(vendor_blobs) - set(upstream_blobs))
+          mismatched = sorted(
+              p for p in upstream_blobs.keys() & vendor_blobs.keys()
+              if upstream_blobs[p] != vendor_blobs[p]
+          )
+          assert not missing, f"missing tracked blobs: {missing[:20]}"
+          assert not extra, f"extra tracked blobs: {extra[:20]}"
+          assert not mismatched, f"blob SHA mismatches: {mismatched[:20]}"
+          assert vendor_gitlinks == {}, vendor_gitlinks
+          assert upstream_gitlinks == {
+              "tests/evm-benchmarks": "849b3e239a28f236dc99574b2e10e0c720895105",
+              "tests/testdata": "a380655e5ffab1a5ea0f4d860224bdb19013f06a",
+          }, upstream_gitlinks
+          print("tracked-blob parity: 1921/1921 exact SHA matches")
+          print("upstream gitlinks recorded separately: 2")
+          PY
 
       - name: Record immutable target certificate
         shell: bash
         env:
           SOURCE_COMMIT: ${{ steps.source.outputs.source_commit }}
           TREE_SHA: ${{ steps.source.outputs.tree_sha }}
-          FILE_COUNT: ${{ steps.source.outputs.file_count }}
+          TRACKED_BLOBS: ${{ steps.source.outputs.tracked_blobs }}
         run: |
           set -euo pipefail
           cat > reports/electroneum/TARGET_CERTIFICATE.json <<JSON
           {
-            "schema": 1,
+            "schema": 2,
             "archive_path": "electroneum-sc-master.zip",
             "archive_git_blob_sha1": "581c984e3e0d6451bc6273c19edf1bdb78dfed0a",
             "archive_sha256": "3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b",
             "upstream_repository": "electroneum/electroneum-sc",
             "upstream_source_commit": "3aeb14db0d6384243302f3a025bdff904dc28bf6",
+            "upstream_root_tree_sha": "bc45332f06c9e4db462951d80243b462982b3f04",
             "windeep_source_commit": "$SOURCE_COMMIT",
             "source_path": "vendor/electroneum-sc",
             "git_tree_sha": "$TREE_SHA",
-            "file_count": $FILE_COUNT,
+            "tracked_blob_count": $TRACKED_BLOBS,
+            "file_count": $TRACKED_BLOBS,
+            "upstream_gitlinks": {
+              "tests/evm-benchmarks": "849b3e239a28f236dc99574b2e10e0c720895105",
+              "tests/testdata": "a380655e5ffab1a5ea0f4d860224bdb19013f06a"
+            },
+            "gitlinks_materialized": false,
             "symlinks_allowed": false
           }
           JSON
           python -m json.tool reports/electroneum/TARGET_CERTIFICATE.json >/dev/null
           git add -- reports/electroneum/TARGET_CERTIFICATE.json
-          git commit -m "audit: record Electroneum target certificate"
+          git commit -m "audit: record repaired Electroneum target certificate"
 
       - name: Verify certificate against committed source
         shell: bash
@@ -99,10 +180,14 @@ jobs:
           import json
           p='reports/electroneum/TARGET_CERTIFICATE.json'
           c=json.load(open(p, encoding='utf-8'))
+          assert c['schema'] == 2
+          assert c['tracked_blob_count'] == 1921
           assert c['file_count'] == 1921
           assert c['symlinks_allowed'] is False
+          assert c['gitlinks_materialized'] is False
           assert c['archive_sha256'] == '3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b'
           assert c['upstream_source_commit'] == '3aeb14db0d6384243302f3a025bdff904dc28bf6'
+          assert c['upstream_root_tree_sha'] == 'bc45332f06c9e4db462951d80243b462982b3f04'
           PY
 
       - name: Publish certification commits without overwriting concurrent audit work
