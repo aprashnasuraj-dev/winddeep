@@ -109,3 +109,50 @@ A finding or mechanism must be handed off when it crosses classes. Examples:
 ## Output discipline
 
 Prioritize depth over raw issue count. One verified system-level bug is more valuable than dozens of scanner warnings. Separate verified facts, inference, and speculation. Quantify affected thresholds/heights/amounts where possible. Preserve exact source references and tests needed to reproduce.
+
+
+## Mandatory per-run deliverable — no silent runs
+
+Every scheduled run MUST write a durable Markdown report under its worker directory before it ends, even when no vulnerability is confirmed. Use a timestamped filename such as `RUN_YYYYMMDD_HHMM.md` and update a lightweight `LATEST.md` pointer/summary when practical.
+
+A run is incomplete unless it records all of the following:
+1. exact target ZIP SHA-256 `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b` and pinned source commit `3aeb14db0d6384243302f3a025bdff904dc28bf6`;
+2. assigned threat class and invariant;
+3. concrete files/functions/call paths traced this run;
+4. attacker-controlled input or trust boundary analyzed;
+5. hypotheses attempted, including at least one negative control/counterexample;
+6. exact test/analyzer/fuzz/differential command(s) run and observed result(s);
+7. Windeep analyzer/test/harness changes made this run, or a precise explanation of why existing tooling was sufficient;
+8. finding state for each hypothesis: CONFIRMED / HYPOTHESIS / DISPROVEN / BLOCKED;
+9. remaining coverage gaps;
+10. the single highest-value next hypothesis;
+11. cross-worker handoffs when relevant;
+12. resulting audit-branch commit SHA if repository changes were committed.
+
+Do not end a run after only reading code, running grep, or invoking a generic scanner. Each run must either execute a meaningful adversarial/differential test against the pinned target, or add/strengthen a reusable Windeep capability and immediately execute it against the pinned target.
+
+## Required depth and persistence
+
+Work from invariants and complete attacker-to-impact paths, not issue-count targets. Revisit previously tested areas only when adding a new assumption, execution path, boundary condition, or stronger oracle. Prefer the hardest unclosed hypothesis that could produce material impact.
+
+For each primary hypothesis, actively search for the counterexample that would make it non-exploitable: authorization checks, quorum/finality constraints, state-root verification, replay/domain separation, canonicality checks, amount/unit bounds, cache invalidation, or equivalent system barriers. Component-level safety does not close a system-level hypothesis.
+
+When a hypothesis cannot be resolved because tooling is missing, the run MUST strengthen Windeep with the smallest reusable deterministic analyzer, fixture, harness, differential check, fuzz target, or regression test necessary to resolve it. The new capability must be run in the same audit iteration. Avoid one-off scripts unless they are promoted into reusable Windeep tooling/tests.
+
+## Mandatory confirmed-finding report format
+
+Every CONFIRMED vulnerability must also have a concise technical letter suitable for a busy, skeptical senior engineer. The report must be understandable in 2–3 minutes and use this exact structure:
+
+1. **Impact-focused title**
+2. **Summary** — 2–4 sentences stating what is wrong, who can trigger it, concrete impact, and severity
+3. **Exact reproduction** — numbered steps from a clean local checkout/fixture
+4. **Minimal PoC** — smallest deterministic test, fixture, or command demonstrating the invariant violation
+5. **Root cause** — brief and code-specific; omit only when self-evident
+6. **Suggested fix** — concrete validation/state-machine/accounting/API change, plus the regression test that should remain
+7. **Supporting evidence** — only source references, logs, screenshots, or traces needed to substantiate the claim
+
+Style: clear, direct, active voice; no fluff; no first-person discovery narrative; no generic AI language; front-load impact; keep reproduction effortless; distinguish verified fact from inference and speculation.
+
+## No-finding report standard
+
+A run with no confirmed vulnerability is still required to produce a report. It must state exactly what was tested, which hypotheses were disproven or remain open, which negative controls held, what Windeep coverage was added, and what should be tested next. Never write only “no issue found”, “scanner clean”, or equivalent.
