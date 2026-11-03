@@ -46,8 +46,8 @@ def integration_inventory() -> dict[str, object]:
                 "description": cls.description,
             }
         )
-    if len(tools) != 137 or len({str(row["name"]) for row in tools}) != 137:
-        raise RuntimeError(f"offline inventory requires exactly 137 unique integrations, found {len(tools)}")
+    if len(tools) != 140 or len({str(row["name"]) for row in tools}) != 140:
+        raise RuntimeError(f"offline inventory requires exactly 140 unique integrations, found {len(tools)}")
     if not all(bool(row["requires_scope"]) for row in tools):
         raise RuntimeError("offline inventory contains a tool that is not scope-bound")
     return {
@@ -80,14 +80,14 @@ def main() -> int:
 Contents
 - Windeep-Setup.exe: per-user Windows installer.
 - Windeep/: portable application tree.
-- integration-inventory.json: all 137 UI/engine integrations and their runtime requirements.
+- integration-inventory.json: all 140 UI/engine integrations and their runtime requirements.
 
 Offline core
 The application, embedded Python 3.11, Playwright Chromium runtime, dashboard,
 engine, all eight tool catalog files, and the separately certified portable
 binary payloads are included in this kit.
 
-137 integrations
+140 integrations
 Every catalog integration is present in the Windows UI/engine. Integrations
 that depend on third-party executables, WSL, authenticated APIs, services,
 licensed software, another host OS, or a physical/mobile device still require
