@@ -34,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       is_v5: ${{ steps.version.outputs.is_v5 }}
+      is_v6: ${{ steps.version.outputs.is_v6 }}
+      is_candidate: ${{ steps.version.outputs.is_candidate }}
       version: ${{ steps.version.outputs.version }}
       tag: ${{ steps.version.outputs.tag }}
     steps:
@@ -42,18 +44,58 @@ jobs:
         shell: bash
         run: |
           version="$(tr -d '\r\n' < VERSION)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           if [[ "$version" =~ ^5\.[0-9]+\.[0-9]+$ ]]; then
             echo 'is_v5=true' >> "$GITHUB_OUTPUT"
-            echo "version=$version" >> "$GITHUB_OUTPUT"
+            echo 'is_v6=false' >> "$GITHUB_OUTPUT"
+            echo 'is_candidate=true' >> "$GITHUB_OUTPUT"
+            echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          elif [[ "$version" =~ ^6\.[0-9]+\.[0-9]+$ ]]; then
+            echo 'is_v5=false' >> "$GITHUB_OUTPUT"
+            echo 'is_v6=true' >> "$GITHUB_OUTPUT"
+            echo 'is_candidate=true' >> "$GITHUB_OUTPUT"
             echo "tag=v$version" >> "$GITHUB_OUTPUT"
           else
             echo 'is_v5=false' >> "$GITHUB_OUTPUT"
+            echo 'is_v6=false' >> "$GITHUB_OUTPUT"
+            echo 'is_candidate=false' >> "$GITHUB_OUTPUT"
+            echo 'tag=' >> "$GITHUB_OUTPUT"
           fi
 
-  release-windows:
-    name: v5 Windows candidate and release
+  v6-browser-stress:
+    name: V6 dashboard stress compatibility check
     needs: [version-check]
-    if: needs.version-check.outputs.is_v5 == 'true'
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install V6 stress runtime
+        run: |
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+          python -m playwright install --with-deps chromium
+      - name: Exercise reconnect and refresh backpressure
+        shell: bash
+        run: |
+          if [[ '${{ needs.version-check.outputs.is_v6 }}' == 'true' ]]; then duration=1800; else duration=90; fi
+          python scripts/audit/v6_browser_stress.py --duration-seconds "$duration" --events-per-cycle 1000
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: v6-browser-stress-compat-${{ github.sha }}
+          if-no-files-found: warn
+          path: reports/v6_browser_stress*
+
+  release-windows:
+    name: Windows candidate build (v5/v6 compatibility path)
+    needs: [version-check]
+    if: needs.version-check.outputs.is_candidate == 'true'
     runs-on: windows-latest
     timeout-minutes: 150
     env:
@@ -122,6 +164,12 @@ jobs:
         run: |
           python scripts/audit/release_audit.py --phase E
           if ($LASTEXITCODE -ne 0) { Get-Content reports/dependency_audit.md; exit $LASTEXITCODE }
+
+      - name: G7b V6 preflight contract audit
+        shell: pwsh
+        run: |
+          python scripts/audit/v6_release_gate.py --mode preflight
+          if ($LASTEXITCODE -ne 0) { Get-Content reports/v6_release_gate.json; exit $LASTEXITCODE }
 
       - name: G8 Pytest with minimum 85 percent coverage
         shell: pwsh
@@ -256,7 +304,7 @@ jobs:
           $lines | Set-Content -LiteralPath dist\SHA256SUMS.txt -Encoding ascii
 
       - name: G21 Attest release artifacts with GitHub build provenance
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && needs.version-check.outputs.is_v5 == 'true'
         uses: actions/attest@v4
         with:
           subject-path: |
@@ -280,7 +328,7 @@ jobs:
           sbom-path: dist/SBOM.json
 
       - name: G23 Publish verified GitHub Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.version-check.outputs.is_v5 == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version-check.outputs.tag }}
