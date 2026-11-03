@@ -84,3 +84,47 @@ func TestWorkerEUnknownTransactionNeverCredits(t *testing.T) {
         t.Fatal("unknown receipt returned a value")
     }
 }
+
+ 
+// Fuzz the actual rawdb canonical lookup under synthetic reorgs and stale indexes.
+func FuzzWorkerEReorgLookup(f *testing.F) {
+    f.Add([]byte{0, 1, 2, 3})
+    f.Add([]byte{255, 4, 5, 6})
+    f.Add([]byte{1, 1, 1, 1, 1})
+    f.Fuzz(func(t *testing.T, data []byte) {
+        if len(data) < 4 || len(data) > 256 { return }
+        db := NewMemoryDatabase()
+        defer db.Close()
+        height := uint64(data[0]) + 1
+        original := common.HexToHash("0x1111")
+        replacement := common.HexToHash("0x2222")
+        tx := workerETx(uint64(data[1]))
+        other := workerETx(uint64(data[1]) + 256)
+        config := &params.ChainConfig{ChainID: big.NewInt(52014)}
+        WriteBody(db, original, height, &types.Body{Transactions: types.Transactions{tx}})
+        WriteReceipts(db, original, height, types.Receipts{&types.Receipt{
+            Type: types.LegacyTxType, Status: types.ReceiptStatusSuccessful,
+            CumulativeGasUsed: uint64(data[2]) + 21000,
+        }})
+        WriteTxLookupEntries(db, height, []common.Hash{tx.Hash()})
+        WriteCanonicalHash(db, original, height)
+        if got, bh, _, _ := ReadTransaction(db, tx.Hash()); got == nil || bh != original {
+            t.Fatal("canonical transaction was not returned")
+        }
+        if got, bh, _, _ := ReadReceipt(db, tx.Hash(), config); got == nil || bh != original {
+            t.Fatal("canonical receipt was not returned")
+        }
+        WriteBody(db, replacement, height, &types.Body{Transactions: types.Transactions{other}})
+        WriteCanonicalHash(db, replacement, height)
+        if got, _, _, _ := ReadTransaction(db, tx.Hash()); got != nil {
+            t.Fatal("orphan transaction incorrectly returned as canonical")
+        }
+        if got, _, _, _ := ReadReceipt(db, tx.Hash(), config); got != nil {
+            t.Fatal("orphan receipt incorrectly returned as canonical")
+        }
+        WriteCanonicalHash(db, original, height)
+        if got, bh, _, _ := ReadReceipt(db, tx.Hash(), config); got == nil || bh != original {
+            t.Fatal("restored canonical receipt lost")
+        }
+    })
+}
