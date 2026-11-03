@@ -6,15 +6,16 @@ on:
       - .github/workflows/electroneum-worker-d-ci.yml
       - reports/electroneum/D/test_historical_root_guards.py
       - reports/electroneum/D/test_historical_roots_test.go
+      - reports/electroneum/D/test_historical_import_test.go
       - tools/electroneum_target_bootstrap.sh
       - reports/electroneum/TARGET_CERTIFICATE.json
   workflow_dispatch:
     inputs:
       fuzz_minutes:
-        description: 'Sustained coverage-guided testing budget, 1..300 minutes'
+        description: 'Adversarial full-import fuzz budget (1..300 minutes)'
         type: number
         required: false
-        default: 300
+        default: 15
 permissions:
   contents: read
   statuses: write
@@ -31,7 +32,7 @@ jobs:
           ref: electroneum-sc-master-audit
           fetch-depth: 0
           persist-credentials: false
-      - name: Publish class D CI run ID for scheduled audit monitor
+      - name: Publish class D CI run ID
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -45,8 +46,8 @@ jobs:
           test "$WINDEEP_ETN_SOURCE_TREE_SHA" = "de7f3c75a2db7e87a89918f1257820703d5b731e"
           test "$WINDEEP_ETN_PINNED_SOURCE_COMMIT" = "3aeb14db0d6384243302f3a025bdff904dc28bf6"
           test "$WINDEEP_ETN_ARCHIVE_SHA256" = "3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b"
-          echo "WORKER_D_CERTIFIED_BOOTSTRAP_PASS"
-      - name: Execute source-contract and negative mutation controls
+          echo "WORKER_D_CERTIFIED_BOOTSTRAP_PASS source=$WINDEEP_ETN_SOURCE"
+      - name: Execute certified source-contract negative controls
         shell: bash
         run: |
           set -euo pipefail
@@ -55,7 +56,7 @@ jobs:
         with:
           go-version: '1.24.0'
           cache: false
-      - name: Execute actual transaction and receipt root derivations
+      - name: Execute real full-import admission, canonicality and restart regression
         shell: bash
         run: |
           set -euo pipefail
@@ -64,26 +65,54 @@ jobs:
           cp -a "$WINDEEP_ETN_SOURCE"/. "$scratch"/
           chmod u+w "$scratch/core"
           cp reports/electroneum/D/test_historical_roots_test.go "$scratch/core/worker_d_historical_roots_test.go"
+          cp reports/electroneum/D/test_historical_import_test.go "$scratch/core/worker_d_historical_import_test.go"
           cd "$scratch"
-          go test -count=1 -timeout=8m -run '^TestWorkerDHistoricalCommitments$' -v ./core
-          echo "WORKER_D_TARGET_ROOT_DERIVATION_PASS"
-      # Logs only; no artifact upload.
-
-      - name: Coverage-guided class D security fuzz campaign
+          go test -count=1 -timeout=15m -run '^(TestWorkerDHistoricalCommitments|TestWorkerDHistoricalImportAdmission)$' -v ./core
+          echo "WORKER_D_FULL_IMPORT_BASELINE_PASS"
+      - name: Inject a weakened transaction-root guard in disposable scratch and prove test detects it
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/worker-d-scratch"
+          chmod u+w "$scratch/core/block_validator.go"
+          python3 - "$scratch/core/block_validator.go" <<'PY'
+          import pathlib,sys
+          path=pathlib.Path(sys.argv[1])
+          data=path.read_text()
+          needle='hash != header.TxHash'
+          assert data.count(needle)==1, "guard mutation anchor missing/ambiguous"
+          path.write_text(data.replace(needle, 'false', 1))
+          PY
+          cd "$scratch"
+          set +e
+          go test -count=1 -timeout=10m -run '^TestWorkerDHistoricalImportAdmission$/^bad_transaction_root$' -v ./core > "$RUNNER_TEMP/worker-d-mutant.log" 2>&1
+          mutation_exit=$?
+          set -e
+          cat "$RUNNER_TEMP/worker-d-mutant.log"
+          if [ "$mutation_exit" -eq 0 ]; then
+            echo "WORKER_D_MUTANT_NOT_DETECTED"; exit 66
+          fi
+          grep -q 'WORKER_D_MUTATION_ACCEPTED' "$RUNNER_TEMP/worker-d-mutant.log" || {
+            echo "WORKER_D_MUTANT_FAILED_WITHOUT_EXPECTED_ADMISSION_EVIDENCE"; exit 67;
+          }
+          echo "WORKER_D_MUTANT_DETECTED exit=$mutation_exit"
+          cp "$WINDEEP_ETN_SOURCE/core/block_validator.go" "$scratch/core/block_validator.go"
+          go test -count=1 -timeout=10m -run '^TestWorkerDHistoricalImportAdmission$/^bad_transaction_root$' -v ./core
+          echo "WORKER_D_GUARD_RESTORE_PASS"
+      - name: Stateful full-import semantic adversarial fuzz campaign
         shell: bash
         env:
-          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '60' }}
+          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '15' }}
         run: |
           set -euo pipefail
           minutes="$AUDIT_FUZZ_MINUTES"
           if ! [[ "$minutes" =~ ^[0-9]+$ ]] || (( minutes < 1 || minutes > 300 )); then
-            echo "Invalid fuzz minute budget: $minutes (require 1..300)"; exit 65
+            echo "Invalid fuzz budget $minutes"; exit 65
           fi
-          echo "CERTIFIED_CLASS_D_FUZZ_BEGIN minutes=$minutes source_commit=7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
           cd "$RUNNER_TEMP/worker-d-scratch"
-          go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerDCommitmentSensitivity$' -fuzztime="${minutes}m" -v ./core
-          echo "CERTIFIED_CLASS_D_FUZZ_PASS; minutes_requested=$minutes"
-
+          echo "WORKER_D_IMPORT_FUZZ_BEGIN minutes=$minutes certified_commit=$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT"
+          go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerDImportAdmission$' -fuzztime="${minutes}m" -v ./core
+          echo "WORKER_D_IMPORT_FUZZ_PASS"
       - name: Publish class D final CI outcome
         if: always()
         continue-on-error: true
