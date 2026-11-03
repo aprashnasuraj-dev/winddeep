@@ -19,6 +19,9 @@ def test_v6_pipeline_bridges_scheduler_progress_into_durable_scan_state() -> Non
     assert 'results_summary={"runtime": runtime_summary}' in source
     assert '"source": "scheduler"' in source
     assert 'progress = max(0.0, min(99.0, progress))' in source
+    assert 'payload.get("phase") == "_bridge_flush"' in source
+    assert '"tool.bridge_flush"' in source
+    assert "progress_bridge_drained.wait()" in source
 
 
 def test_v6_ui_coalesces_event_refreshes_and_blocks_unrunnable_tools() -> None:
