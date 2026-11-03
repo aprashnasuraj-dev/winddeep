@@ -203,6 +203,38 @@ def test_discovered_scope_relation_is_classification_only_and_never_filters_obse
     assert after["scope"] == before["scope"]
     assert after["out_of_scope"] == before["out_of_scope"]
 
+    # Line-parser observations bind endpoint to the invocation root.  The scope
+    # classifier must use the discovered raw/title value instead, without
+    # filtering either record.
+    line_run = database.create_tool_run(
+        tool_name="subfinder",
+        status="completed",
+        scan_id=scan_id,
+        target_id=target_id,
+        command=["subfinder", "<scope-bound target>"],
+    )
+    line_rows = store.persist(
+        scan_id=scan_id,
+        tool_run_id=line_run,
+        tool_name="subfinder",
+        scope_check=scope.is_allowed,
+        observations=[
+            {
+                "title": "api.example.test",
+                "endpoint": "example.test",
+                "evidence": {"raw": "api.example.test"},
+            },
+            {
+                "title": "external.invalid",
+                "endpoint": "example.test",
+                "evidence": {"raw": "external.invalid"},
+            },
+        ],
+    )
+    by_candidate = {row["observed_candidate"]: row for row in line_rows}
+    assert by_candidate["api.example.test"]["authorization_relation"] == "in_scope"
+    assert by_candidate["external.invalid"]["authorization_relation"] == "out_of_scope"
+
 
 def test_finding_writer_fails_closed_on_misrouted_observation(tmp_path: Path) -> None:
     crypto = CryptoManager(wrapped_key_path=tmp_path / "crypto" / "dek.bin")
