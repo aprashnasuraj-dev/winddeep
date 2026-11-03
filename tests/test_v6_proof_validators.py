@@ -5,6 +5,7 @@ from copy import deepcopy
 
 import pytest
 
+from app.evidence import proof_validators as proof_module
 from app.evidence.proof_validators import ControlledProofValidator, ProofValidationError
 
 
@@ -218,3 +219,78 @@ def test_v6_proof_validators_require_explicit_class_context() -> None:
             control=_flow(60),
             context={"marker": "short"},
         )
+
+def test_v6_proof_validator_normalization_and_invalid_flow_edges() -> None:
+    assert proof_module._bytes(None) == b""
+    assert proof_module._bytes(memoryview(b"marker")) == b"marker"
+    assert proof_module._bytes(1234) == b"1234"
+    assert proof_module._headers({"response_headers": "not-a-mapping"}) == {}
+
+    with pytest.raises(ProofValidationError, match="valid HTTP status"):
+        proof_module._status({"status": "not-an-integer"})
+    with pytest.raises(ProofValidationError, match="persisted integer id"):
+        proof_module._flow_id({})
+    with pytest.raises(ProofValidationError, match="positive"):
+        proof_module._flow_id({"id": 0})
+    with pytest.raises(ProofValidationError, match="state-changing"):
+        proof_module._request_surface({"method": "PATCH", "url": "https://example.test/resource"})
+    with pytest.raises(ProofValidationError, match="valid HTTP\(S\) URL"):
+        proof_module._request_surface({"method": "GET", "url": "not-a-url"})
+
+
+def test_v6_proof_validator_rejects_near_misses_without_promoting_them() -> None:
+    # Authorization: a redirect is not evidence of protected-resource access.
+    assert ControlledProofValidator.validate(
+        "authorization_boundary",
+        candidate=_flow(71, status=302),
+        control=_flow(72, status=403),
+        context={"candidate_expected_denied": True},
+    ) is None
+
+    # Session invalidation: a still-denied session is the patched behavior.
+    assert ControlledProofValidator.validate(
+        "session_invalidation",
+        candidate=_flow(73, status=403),
+        control=_flow(74, status=401),
+        context={"candidate_session_state": "invalidated"},
+    ) is None
+
+    # CORS: credentials alone are insufficient without the untrusted origin.
+    assert ControlledProofValidator.validate(
+        "credentialed_cors",
+        candidate=_flow(
+            75,
+            headers={
+                "Access-Control-Allow-Origin": "https://trusted.example",
+                "Access-Control-Allow-Credentials": "true",
+            },
+        ),
+        control=_flow(76, headers={"Access-Control-Allow-Origin": "https://trusted.example"}),
+        context={"untrusted_origin": "https://untrusted.example"},
+    ) is None
+
+    # Redirect: a same-origin Location must not promote.
+    assert ControlledProofValidator.validate(
+        "open_redirect",
+        candidate=_flow(77, status=302, headers={"Location": "/home"}),
+        control=_flow(78, status=200),
+        context={"external_host": "outside.example"},
+    ) is None
+
+    # Sensitive marker: identical candidate/control bodies are not a difference.
+    identical = b'{"debug":"V6-CANARY-EDGE-123456"}'
+    assert ControlledProofValidator.validate(
+        "sensitive_marker_exposure",
+        candidate=_flow(79, body=identical),
+        control=_flow(80, body=identical),
+        context={"marker": "V6-CANARY-EDGE-123456"},
+    ) is None
+
+    # If the marker is also present in the control, there is no candidate-only leak.
+    assert ControlledProofValidator.validate(
+        "sensitive_marker_exposure",
+        candidate=_flow(81, body=b"prefix V6-CANARY-CONTROL-123 suffix"),
+        control=_flow(82, body=b"V6-CANARY-CONTROL-123"),
+        context={"marker": "V6-CANARY-CONTROL-123"},
+    ) is None
+
