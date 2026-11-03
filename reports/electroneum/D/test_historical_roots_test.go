@@ -54,3 +54,31 @@ func TestWorkerDHistoricalCommitments(t *testing.T) {
     }
     t.Log("WORKER_D_HONEST_CONTROLS_PASS")
 }
+
+ 
+// Coverage-guided tests of real transaction/receipt commitment separation.
+// This is NOT a full block-import/finality oracle.
+func FuzzWorkerDCommitmentSensitivity(f *testing.F) {
+    f.Add([]byte{1, 2, 3, 4})
+    f.Add([]byte{255, 0, 128, 0, 1, 4})
+    f.Add([]byte{0, 0, 0, 0})
+    f.Fuzz(func(t *testing.T, data []byte) {
+        if len(data) < 3 || len(data) > 512 { return }
+        to := common.HexToAddress("0x00000000000000000000000000000000000000d1")
+        value := new(big.Int).SetBytes(data[1:])
+        original := types.NewTransaction(uint64(data[0]), to, value, 21000, big.NewInt(1), data[2:])
+        changedPayload := append(append([]byte{}, data[2:]...), byte(0x7b))
+        changed := types.NewTransaction(uint64(data[0]), to, value, 21000, big.NewInt(1), changedPayload)
+        baseRoot := types.DeriveSha(types.Transactions{original}, trie.NewStackTrie(nil))
+        mutationRoot := types.DeriveSha(types.Transactions{changed}, trie.NewStackTrie(nil))
+        if baseRoot == mutationRoot { t.Fatal("modified transaction payload retained root") }
+        if baseRoot != types.DeriveSha(types.Transactions{original}, trie.NewStackTrie(nil)) {
+            t.Fatal("honest transaction root nondeterministic")
+        }
+        good := types.Receipts{&types.Receipt{Type: types.LegacyTxType, Status: types.ReceiptStatusSuccessful, CumulativeGasUsed: uint64(data[1])+21000}}
+        bad := types.Receipts{&types.Receipt{Type: types.LegacyTxType, Status: types.ReceiptStatusFailed, CumulativeGasUsed: uint64(data[1])+21000}}
+        if types.DeriveSha(good, trie.NewStackTrie(nil)) == types.DeriveSha(bad, trie.NewStackTrie(nil)) {
+            t.Fatal("receipt status mutation retained root")
+        }
+    })
+}
