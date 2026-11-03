@@ -215,9 +215,34 @@ class SubmissionDraftGenerator:
             "",
             _block(model.get("recorded_steps") or "Not recorded; add authorized reproduction steps."),
             "",
-            "## Expected and actual results",
+            "## Security property and expected vs observed",
             "",
-            "Not recorded as separate fields. The tester should state the expected result and the actual result supported by the evidence below.",
+            f"- Security property: {_inline(proof_context.get('security_property') or 'Not recorded')}",
+            "",
+            "### Expected behavior",
+            "",
+            _block(proof_context.get("expected_behavior") or "Not recorded; candidate status is blocked."),
+            "",
+            "### Observed behavior",
+            "",
+            _block(proof_context.get("observed_behavior") or "Not recorded; candidate status is blocked."),
+            "",
+            "### Matched controls",
+            "",
+            *(
+                [
+                    f"- Candidate flow `{item.get('id')}` SHA-256 {_inline(item.get('sha256'))}"
+                    for item in proof_context.get("candidate_flows") or []
+                ]
+                or ["- Candidate flow: not recorded"]
+            ),
+            *(
+                [
+                    f"- Control flow `{item.get('id')}` SHA-256 {_inline(item.get('sha256'))}"
+                    for item in proof_context.get("control_flows") or []
+                ]
+                or ["- Control flow: not recorded"]
+            ),
             "",
             "## Technical evidence",
             "",
