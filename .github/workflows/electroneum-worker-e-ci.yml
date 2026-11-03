@@ -17,6 +17,7 @@ on:
         default: 300
 permissions:
   contents: read
+  statuses: write
 concurrency:
   group: etn-worker-e-certified-${{ github.ref }}
   cancel-in-progress: false
@@ -31,6 +32,11 @@ jobs:
           ref: electroneum-sc-master-audit
           fetch-depth: 0
           persist-credentials: false
+      - name: Publish class E CI run ID for scheduled audit monitor
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/electroneum_ci_status.sh E start
       - name: Bootstrap immutable certified source
         shell: bash
         run: |
@@ -113,3 +119,11 @@ jobs:
           cd "$ETN_E_SCRATCH"
           go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerEReorgLookup$' -fuzztime="${minutes}m" -v ./core/rawdb
           echo "CERTIFIED_CLASS_E_FUZZ_PASS; minutes_requested=$minutes"
+
+      - name: Publish class E final CI outcome
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: bash tools/electroneum_ci_status.sh E finish
