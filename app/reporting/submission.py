@@ -72,14 +72,19 @@ class SubmissionDraftGenerator:
         }
 
     def _triage_snapshot(self, finding_id: int) -> dict[str, Any]:
-        with self.generator.database._connect() as conn:
-            row = conn.execute(
-                """
-                SELECT disposition, tester_priority, duplicate_risk, rationale
-                FROM handling_classification WHERE finding_id = ?
-                """,
-                (int(finding_id),),
-            ).fetchone()
+        try:
+            with self.generator.database._connect() as conn:
+                row = conn.execute(
+                    """
+                    SELECT disposition, tester_priority, duplicate_risk, rationale
+                    FROM handling_classification WHERE finding_id = ?
+                    """,
+                    (int(finding_id),),
+                ).fetchone()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).casefold():
+                return {"classified": False, "disposition": "needs-review"}
+            raise
         if row is None:
             return {"classified": False, "disposition": "needs-review"}
         return {
