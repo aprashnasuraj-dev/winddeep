@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/electroneum-worker-c-ci.yml
       - reports/electroneum/C/test_signing_domain_test.go
+      - reports/electroneum/C/test_keystore_kdf_test.go
       - tools/electroneum_target_bootstrap.sh
       - reports/electroneum/TARGET_CERTIFICATE.json
   workflow_dispatch:
@@ -64,6 +65,41 @@ jobs:
           cd "$scratch"
           go test -count=1 -timeout=8m -run '^TestWorkerCChainDomainAndAuthorization$' -v ./core/types
           echo "WORKER_C_TARGET_RUNTIME_TEST_PASS"
+      - name: Characterize malformed encrypted keystore JSON in certified scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/worker-c-scratch"
+          test -f "$scratch/go.mod"
+          chmod u+w "$scratch/accounts/keystore"
+          cp reports/electroneum/C/test_keystore_kdf_test.go "$scratch/accounts/keystore/worker_c_kdf_test.go"
+          cd "$scratch"
+          go test -count=1 -timeout=5m -run '^TestWorkerCKDFMalformedInputCharacterization
+
+      - name: Coverage-guided class C security fuzz campaign
+        shell: bash
+        env:
+          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '60' }}
+        run: |
+          set -euo pipefail
+          minutes="$AUDIT_FUZZ_MINUTES"
+          if ! [[ "$minutes" =~ ^[0-9]+$ ]] || (( minutes < 1 || minutes > 300 )); then
+            echo "Invalid fuzz minute budget: $minutes (require 1..300)"; exit 65
+          fi
+          echo "CERTIFIED_CLASS_C_FUZZ_BEGIN minutes=$minutes source_commit=7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
+          cd "$RUNNER_TEMP/worker-c-scratch"
+          go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerCTransactionBinding$' -fuzztime="${minutes}m" -v ./core/types
+          echo "CERTIFIED_CLASS_C_FUZZ_PASS; minutes_requested=$minutes"
+
+      - name: Publish class C final CI outcome
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: bash tools/electroneum_ci_status.sh C finish
+ -v ./accounts/keystore
+          echo "WORKER_C_KEYSTORE_CHARACTERIZATION_PASS"
       # No artifacts uploaded; evidence is in immutable Actions logs.
 
       - name: Coverage-guided class C security fuzz campaign
