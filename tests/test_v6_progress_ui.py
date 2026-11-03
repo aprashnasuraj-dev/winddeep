@@ -12,6 +12,7 @@ from app.security.audit import AuditLog
 from app.security.crypto import CryptoManager
 from app.security.secure_database import SecureDatabase
 from app.v2_api import recover_interrupted_scans
+from app.v2_pipeline import _process_memory_bytes
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +48,18 @@ def test_v6_ui_coalesces_event_refreshes_and_blocks_unrunnable_tools() -> None:
     assert 'globalStreamConnected=false' in source
     assert 'setInterval(()=>{if(scans.some' in source
     assert 'terminalTransition' in source
+
+
+def test_v6_runtime_telemetry_contract_is_present_and_memory_probe_is_safe() -> None:
+    source = (ROOT / "app" / "v2_pipeline.py").read_text(encoding="utf-8")
+    assert '"runtime_metrics": runtime_metrics' in source
+    assert '"correlation_id": correlation_id' in source
+    assert '"event_bus": event_bus_stats' in source
+    assert '"backends": backend_summary' in source
+    assert '"cpu_seconds"' in source
+    assert '"memory_delta_bytes"' in source
+    snapshot = _process_memory_bytes()
+    assert snapshot is None or snapshot > 0
 
 
 def test_v6_tool_probe_is_separate_from_run_and_cached_server_side() -> None:
