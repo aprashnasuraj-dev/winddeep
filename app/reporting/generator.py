@@ -303,6 +303,15 @@ class ReportGenerator:
         endpoint_fallback = flows[0]["url"] if flows else "artifact-bound observation"
         endpoint = redact_url(str(finding.get("endpoint") or endpoint_fallback))
         exploitability = str(bundle.get("exploitability") or "observed")
+        source_evidence = finding.get("evidence") if isinstance(finding.get("evidence"), Mapping) else {}
+        source_result_role = str(
+            finding.get("result_role") or source_evidence.get("result_role") or ""
+        ).casefold()
+        source_submission_candidate = (
+            finding.get("submission_candidate")
+            if "submission_candidate" in finding
+            else source_evidence.get("submission_candidate")
+        )
         summary = (
             f"Detector {', '.join(f'`{item}`' for item in detector_ids) if detector_ids else '`unknown`'} "
             f"recorded **{title}** at `{endpoint}`. "
@@ -324,6 +333,10 @@ class ReportGenerator:
             "bundle_sha256": str(bundle["bundle_sha256"]),
             "evidence_profile": profile,
             "exploitability": exploitability,
+            "vuln_type": str(finding.get("vuln_type") or "").casefold(),
+            "source_tool": str(finding.get("tool") or ""),
+            "source_result_role": source_result_role or None,
+            "source_submission_candidate": source_submission_candidate,
             "confidence": redact_mapping(bundle.get("confidence") or {}),
             "summary": summary,
             "description": redact_text(str(finding.get("description") or "").strip()),
