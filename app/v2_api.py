@@ -197,6 +197,76 @@ def _poc_markdown(target: Mapping[str, Any], finding: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def recover_interrupted_scans(database: Any, audit: Any) -> list[int]:
+    """Fail stale non-terminal scans left behind by an application restart.
+
+    Windeep does not currently persist enough coroutine/subprocess state to resume
+    an in-flight scan safely. Leaving rows as queued/running/cancelling creates an
+    infinite-spinner illusion after restart, so recovery is deliberately terminal
+    and explicit rather than pretending that work resumed.
+    """
+    recovered: list[int] = []
+    now = time.time()
+    with database._connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, status, results_summary
+            FROM scans
+            WHERE status IN ('queued', 'running', 'cancelling')
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    for row in rows:
+        scan_id = int(row["id"])
+        previous_status = str(row["status"])
+        raw_summary = row["results_summary"]
+        try:
+            summary = json.loads(str(raw_summary)) if raw_summary else {}
+        except (TypeError, json.JSONDecodeError):
+            summary = {}
+        if not isinstance(summary, dict):
+            summary = {}
+        errors = list(summary.get("errors") or [])
+        errors.append(
+            {
+                "task": "runtime-recovery",
+                "code": "V6_RESTART_INTERRUPTED",
+                "error": f"application restarted while scan status was {previous_status}",
+            }
+        )
+        summary["errors"] = errors
+        summary["restart_recovery"] = {
+            "previous_status": previous_status,
+            "recovered_status": "failed",
+            "reason": "application_restart",
+            "resumable": False,
+        }
+        database.update_scan(
+            scan_id,
+            status="failed",
+            finished_at=now,
+            results_summary=summary,
+        )
+        database.add_scan_log(
+            scan_id,
+            "Application restart detected; stale active scan moved to failed. "
+            "Windeep cannot safely resume an in-flight tool process; rerun after authorization.",
+            "error",
+            "runtime-recovery",
+        )
+        audit.append(
+            "v6.scan.restart_recovered",
+            {
+                "scan_id": scan_id,
+                "previous_status": previous_status,
+                "status": "failed",
+                "resumable": False,
+            },
+        )
+        recovered.append(scan_id)
+    return recovered
+
+
 def register_v2_api(
     app: Flask,
     *,
@@ -217,6 +287,7 @@ def register_v2_api(
     del consent  # authorization remains encapsulated by preflight_for
 
     MigrationManager(database.path, root / "app" / "data" / "migrations").apply()
+    recover_interrupted_scans(database, audit)
     runtime = SchedulerRuntimeRegistry()
     event_log = ScanEventLog(database, crypto)
     asset_observations = AssetObservationStore(database)
