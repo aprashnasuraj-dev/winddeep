@@ -251,6 +251,7 @@ def create_app() -> Flask:
                         tool_run_id=run_id,
                         tool_name=tool_name,
                         observations=payloads,
+                        scope_check=scope.is_allowed,
                     )
                 database.finish_tool_run(
                     run_id,
