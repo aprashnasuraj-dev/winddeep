@@ -90,6 +90,38 @@ def test_startup_status_and_catalog_never_active_probe_external_runtimes(v2_clie
     assert tools.get_json()["total"] == 137
 
 
+def test_v6_explicit_tool_probe_updates_cached_readiness(v2_client) -> None:
+    client, _tmp = v2_client
+    headers = session(client)
+
+    unknown = client.post(
+        "/api/v2/tools/does-not-exist/probe",
+        json={"target_type": "domain"},
+        headers=headers,
+    )
+    assert unknown.status_code == 404
+    assert unknown.get_json()["error"] == "unknown integration"
+
+    response = client.post(
+        "/api/v2/tools/gau/probe",
+        json={"target_type": "domain"},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    probed = response.get_json()
+    assert probed["name"] == "gau"
+    assert probed["runtime_verified"] is True
+    assert probed["runtime_deferred"] is False
+    assert probed["readiness_state"] in {"ready", "ready-deprecated-alias", "unavailable", "dependency-missing"}
+
+    catalog = client.get("/api/v2/tools?target_type=domain")
+    assert catalog.status_code == 200
+    cached = next(row for row in catalog.get_json()["tools"] if row["name"] == "gau")
+    assert cached["runtime_verified"] == probed["runtime_verified"]
+    assert cached["runtime_tier"] == probed["runtime_tier"]
+    assert cached["backend"] == probed["backend"]
+
+
 def test_v2_status_tools_settings_and_plan(v2_client) -> None:
     client, _tmp = v2_client
     headers = session(client)
