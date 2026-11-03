@@ -146,8 +146,8 @@ def migrate_catalog_metadata() -> None:
                 default = False
             definition["scan_default"] = bool(default)
         path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    if total != 137:
-        raise RuntimeError(f"v2 catalog migration expected 137 tools, found {total}")
+    if total != 140:
+        raise RuntimeError(f"v2 catalog migration expected 140 tools, found {total}")
 
 
 def main() -> int:
