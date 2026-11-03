@@ -59,6 +59,9 @@ def test_pipeline_node_declares_p0_contract() -> None:
     assert node.timeout == 12.0
     assert node.retry_policy.max_attempts == 2
     assert node.cancellable is True
+    task_spec = node.to_task_spec()
+    assert task_spec.timeout == 12.0
+    assert task_spec.tool_name == "one"
 
 
 def test_active_and_web_nodes_depend_on_passive_recon() -> None:
