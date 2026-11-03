@@ -3,19 +3,20 @@
 # Source this file from A-E workers so WINDEEP_ETN_SOURCE remains in the shell.
 set -euo pipefail
 
-WINDEEP_ETN_ARCHIVE_COMMIT="${WINDEEP_ETN_ARCHIVE_COMMIT:-7d93d2435750ef258445f4a57142bb7b43a644f4}"
-WINDEEP_ETN_ARCHIVE_PATH="${WINDEEP_ETN_ARCHIVE_PATH:-electroneum-sc-master.zip}"
-WINDEEP_ETN_EXPECTED_SHA256="${WINDEEP_ETN_EXPECTED_SHA256:-3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b}"
-WINDEEP_ETN_PINNED_SOURCE_COMMIT="${WINDEEP_ETN_PINNED_SOURCE_COMMIT:-3aeb14db0d6384243302f3a025bdff904dc28bf6}"
-WINDEEP_ETN_TARGET_BASE="${WINDEEP_ETN_TARGET_BASE:-${RUNNER_TEMP:-/tmp}/windeep-electroneum-target-v1}"
-
-archive="${WINDEEP_ETN_TARGET_BASE}/electroneum-sc-master.zip"
-extract_dir="${WINDEEP_ETN_TARGET_BASE}/extract"
-stable_source="${WINDEEP_ETN_TARGET_BASE}/current"
+WINDEEP_ETN_ARCHIVE_COMMIT="7d93d2435750ef258445f4a57142bb7b43a644f4"
+WINDEEP_ETN_ARCHIVE_PATH="electroneum-sc-master.zip"
+WINDEEP_ETN_EXPECTED_SHA256="3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b"
+WINDEEP_ETN_PINNED_SOURCE_COMMIT="3aeb14db0d6384243302f3a025bdff904dc28bf6"
+WINDEEP_ETN_TARGET_BASE=""
 
 command -v git >/dev/null 2>&1 || { echo "target-bootstrap: git is required" >&2; return 20 2>/dev/null || exit 20; }
 command -v unzip >/dev/null 2>&1 || { echo "target-bootstrap: unzip is required" >&2; return 21 2>/dev/null || exit 21; }
+command -v mktemp >/dev/null 2>&1 || { echo "target-bootstrap: mktemp is required" >&2; return 26 2>/dev/null || exit 26; }
 
+WINDEEP_ETN_TARGET_BASE="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/windeep-electroneum-target.XXXXXXXX")"
+archive="${WINDEEP_ETN_TARGET_BASE}/electroneum-sc-master.zip"
+extract_dir="${WINDEEP_ETN_TARGET_BASE}/extract"
+stable_source="${WINDEEP_ETN_TARGET_BASE}/current"
 mkdir -p "${WINDEEP_ETN_TARGET_BASE}"
 git cat-file -e "${WINDEEP_ETN_ARCHIVE_COMMIT}:${WINDEEP_ETN_ARCHIVE_PATH}" 2>/dev/null || {
   echo "target-bootstrap: archive object ${WINDEEP_ETN_ARCHIVE_COMMIT}:${WINDEEP_ETN_ARCHIVE_PATH} is unavailable; checkout must include repository history" >&2
@@ -37,7 +38,6 @@ if [[ "${actual_sha}" != "${WINDEEP_ETN_EXPECTED_SHA256}" ]]; then
   return 24 2>/dev/null || exit 24
 fi
 
-rm -rf "${extract_dir}" "${stable_source}"
 mkdir -p "${extract_dir}"
 unzip -q "${archive}" -d "${extract_dir}"
 
