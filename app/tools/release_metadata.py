@@ -100,7 +100,7 @@ def effective_definitions(config_path: str | Path) -> dict[str, dict[str, Any]]:
 def apply_release_metadata(classes: Mapping[str, type], config_path: str | Path) -> dict[str, dict[str, Any]]:
     """Annotate executable wrapper classes from the complete catalog policy.
 
-    Runtime classes are intentionally a subset of the 137-entry catalog. A
+    Runtime classes are intentionally a subset of the 140-entry catalog. A
     class unknown to the catalog is an error; catalog-only integrations remain
     disabled because they never receive a runtime wrapper class.
     """
