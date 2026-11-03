@@ -132,8 +132,10 @@ jobs:
           assert payload['integrations_total'] == 137
           print(payload)
           PY
-      - uses: actions/upload-artifact@v7
+      - name: Preserve V6 contract diagnostics when quota permits
         if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
         with:
           name: v6-contract-${{ runner.os }}-${{ github.sha }}
           if-no-files-found: warn
@@ -165,11 +167,14 @@ jobs:
             duration=90
           fi
           python scripts/audit/v6_browser_stress.py             --duration-seconds "$duration"             --events-per-cycle 1000             --output reports/v6_browser_stress.json             --screenshot reports/v6_browser_stress.png
-      - uses: actions/upload-artifact@v7
+      - name: Preserve V6 browser diagnostics when quota permits
         if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
         with:
           name: v6-browser-stress-${{ github.sha }}
-          if-no-files-found: error
+          if-no-files-found: warn
+          retention-days: 1
           path: |
             reports/v6_browser_stress.json
             reports/v6_browser_stress.png
@@ -395,6 +400,7 @@ jobs:
             dist/reports/coverage.xml
       - name: Preserve V6 candidate/release evidence
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: Windeep-${{ needs.version-check.outputs.tag }}-${{ github.sha }}-v6-release-evidence
