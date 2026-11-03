@@ -392,6 +392,147 @@ class FindingBatchWriter:
         return items
 
 
+class AssetObservationStore:
+    """Persist reconnaissance output without promoting it into vulnerability findings."""
+
+    _ARCHIVE_TOOLS = frozenset({"gau", "waybackurls", "waymore", "waybackrobots"})
+
+    def __init__(self, database: Any) -> None:
+        self.database = database
+
+    def ensure_schema(self) -> None:
+        with self.database._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scan_asset_observations (
+                    scan_id INTEGER NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+                    tool_run_id INTEGER NOT NULL REFERENCES tool_runs(id) ON DELETE CASCADE,
+                    observation_fingerprint TEXT NOT NULL,
+                    tool TEXT NOT NULL,
+                    endpoint TEXT,
+                    payload TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY(scan_id, tool_run_id, observation_fingerprint)
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scan_asset_observations_scan "
+                "ON scan_asset_observations(scan_id, tool, observation_fingerprint)"
+            )
+
+    @classmethod
+    def _temporal_scope(cls, tool_name: str, payload: Mapping[str, Any]) -> str:
+        evidence = payload.get("evidence") if isinstance(payload.get("evidence"), Mapping) else {}
+        adapter = str(evidence.get("adapter") or "")
+        if tool_name in cls._ARCHIVE_TOOLS or adapter == "wayback_cdx":
+            return "historical"
+        return "current_or_unspecified"
+
+    def persist(
+        self,
+        *,
+        scan_id: int,
+        tool_run_id: int,
+        tool_name: str,
+        observations: Sequence[Mapping[str, Any]],
+    ) -> list[dict[str, Any]]:
+        now = time.time()
+        normalized: list[dict[str, Any]] = []
+        for raw in observations:
+            payload = dict(raw)
+            evidence = dict(payload.get("evidence") or {})
+            endpoint = str(payload.get("endpoint") or "")
+            title = str(payload.get("title") or endpoint or "Reconnaissance observation")
+            temporal_scope = self._temporal_scope(tool_name, payload)
+            evidence["result_role"] = "observation"
+            evidence["submission_candidate"] = False
+            evidence["temporal_scope"] = temporal_scope
+            payload.update(
+                {
+                    "title": title,
+                    "tool": tool_name,
+                    "endpoint": endpoint or None,
+                    "severity": "info",
+                    "vuln_type": "asset_observation",
+                    "result_role": "observation",
+                    "submission_candidate": False,
+                    "temporal_scope": temporal_scope,
+                    "evidence": evidence,
+                }
+            )
+            fingerprint_source = {
+                "tool": tool_name,
+                "endpoint": endpoint,
+                "title": title,
+                "temporal_scope": temporal_scope,
+            }
+            payload["observation_fingerprint"] = hashlib.sha256(canonical_bytes(fingerprint_source)).hexdigest()
+            normalized.append(payload)
+
+        normalized.sort(
+            key=lambda item: (
+                str(item["observation_fingerprint"]),
+                str(item.get("endpoint") or ""),
+                str(item.get("title") or ""),
+            )
+        )
+        if not normalized:
+            return []
+
+        rows: list[tuple[Any, ...]] = []
+        for item in normalized:
+            encrypted = self.database._enc(
+                canonical_bytes(item).decode("utf-8"),
+                field="scan_asset_observation.payload",
+            )
+            rows.append(
+                (
+                    int(scan_id),
+                    int(tool_run_id),
+                    str(item["observation_fingerprint"]),
+                    tool_name,
+                    item.get("endpoint"),
+                    encrypted,
+                    now,
+                    now,
+                )
+            )
+        with self.database._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO scan_asset_observations(
+                    scan_id, tool_run_id, observation_fingerprint, tool, endpoint,
+                    payload, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(scan_id, tool_run_id, observation_fingerprint) DO UPDATE SET
+                    endpoint = excluded.endpoint,
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                rows,
+            )
+        return normalized
+
+    def list_scan(self, scan_id: int) -> list[dict[str, Any]]:
+        with self.database._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT payload FROM scan_asset_observations
+                WHERE scan_id = ?
+                ORDER BY tool, observation_fingerprint, tool_run_id
+                """,
+                (int(scan_id),),
+            ).fetchall()
+        return [
+            json.loads(
+                self.database._dec(str(row["payload"]), field="scan_asset_observation.payload")
+            )
+            for row in rows
+        ]
+
+
 class SchedulerRuntimeRegistry:
     """Own every background scan thread and its one asyncio loop."""
 
@@ -496,9 +637,11 @@ async def run_p0_scan(
     event_bus = EventBus(heartbeat_interval=60.0)
     event_log = ScanEventLog(database, crypto)
     writer = FindingBatchWriter(database)
+    observations = AssetObservationStore(database)
     raw_store = RawArtifactStore(database, crypto, audit)
     event_log.ensure_schema()
     writer.ensure_schema()
+    observations.ensure_schema()
 
     def emit(event_type: str, data: Mapping[str, Any]) -> dict[str, Any]:
         event = event_log.append(scan_id, event_type, data)
@@ -630,18 +773,32 @@ async def run_p0_scan(
                             "stderr_sha256": evidence_record["stderr_sha256"],
                         }
                         payload["evidence"] = evidence
-                    persisted = writer.persist(
-                        scan_id=scan_id,
-                        tool_run_id=run_id,
-                        target_id=target_id,
-                        tool_name=tool_name,
-                        findings=payloads,
-                    )
+                    result_role = str(getattr(cls, "result_role", "finding"))
+                    if result_role == "observation":
+                        observed = observations.persist(
+                            scan_id=scan_id,
+                            tool_run_id=run_id,
+                            tool_name=tool_name,
+                            observations=payloads,
+                        )
+                        persisted: list[dict[str, Any]] = []
+                    else:
+                        observed = []
+                        persisted = writer.persist(
+                            scan_id=scan_id,
+                            tool_run_id=run_id,
+                            target_id=target_id,
+                            tool_name=tool_name,
+                            findings=payloads,
+                        )
                     database.finish_tool_run(
                         run_id,
                         status="completed",
                         exit_code=execution.exit_code,
-                        stdout_tail=f"{len(persisted)} normalized result(s); raw={evidence_record['stdout_sha256'][:12]}",
+                        stdout_tail=(
+                            f"{len(persisted)} finding(s), {len(observed)} observation(s); "
+                            f"raw={evidence_record['stdout_sha256'][:12]}"
+                        ),
                         stderr_tail=f"encrypted-raw={evidence_record['stderr_sha256'][:12]}",
                     )
                     for item in persisted:
@@ -652,11 +809,17 @@ async def run_p0_scan(
                         {
                             "tool": tool_name,
                             "tool_run_id": run_id,
+                            "result_role": result_role,
                             "finding_count": len(persisted),
+                            "observation_count": len(observed),
                             "fingerprints": [item["fingerprint"] for item in persisted],
+                            "observation_fingerprints": [
+                                item["observation_fingerprint"] for item in observed
+                            ],
                             "stdout_sha256": evidence_record["stdout_sha256"],
                             "stderr_sha256": evidence_record["stderr_sha256"],
                             "backend": execution.backend,
+                            "backend_tier": execution.backend_tier,
                             "parser": execution.parser_name,
                         },
                     )
@@ -839,6 +1002,14 @@ async def run_p0_scan(
         finding_count = len(final_payload.get("findings", [])) if isinstance(final_payload, Mapping) else 0
         chain_count = len(final_payload.get("chains", [])) if isinstance(final_payload, Mapping) else 0
         ranked_count = len(final_payload.get("ranked", [])) if isinstance(final_payload, Mapping) else 0
+        asset_observations = observations.list_scan(scan_id)
+        observation_tools: dict[str, int] = {}
+        historical_observations = 0
+        for item in asset_observations:
+            tool = str(item.get("tool") or "unknown")
+            observation_tools[tool] = observation_tools.get(tool, 0) + 1
+            if item.get("temporal_scope") == "historical":
+                historical_observations += 1
         assembled = EvidenceAssembler(database, crypto, audit).assemble_scan(scan_id)
         evidence_closed = sum(1 for item in assembled if item.get("state") == "closed")
         evidence_incomplete = sum(1 for item in assembled if item.get("state") == "incomplete")
@@ -862,6 +1033,13 @@ async def run_p0_scan(
             "findings": finding_count,
             "chains": chain_count,
             "ranked": ranked_count,
+            "asset_observations": {
+                "count": len(asset_observations),
+                "historical": historical_observations,
+                "current_or_unspecified": len(asset_observations) - historical_observations,
+                "by_tool": dict(sorted(observation_tools.items())),
+                "submission_candidates": 0,
+            },
             "errors": errors,
             "skipped": list(skipped),
             "evidence": {
