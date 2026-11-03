@@ -814,7 +814,16 @@ async def run_p0_scan(
             try:
                 await asyncio.wait_for(
                     asyncio.gather(progress_bridge_drained.wait(), tool_bridge_drained.wait()),
-                    timeout=1.0,
+                    timeout=2.0,
+                )
+            except asyncio.TimeoutError:
+                emit(
+                    "log",
+                    {
+                        "level": "warning",
+                        "module": "v2-orchestrator",
+                        "message": "Scheduler event bridge drain timed out; final scan state will continue from durable database state.",
+                    },
                 )
             finally:
                 for bridge_task in bridge_tasks:
