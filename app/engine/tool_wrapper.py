@@ -208,7 +208,7 @@ class ToolWrapperBase:
     adapter_kind: ClassVar[str] = "auto"
     target_types: ClassVar[tuple[str, ...]] = ()
     scan_default: ClassVar[bool] = True
-    result_role: ClassVar[str] = "finding"
+    result_role: ClassVar[str] = "finding"  # finding | observation | diagnostic
     runtime_strategy: ClassVar[str] = "auto"
     execution_preference: ClassVar[tuple[str, ...]] = ()
     provision: ClassVar[dict[str, Any]] = {}
@@ -310,6 +310,9 @@ class ToolWrapperBase:
             evidence["backend"] = backend.key
             evidence["backend_tier"] = backend.tier
             evidence["backend_outcome"] = "OK"
+            evidence["result_role"] = self.result_role
+            if self.result_role == "observation":
+                evidence["submission_candidate"] = False
             if self.alias_to:
                 evidence["served_by"] = self.execution_name
                 evidence["deprecated_alias"] = True
@@ -645,7 +648,7 @@ class ToolWrapperFactory:
         if not isinstance(probe, list) or not all(isinstance(item, str) for item in probe):
             raise ValueError(f"probe must be a list of strings: {name}")
         result_role = str(definition.get("result_role") or "finding").casefold()
-        if result_role not in {"finding", "diagnostic"}:
+        if result_role not in {"finding", "observation", "diagnostic"}:
             raise ValueError(f"invalid result_role for {name}: {result_role}")
         input_model = self._build_input_model(name, definition.get("input_schema", {}))
         execution_name = str(definition.get("execution_name") or name)

@@ -14,7 +14,7 @@ from typing import Any, Callable, Mapping
 from flask import Flask, Response, jsonify, request, stream_with_context
 
 from app.migrations import MigrationManager
-from app.v2_pipeline import ScanEventLog, SchedulerRuntimeRegistry, canonical_bytes, run_p0_scan
+from app.v2_pipeline import AssetObservationStore, ScanEventLog, SchedulerRuntimeRegistry, canonical_bytes, run_p0_scan
 
 
 _CATEGORY_TARGET_TYPES: dict[str, tuple[str, ...]] = {
@@ -197,6 +197,76 @@ def _poc_markdown(target: Mapping[str, Any], finding: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def recover_interrupted_scans(database: Any, audit: Any) -> list[int]:
+    """Fail stale non-terminal scans left behind by an application restart.
+
+    Windeep does not currently persist enough coroutine/subprocess state to resume
+    an in-flight scan safely. Leaving rows as queued/running/cancelling creates an
+    infinite-spinner illusion after restart, so recovery is deliberately terminal
+    and explicit rather than pretending that work resumed.
+    """
+    recovered: list[int] = []
+    now = time.time()
+    with database._connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, status, results_summary
+            FROM scans
+            WHERE status IN ('queued', 'running', 'cancelling')
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    for row in rows:
+        scan_id = int(row["id"])
+        previous_status = str(row["status"])
+        raw_summary = row["results_summary"]
+        try:
+            summary = json.loads(str(raw_summary)) if raw_summary else {}
+        except (TypeError, json.JSONDecodeError):
+            summary = {}
+        if not isinstance(summary, dict):
+            summary = {}
+        errors = list(summary.get("errors") or [])
+        errors.append(
+            {
+                "task": "runtime-recovery",
+                "code": "V6_RESTART_INTERRUPTED",
+                "error": f"application restarted while scan status was {previous_status}",
+            }
+        )
+        summary["errors"] = errors
+        summary["restart_recovery"] = {
+            "previous_status": previous_status,
+            "recovered_status": "failed",
+            "reason": "application_restart",
+            "resumable": False,
+        }
+        database.update_scan(
+            scan_id,
+            status="failed",
+            finished_at=now,
+            results_summary=summary,
+        )
+        database.add_scan_log(
+            scan_id,
+            "Application restart detected; stale active scan moved to failed. "
+            "Windeep cannot safely resume an in-flight tool process; rerun after authorization.",
+            "error",
+            "runtime-recovery",
+        )
+        audit.append(
+            "v6.scan.restart_recovered",
+            {
+                "scan_id": scan_id,
+                "previous_status": previous_status,
+                "status": "failed",
+                "resumable": False,
+            },
+        )
+        recovered.append(scan_id)
+    return recovered
+
+
 def register_v2_api(
     app: Flask,
     *,
@@ -217,10 +287,15 @@ def register_v2_api(
     del consent  # authorization remains encapsulated by preflight_for
 
     MigrationManager(database.path, root / "app" / "data" / "migrations").apply()
+    recover_interrupted_scans(database, audit)
     runtime = SchedulerRuntimeRegistry()
     event_log = ScanEventLog(database, crypto)
+    asset_observations = AssetObservationStore(database)
     event_log.ensure_schema()
+    asset_observations.ensure_schema()
     settings_path = state / "settings.enc"
+    tool_probe_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+    tool_probe_ttl_seconds = 45.0
 
     def read_settings() -> dict[str, Any]:
         if not settings_path.exists():
@@ -251,11 +326,64 @@ def register_v2_api(
             return explicit
         return _CATEGORY_TARGET_TYPES.get(str(getattr(cls, "category", "utilities")), _CATEGORY_TARGET_TYPES["utilities"])
 
+    def readiness_detail(
+        cls: type[Any],
+        *,
+        missing_env: list[str],
+        runtime_tier: str,
+        runtime_deferred: bool,
+        runtime_verified: bool,
+        compatible: bool,
+        ready: bool,
+    ) -> tuple[str, str]:
+        release_support = str(getattr(cls, "release_support", "runtime"))
+        unsupported_reason = str(getattr(cls, "unsupported_reason", "") or "").strip()
+        replacement = str(getattr(cls, "replacement", "") or "").strip()
+        requires_host = str(getattr(cls, "requires_host", "") or "").strip()
+        has_provision = bool(getattr(cls, "provision", None))
+        container_image = str(getattr(cls, "container_image", "") or "").strip()
+        alias_to = str(getattr(cls, "alias_to", "") or "").strip()
+
+        if not compatible:
+            return "target-mismatch", "Select a target type supported by this integration."
+        if missing_env:
+            return "credentials-required", "Configure required setting(s): " + ", ".join(missing_env)
+        if release_support == "unsupported":
+            detail = unsupported_reason or "This integration is catalog-only for the current release."
+            if replacement:
+                detail += f" Use {replacement} instead."
+            return "unsupported", detail
+        if runtime_deferred:
+            return "probe-required", "Runtime exists but was not actively probed; preview/start this selected tool or run 'winddeep doctor --json'."
+        if ready and runtime_verified:
+            if alias_to:
+                return "ready-deprecated-alias", f"Ready through compatibility alias '{alias_to}'; prefer the canonical integration."
+            return "ready", "Ready on the current host."
+        if requires_host:
+            return "remote-host-required", f"Requires host capability '{requires_host}'; configure an authenticated remote worker on that host."
+        if runtime_tier == "unavailable" and has_provision:
+            return "dependency-missing", "A managed install recipe exists; run 'winddeep doctor --heal' with explicit provisioning consent."
+        if runtime_tier == "unavailable" and container_image:
+            return "container-runtime-missing", f"Enable Docker/Podman and prepare image '{container_image}', or use an alternate declared backend."
+        if runtime_tier == "unavailable":
+            return "unavailable", "No declared backend is runnable; inspect 'winddeep doctor --backends' and the tool's execution chain."
+        return "not-verified", "Runtime resolution is not verified; actively probe the selected integration before use."
+
     def tool_descriptor(name: str, cls: type[Any], *, target_type: str | None = None, active_probe: bool = False) -> dict[str, Any]:
         env = runtime_environment()
         wrapper = cls(tools_dir=tools_dir, scope_validator=lambda _value: True, environment=env)
         missing_env = list(wrapper.missing_environment())
-        runtime_state = wrapper.runtime_status(active_probe=active_probe)
+        now = time.monotonic()
+        cached = tool_probe_cache.get(name)
+        if active_probe:
+            runtime_state = wrapper.runtime_status(active_probe=True)
+            tool_probe_cache[name] = (now, dict(runtime_state))
+        elif cached and now - cached[0] <= tool_probe_ttl_seconds:
+            runtime_state = dict(cached[1])
+        else:
+            if cached:
+                tool_probe_cache.pop(name, None)
+            runtime_state = wrapper.runtime_status(active_probe=False)
         runtime_tier = str(runtime_state.get("tier") or "unavailable")
         backend = runtime_state.get("backend")
         binary_path = wrapper.resolve_binary()
@@ -276,6 +404,15 @@ def register_v2_api(
         else:
             blocked_reason = ""
         release_support = str(getattr(cls, "release_support", "runtime"))
+        readiness_state, repair_hint = readiness_detail(
+            cls,
+            missing_env=missing_env,
+            runtime_tier=runtime_tier,
+            runtime_deferred=runtime_deferred,
+            runtime_verified=runtime_verified,
+            compatible=compatible,
+            ready=ready,
+        )
         try:
             options_schema = cls.input_schema.model_json_schema()
         except Exception:
@@ -307,6 +444,8 @@ def register_v2_api(
             "compatible": compatible,
             "scan_default": bool(getattr(cls, "scan_default", True)),
             "result_role": str(getattr(cls, "result_role", "finding")),
+            "readiness_state": readiness_state,
+            "repair_hint": repair_hint,
             "release_support": release_support,
             "windows_certified": release_support == "bundled",
             "timeout": float(getattr(cls, "timeout", 120.0)),
@@ -420,9 +559,12 @@ def register_v2_api(
         target_type = request.args.get("target_type")
         rows = all_descriptors(target_type)
         tiers: dict[str, int] = {}
+        readiness: dict[str, int] = {}
         for row in rows:
             tier = str(row["runtime_tier"])
             tiers[tier] = tiers.get(tier, 0) + 1
+            state = str(row["readiness_state"])
+            readiness[state] = readiness.get(state, 0) + 1
         return jsonify({
             "total": len(rows),
             "ready": sum(1 for row in rows if row["ready"]),
@@ -430,9 +572,31 @@ def register_v2_api(
             "resolved": sum(1 for row in rows if row["resolved"]),
             "unavailable": sum(1 for row in rows if row["runtime_tier"] == "unavailable"),
             "tiers": tiers,
+            "readiness": dict(sorted(readiness.items())),
             "windows_certified": sum(1 for row in rows if row["windows_certified"]),
             "tools": rows,
         })
+
+    @app.post("/api/v2/tools/<string:tool_name>/probe")
+    @authenticated
+    def v2_tool_probe(tool_name: str) -> tuple[Response, int] | Response:
+        cls = wrapper_classes.get(tool_name)
+        if cls is None:
+            return jsonify({"error": "unknown integration", "tool": tool_name}), 404
+        body = request.get_json(silent=True) or {}
+        target_type = str(body.get("target_type") or request.args.get("target_type") or "").strip() or None
+        row = tool_descriptor(tool_name, cls, target_type=target_type, active_probe=True)
+        audit.append(
+            "v2.tool.probed",
+            {
+                "tool": tool_name,
+                "ready": bool(row["ready"]),
+                "runtime_tier": row["runtime_tier"],
+                "backend": row["backend"],
+                "readiness_state": row["readiness_state"],
+            },
+        )
+        return jsonify(row)
 
     @app.get("/api/v2/scan-plan")
     @authenticated
@@ -554,6 +718,45 @@ def register_v2_api(
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Accel-Buffering"] = "no"
         return response
+
+    @app.get("/api/v2/scans/<int:scan_id>/observations")
+    @authenticated
+    def v2_scan_observations(scan_id: int) -> tuple[Response, int] | Response:
+        try:
+            target_row, consent_id = load_scan_authorization(scan_id)
+            preflight_for(target_row, consent_id)
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        with database._connect() as conn:
+            row = conn.execute("SELECT id FROM scans WHERE id = ?", (scan_id,)).fetchone()
+        if row is None:
+            return jsonify({"error": "scan not found"}), 404
+        items = asset_observations.list_scan(scan_id)
+        by_tool: dict[str, int] = {}
+        historical = 0
+        authorization_relation = {"in_scope": 0, "out_of_scope": 0, "unknown": 0}
+        for item in items:
+            tool = str(item.get("tool") or "unknown")
+            by_tool[tool] = by_tool.get(tool, 0) + 1
+            if item.get("temporal_scope") == "historical":
+                historical += 1
+            relation = str(item.get("authorization_relation") or "unknown")
+            if relation not in authorization_relation:
+                relation = "unknown"
+            authorization_relation[relation] += 1
+        return jsonify(
+            {
+                "scan_id": scan_id,
+                "count": len(items),
+                "historical": historical,
+                "current_or_unspecified": len(items) - historical,
+                "authorization_relation": authorization_relation,
+                "scope_behavior": "classify-only; observations are retained regardless of relation and do not rewrite scope",
+                "submission_candidates": 0,
+                "by_tool": dict(sorted(by_tool.items())),
+                "observations": items,
+            }
+        )
 
     @app.post("/api/v2/reports/generate")
     @authenticated
@@ -859,9 +1062,12 @@ def register_v2_api(
     def v2_status() -> Response:
         descriptors = all_descriptors()
         tiers: dict[str, int] = {}
+        readiness: dict[str, int] = {}
         for item in descriptors:
             tier = str(item["runtime_tier"])
             tiers[tier] = tiers.get(tier, 0) + 1
+            state = str(item["readiness_state"])
+            readiness[state] = readiness.get(state, 0) + 1
         with database._connect() as conn:
             running = conn.execute("SELECT COUNT(*) AS count FROM scans WHERE status IN ('queued','running','cancelling')").fetchone()["count"]
             finding_count = conn.execute("SELECT COUNT(*) AS count FROM findings").fetchone()["count"]
@@ -873,6 +1079,7 @@ def register_v2_api(
             "unavailable": sum(1 for item in descriptors if item["runtime_tier"] == "unavailable"),
             "configured": sum(1 for item in descriptors if item["configured"]),
             "tiers": tiers,
+            "readiness": dict(sorted(readiness.items())),
             "running_scans": int(running),
             "findings": int(finding_count),
             "raw_proof_exports": True,

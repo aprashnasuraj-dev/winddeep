@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import math
+import os
 import random
 import re
 import threading
+import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -31,8 +34,10 @@ from app.engine.scan_context import ScanContext
 from app.engine.scheduler import TaskScheduler, TaskSpec
 from app.engine.tool_wrapper import ToolCancelledError, ToolExecutionError
 from app.evidence.assembler import EvidenceAssembler
+from app.evidence.bundles import EvidenceBundleStore
 from app.evidence.raw_store import RawArtifactStore
 from app.security.preflight import PreFlightError
+from app.v3.verification import VerificationError, VerificationPass
 
 _ALLOWED_RESOURCE_CLASSES = frozenset({"recon", "active", "web3", "browser", "llm"})
 _EXPORT_EVENT_TYPES = frozenset({"finding", "progress", "log", "evidence", "chain", "ranked"})
@@ -44,6 +49,45 @@ _SECRET_LITERAL_RE = re.compile(r"(?i)(api[_-]?key|token|password|secret)\s*[:=]
 def canonical_bytes(value: Any) -> bytes:
     """Serialize stage output with stable key ordering and fixed separators."""
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+
+
+def _process_memory_bytes() -> int | None:
+    """Return a best-effort resident-memory snapshot without third-party deps."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(counters)
+            process = ctypes.windll.kernel32.GetCurrentProcess()
+            ok = ctypes.windll.psapi.GetProcessMemoryInfo(
+                process,
+                ctypes.byref(counters),
+                counters.cb,
+            )
+            return int(counters.WorkingSetSize) if ok else None
+
+        import resource
+
+        usage = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        return usage if sys.platform == "darwin" else usage * 1024
+    except Exception:
+        return None
 
 
 def _sanitize_string(value: str) -> str:
@@ -130,6 +174,7 @@ class PipelineNode:
             continue_on_error=True,
             rate_cost=self.rate_cost,
             execution_kind=self.execution_kind,
+            timeout=self.timeout,
         )
 
 
@@ -272,6 +317,12 @@ class FindingBatchWriter:
         normalized: list[dict[str, Any]] = []
         for raw in findings:
             payload = dict(raw)
+            evidence = payload.get("evidence") if isinstance(payload.get("evidence"), Mapping) else {}
+            declared_role = str(payload.get("result_role") or evidence.get("result_role") or "").casefold()
+            if declared_role == "observation" or payload.get("submission_candidate") is False or evidence.get("submission_candidate") is False:
+                raise ValueError(
+                    f"{tool_name} observation reached FindingBatchWriter; route reconnaissance through AssetObservationStore"
+                )
             payload["title"] = str(payload.get("title") or "Untitled finding")
             payload["severity"] = str(payload.get("severity") or "info").lower()
             payload["vuln_type"] = str(payload.get("vuln_type") or "tool_output")
@@ -392,6 +443,207 @@ class FindingBatchWriter:
         return items
 
 
+class AssetObservationStore:
+    """Persist reconnaissance output without promoting it into vulnerability findings."""
+
+    _ARCHIVE_TOOLS = frozenset({"gau", "waybackurls", "waymore", "waybackrobots"})
+
+    def __init__(self, database: Any) -> None:
+        self.database = database
+
+    def ensure_schema(self) -> None:
+        with self.database._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scan_asset_observations (
+                    scan_id INTEGER NOT NULL REFERENCES scans(id) ON DELETE CASCADE,
+                    tool_run_id INTEGER NOT NULL REFERENCES tool_runs(id) ON DELETE CASCADE,
+                    observation_fingerprint TEXT NOT NULL,
+                    tool TEXT NOT NULL,
+                    endpoint TEXT,
+                    payload TEXT NOT NULL,
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY(scan_id, tool_run_id, observation_fingerprint)
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_scan_asset_observations_scan "
+                "ON scan_asset_observations(scan_id, tool, observation_fingerprint)"
+            )
+
+    @classmethod
+    def _temporal_scope(cls, tool_name: str, payload: Mapping[str, Any]) -> str:
+        evidence = payload.get("evidence") if isinstance(payload.get("evidence"), Mapping) else {}
+        adapter = str(evidence.get("adapter") or "")
+        if tool_name in cls._ARCHIVE_TOOLS or adapter == "wayback_cdx":
+            return "historical"
+        return "current_or_unspecified"
+
+    @staticmethod
+    def _looks_like_candidate(value: str) -> bool:
+        candidate = str(value or "").strip().strip("'\"")
+        if not candidate or any(ch.isspace() for ch in candidate):
+            return False
+        if candidate.startswith(("http://", "https://")):
+            return True
+        try:
+            ipaddress.ip_address(candidate.strip("[]"))
+            return True
+        except ValueError:
+            pass
+        try:
+            ipaddress.ip_network(candidate, strict=False)
+            return True
+        except ValueError:
+            pass
+        host = candidate.split("/", 1)[0].rstrip(".")
+        return "." in host and bool(re.fullmatch(r"[A-Za-z0-9_.*?\[\]-]+(?:\.[A-Za-z0-9_.*?\[\]-]+)+(?::\d+)?", host))
+
+    @classmethod
+    def _observed_candidate(cls, payload: Mapping[str, Any]) -> str:
+        """Resolve the discovered asset rather than blindly trusting parser endpoint.
+
+        Line parsers intentionally bind endpoint to the authorized invocation
+        target.  Their raw/title value is often the actual discovered hostname
+        or URL, so use structured discovery fields first, then raw/title, and
+        only finally the endpoint.
+        """
+        evidence = payload.get("evidence") if isinstance(payload.get("evidence"), Mapping) else {}
+        candidates = [
+            evidence.get("url"),
+            evidence.get("final_url"),
+            evidence.get("hostname"),
+            evidence.get("host"),
+            evidence.get("value"),
+            evidence.get("raw"),
+            payload.get("title"),
+            payload.get("endpoint"),
+        ]
+        for raw in candidates:
+            value = str(raw or "").strip()
+            if cls._looks_like_candidate(value):
+                return value
+        return str(payload.get("endpoint") or "").strip()
+
+    def persist(
+        self,
+        *,
+        scan_id: int,
+        tool_run_id: int,
+        tool_name: str,
+        observations: Sequence[Mapping[str, Any]],
+        scope_check: Callable[[str], bool] | None = None,
+    ) -> list[dict[str, Any]]:
+        now = time.time()
+        normalized: list[dict[str, Any]] = []
+        for raw in observations:
+            payload = dict(raw)
+            evidence = dict(payload.get("evidence") or {})
+            endpoint = str(payload.get("endpoint") or "")
+            title = str(payload.get("title") or endpoint or "Reconnaissance observation")
+            observed_candidate = self._observed_candidate(payload)
+            temporal_scope = self._temporal_scope(tool_name, payload)
+            authorization_relation = "unknown"
+            if observed_candidate and scope_check is not None:
+                try:
+                    authorization_relation = "in_scope" if scope_check(observed_candidate) else "out_of_scope"
+                except Exception:
+                    authorization_relation = "unknown"
+            evidence["result_role"] = "observation"
+            evidence["submission_candidate"] = False
+            evidence["temporal_scope"] = temporal_scope
+            evidence["authorization_relation"] = authorization_relation
+            evidence["observed_candidate"] = observed_candidate or None
+            payload.update(
+                {
+                    "title": title,
+                    "tool": tool_name,
+                    "endpoint": endpoint or None,
+                    "severity": "info",
+                    "vuln_type": "asset_observation",
+                    "result_role": "observation",
+                    "submission_candidate": False,
+                    "temporal_scope": temporal_scope,
+                    "authorization_relation": authorization_relation,
+                    "observed_candidate": observed_candidate or None,
+                    "evidence": evidence,
+                }
+            )
+            fingerprint_source = {
+                "tool": tool_name,
+                "endpoint": endpoint,
+                "title": title,
+                "observed_candidate": observed_candidate,
+                "temporal_scope": temporal_scope,
+                "authorization_relation": authorization_relation,
+            }
+            payload["observation_fingerprint"] = hashlib.sha256(canonical_bytes(fingerprint_source)).hexdigest()
+            normalized.append(payload)
+
+        normalized.sort(
+            key=lambda item: (
+                str(item["observation_fingerprint"]),
+                str(item.get("endpoint") or ""),
+                str(item.get("title") or ""),
+            )
+        )
+        if not normalized:
+            return []
+
+        rows: list[tuple[Any, ...]] = []
+        for item in normalized:
+            encrypted = self.database._enc(
+                canonical_bytes(item).decode("utf-8"),
+                field="scan_asset_observation.payload",
+            )
+            rows.append(
+                (
+                    int(scan_id),
+                    int(tool_run_id),
+                    str(item["observation_fingerprint"]),
+                    tool_name,
+                    item.get("endpoint"),
+                    encrypted,
+                    now,
+                    now,
+                )
+            )
+        with self.database._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO scan_asset_observations(
+                    scan_id, tool_run_id, observation_fingerprint, tool, endpoint,
+                    payload, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(scan_id, tool_run_id, observation_fingerprint) DO UPDATE SET
+                    endpoint = excluded.endpoint,
+                    payload = excluded.payload,
+                    updated_at = excluded.updated_at
+                """,
+                rows,
+            )
+        return normalized
+
+    def list_scan(self, scan_id: int) -> list[dict[str, Any]]:
+        with self.database._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT payload FROM scan_asset_observations
+                WHERE scan_id = ?
+                ORDER BY tool, observation_fingerprint, tool_run_id
+                """,
+                (int(scan_id),),
+            ).fetchall()
+        return [
+            json.loads(
+                self.database._dec(str(row["payload"]), field="scan_asset_observation.payload")
+            )
+            for row in rows
+        ]
+
+
 class SchedulerRuntimeRegistry:
     """Own every background scan thread and its one asyncio loop."""
 
@@ -445,8 +697,16 @@ class DependencyBlocked(RuntimeError):
     pass
 
 
+def _dependency_failures(dependencies: Mapping[str, Any]) -> dict[str, BaseException]:
+    return {
+        key: value
+        for key, value in dependencies.items()
+        if isinstance(value, BaseException)
+    }
+
+
 def _successful_dependencies(dependencies: Mapping[str, Any]) -> dict[str, Any]:
-    failures = {key: value for key, value in dependencies.items() if isinstance(value, BaseException)}
+    failures = _dependency_failures(dependencies)
     if failures:
         detail = ", ".join(f"{key}: {value}" for key, value in sorted(failures.items()))
         raise DependencyBlocked(detail)
@@ -456,6 +716,41 @@ def _successful_dependencies(dependencies: Mapping[str, Any]) -> dict[str, Any]:
 def _host_rate_key(target: str) -> str:
     parsed = urlsplit(target if "://" in target else f"https://{target}")
     return f"host:{(parsed.hostname or target).casefold()}"
+
+
+async def execute_scheduler_with_cancel(
+    scheduler: TaskScheduler,
+    task_specs: Sequence[TaskSpec],
+    context: Any,
+    *,
+    scan_id: str,
+    cancel_event: threading.Event,
+    poll_interval: float = 0.10,
+) -> dict[str, Any]:
+    """Bind the thread-safe operator stop flag to the asyncio scheduler task."""
+    if poll_interval <= 0:
+        raise ValueError("poll_interval must be positive")
+    scheduler_task = asyncio.create_task(
+        scheduler.execute(task_specs, context, scan_id=scan_id),
+        name=f"windeep:{scan_id}:scheduler",
+    )
+
+    async def watch_cancel() -> None:
+        while not scheduler_task.done():
+            if cancel_event.is_set():
+                scheduler_task.cancel()
+                return
+            await asyncio.sleep(poll_interval)
+
+    watcher = asyncio.create_task(
+        watch_cancel(),
+        name=f"windeep:{scan_id}:cancel-watcher",
+    )
+    try:
+        return await scheduler_task
+    finally:
+        watcher.cancel()
+        await asyncio.gather(watcher, return_exceptions=True)
 
 
 async def run_p0_scan(
@@ -496,17 +791,148 @@ async def run_p0_scan(
     event_bus = EventBus(heartbeat_interval=60.0)
     event_log = ScanEventLog(database, crypto)
     writer = FindingBatchWriter(database)
+    correlation_id = f"scan:{scan_id}"
+    scan_started_perf = time.perf_counter()
+    scan_started_cpu = time.process_time()
+    scan_memory_start = _process_memory_bytes()
+    backend_metrics: dict[str, dict[str, Any]] = {}
+    metrics_lock = asyncio.Lock()
+
+    async def record_execution_metric(result: Any, *, success: bool) -> None:
+        backend = str(getattr(result, "backend", "") or "unknown")
+        elapsed = max(
+            0.0,
+            float(getattr(result, "finished_at_monotonic", 0.0))
+            - float(getattr(result, "started_at_monotonic", 0.0)),
+        )
+        async with metrics_lock:
+            row = backend_metrics.setdefault(
+                backend,
+                {
+                    "executions": 0,
+                    "successes": 0,
+                    "failures": 0,
+                    "total_seconds": 0.0,
+                    "max_seconds": 0.0,
+                    "fallback_misses": 0,
+                    "fallback_rejections": 0,
+                },
+            )
+            row["executions"] += 1
+            row["successes" if success else "failures"] += 1
+            row["total_seconds"] += elapsed
+            row["max_seconds"] = max(float(row["max_seconds"]), elapsed)
+            for attempt in getattr(result, "attempted_backends", ()) or ():
+                if not isinstance(attempt, Mapping):
+                    continue
+                attempted_backend = str(attempt.get("backend") or "unknown")
+                attempted = backend_metrics.setdefault(
+                    attempted_backend,
+                    {
+                        "executions": 0,
+                        "successes": 0,
+                        "failures": 0,
+                        "total_seconds": 0.0,
+                        "max_seconds": 0.0,
+                        "fallback_misses": 0,
+                        "fallback_rejections": 0,
+                    },
+                )
+                outcome = str(attempt.get("outcome") or "").upper()
+                if outcome == "MISSING":
+                    attempted["fallback_misses"] += 1
+                elif outcome == "REJECTED":
+                    attempted["fallback_rejections"] += 1
+
+    writer = FindingBatchWriter(database)
+    observations = AssetObservationStore(database)
     raw_store = RawArtifactStore(database, crypto, audit)
     event_log.ensure_schema()
     writer.ensure_schema()
+    observations.ensure_schema()
 
     def emit(event_type: str, data: Mapping[str, Any]) -> dict[str, Any]:
         event = event_log.append(scan_id, event_type, data)
         broadcast(event_type, dict(event["data"]), scan_id)
         return event
 
+    progress_bridge_drained = asyncio.Event()
+    tool_bridge_drained = asyncio.Event()
+
+    async def bridge_scheduler_events(topic: str) -> None:
+        """Persist scheduler activity so UI progress cannot disappear inside EventBus."""
+        async for scheduler_event in event_bus.subscribe(topic):
+            payload = dict(scheduler_event.payload)
+            payload.pop("scan_id", None)
+            if scheduler_event.topic == "scan.progress" and payload.get("phase") == "_bridge_flush":
+                progress_bridge_drained.set()
+                continue
+            if scheduler_event.topic == "tool.bridge_flush":
+                tool_bridge_drained.set()
+                continue
+            if scheduler_event.topic == "scan.progress":
+                try:
+                    progress = float(payload.get("progress", 0.0))
+                except (TypeError, ValueError, OverflowError):
+                    progress = 0.0
+                progress = max(0.0, min(99.0, progress))
+                running_tasks = payload.get("running_tasks")
+                if not isinstance(running_tasks, list):
+                    running_tasks = []
+                runtime_summary = {
+                    "task": payload.get("task"),
+                    "phase": str(payload.get("phase") or "activity"),
+                    "completed_tasks": int(payload.get("completed_tasks") or 0),
+                    "failed_tasks": int(payload.get("failed_tasks") or 0),
+                    "cancelled_tasks": int(payload.get("cancelled_tasks") or 0),
+                    "total_tasks": int(payload.get("total_tasks") or 0),
+                    "running_tasks": running_tasks[:16],
+                    "last_event_at": time.time(),
+                }
+                database.update_scan(
+                    scan_id,
+                    status="running",
+                    progress=progress,
+                    results_summary={"runtime": runtime_summary},
+                )
+                emit(
+                    "progress",
+                    {
+                        **payload,
+                        "progress": progress,
+                        "status": "running",
+                        "source": "scheduler",
+                    },
+                )
+                continue
+            if scheduler_event.topic.startswith("tool."):
+                phase = scheduler_event.topic.split(".", 1)[1]
+                module = str(payload.get("tool") or payload.get("task") or "scheduler")
+                detail = str(payload.get("error") or "").strip()
+                message = f"{module} {phase}"
+                if detail and phase == "failed":
+                    message = f"{message}: {detail[:500]}"
+                emit(
+                    "log",
+                    {
+                        "level": "error" if phase == "failed" else "info",
+                        "module": module,
+                        "message": message,
+                        "task": payload.get("task"),
+                        "phase": phase,
+                    },
+                )
+
     database.update_scan(scan_id, status="running", started_at=time.time(), progress=0.0)
-    emit("log", {"level": "info", "module": "v2-orchestrator", "message": f"{mode} DAG scan starting with {len(selected)} integration(s)."})
+    emit(
+        "log",
+        {
+            "level": "info",
+            "module": "v2-orchestrator",
+            "message": f"{mode} DAG scan starting with {len(selected)} integration(s).",
+            "correlation_id": correlation_id,
+        },
+    )
 
     def runner_factory(tool_name: str) -> Runner:
         cls = wrapper_classes[tool_name]
@@ -514,7 +940,20 @@ async def run_p0_scan(
         retry_policy = RetryPolicy(max_attempts=min(8, max(0, int(getattr(cls, "retries", 0))) + 1))
 
         async def run_tool(scan_context: ScanContext, dependencies: Mapping[str, Any]) -> list[dict[str, Any]]:
-            _successful_dependencies(dependencies)
+            upstream_failures = _dependency_failures(dependencies)
+            if upstream_failures:
+                emit(
+                    "log",
+                    {
+                        "level": "warning",
+                        "module": tool_name,
+                        "message": (
+                            f"Continuing {tool_name} against the authorized root despite "
+                            f"{len(upstream_failures)} failed upstream reconnaissance task(s)."
+                        ),
+                        "upstream_failures": sorted(upstream_failures)[:16],
+                    },
+                )
             if cancel_event.is_set():
                 raise asyncio.CancelledError
             guard.authorize_scan(target=target, consent_id=consent_id)
@@ -543,6 +982,7 @@ async def run_p0_scan(
                     guard.authorize_scan(target=target, consent_id=consent_id)
                     await guard.acquire_rate(_host_rate_key(target))
                     execution = await asyncio.wait_for(wrapper.run_with_evidence(target, options=options), timeout=timeout)
+                    await record_execution_metric(execution, success=True)
                     evidence_record = raw_store.record_execution_result(
                         scan_id=scan_id,
                         tool_run_id=run_id,
@@ -563,18 +1003,33 @@ async def run_p0_scan(
                             "stderr_sha256": evidence_record["stderr_sha256"],
                         }
                         payload["evidence"] = evidence
-                    persisted = writer.persist(
-                        scan_id=scan_id,
-                        tool_run_id=run_id,
-                        target_id=target_id,
-                        tool_name=tool_name,
-                        findings=payloads,
-                    )
+                    result_role = str(getattr(cls, "result_role", "finding"))
+                    if result_role == "observation":
+                        observed = observations.persist(
+                            scan_id=scan_id,
+                            tool_run_id=run_id,
+                            tool_name=tool_name,
+                            observations=payloads,
+                            scope_check=scope.is_allowed,
+                        )
+                        persisted: list[dict[str, Any]] = []
+                    else:
+                        observed = []
+                        persisted = writer.persist(
+                            scan_id=scan_id,
+                            tool_run_id=run_id,
+                            target_id=target_id,
+                            tool_name=tool_name,
+                            findings=payloads,
+                        )
                     database.finish_tool_run(
                         run_id,
                         status="completed",
                         exit_code=execution.exit_code,
-                        stdout_tail=f"{len(persisted)} normalized result(s); raw={evidence_record['stdout_sha256'][:12]}",
+                        stdout_tail=(
+                            f"{len(persisted)} finding(s), {len(observed)} observation(s); "
+                            f"raw={evidence_record['stdout_sha256'][:12]}"
+                        ),
                         stderr_tail=f"encrypted-raw={evidence_record['stderr_sha256'][:12]}",
                     )
                     for item in persisted:
@@ -585,12 +1040,23 @@ async def run_p0_scan(
                         {
                             "tool": tool_name,
                             "tool_run_id": run_id,
+                            "result_role": result_role,
                             "finding_count": len(persisted),
+                            "observation_count": len(observed),
                             "fingerprints": [item["fingerprint"] for item in persisted],
+                            "observation_fingerprints": [
+                                item["observation_fingerprint"] for item in observed
+                            ],
                             "stdout_sha256": evidence_record["stdout_sha256"],
                             "stderr_sha256": evidence_record["stderr_sha256"],
                             "backend": execution.backend,
+                            "backend_tier": execution.backend_tier,
                             "parser": execution.parser_name,
+                            "correlation_id": correlation_id,
+                            "execution_seconds": round(
+                                max(0.0, execution.finished_at_monotonic - execution.started_at_monotonic),
+                                4,
+                            ),
                         },
                     )
                     return persisted
@@ -605,6 +1071,7 @@ async def run_p0_scan(
                     raise
                 except ToolExecutionError as exc:
                     if exc.result is not None:
+                        await record_execution_metric(exc.result, success=False)
                         raw_store.record_execution_result(
                             scan_id=scan_id,
                             tool_run_id=run_id,
@@ -720,12 +1187,50 @@ async def run_p0_scan(
         global_concurrency=max(1, min(8, len(tool_nodes) or 1)),
         per_tool_concurrency={"*": 1},
     )
+    bridge_tasks = [
+        asyncio.create_task(bridge_scheduler_events("scan.progress"), name=f"windeep:{scan_id}:bridge-progress"),
+        asyncio.create_task(bridge_scheduler_events("tool.*"), name=f"windeep:{scan_id}:bridge-tools"),
+    ]
+    # Give subscriptions one event-loop turn to register before the scheduler emits.
+    await asyncio.sleep(0)
     try:
-        results = await scheduler.execute(
-            [node.to_task_spec() for node in [*tool_nodes, *stage_nodes]],
-            context,
-            scan_id=str(scan_id),
-        )
+        try:
+            results = await execute_scheduler_with_cancel(
+                scheduler,
+                [node.to_task_spec() for node in [*tool_nodes, *stage_nodes]],
+                context,
+                scan_id=str(scan_id),
+                cancel_event=cancel_event,
+            )
+        finally:
+            # FIFO flush markers ensure fast scans cannot leave queued progress/tool
+            # events behind when the scheduler returns in the same loop turn.
+            await event_bus.publish(
+                "scan.progress",
+                {"scan_id": str(scan_id), "phase": "_bridge_flush"},
+            )
+            await event_bus.publish(
+                "tool.bridge_flush",
+                {"scan_id": str(scan_id)},
+            )
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(progress_bridge_drained.wait(), tool_bridge_drained.wait()),
+                    timeout=2.0,
+                )
+            except asyncio.TimeoutError:
+                emit(
+                    "log",
+                    {
+                        "level": "warning",
+                        "module": "v2-orchestrator",
+                        "message": "Scheduler event bridge drain timed out; final scan state will continue from durable database state.",
+                    },
+                )
+            finally:
+                for bridge_task in bridge_tasks:
+                    bridge_task.cancel()
+                await asyncio.gather(*bridge_tasks, return_exceptions=True)
         errors = [
             {"task": task_id, "error": state.error or "task failed"}
             for task_id, state in sorted(scheduler.states.items())
@@ -736,10 +1241,59 @@ async def run_p0_scan(
         finding_count = len(final_payload.get("findings", [])) if isinstance(final_payload, Mapping) else 0
         chain_count = len(final_payload.get("chains", [])) if isinstance(final_payload, Mapping) else 0
         ranked_count = len(final_payload.get("ranked", [])) if isinstance(final_payload, Mapping) else 0
+        asset_observations = observations.list_scan(scan_id)
+        observation_tools: dict[str, int] = {}
+        historical_observations = 0
+        authorization_relations = {"in_scope": 0, "out_of_scope": 0, "unknown": 0}
+        for item in asset_observations:
+            tool = str(item.get("tool") or "unknown")
+            observation_tools[tool] = observation_tools.get(tool, 0) + 1
+            if item.get("temporal_scope") == "historical":
+                historical_observations += 1
+            relation = str(item.get("authorization_relation") or "unknown")
+            if relation not in authorization_relations:
+                relation = "unknown"
+            authorization_relations[relation] += 1
         assembled = EvidenceAssembler(database, crypto, audit).assemble_scan(scan_id)
         evidence_closed = sum(1 for item in assembled if item.get("state") == "closed")
         evidence_incomplete = sum(1 for item in assembled if item.get("state") == "incomplete")
         evidence_blocked = [item for item in assembled if item.get("state") == "blocked"]
+
+        verification_pass = VerificationPass(database, raw_store)
+        bundle_store = EvidenceBundleStore(database, crypto, audit)
+        verification_rows: list[dict[str, Any]] = []
+        for item in assembled:
+            if item.get("state") != "closed":
+                continue
+            finding_id = int(item["finding_id"])
+            try:
+                bundle = bundle_store.resolve(finding_id, scan_id=scan_id)
+                record = verification_pass.verify_finding(
+                    finding_id=finding_id,
+                    scan_id=scan_id,
+                    bundle=bundle,
+                )
+                claims = list(record.get("claims") or [])
+                verification_rows.append(
+                    {
+                        "finding_id": finding_id,
+                        "state": "verified_recorded",
+                        "claims": {
+                            str(claim.get("claim")): str(claim.get("state"))
+                            for claim in claims
+                            if isinstance(claim, Mapping)
+                        },
+                        "record_sha256": str(record.get("record_sha256") or ""),
+                    }
+                )
+            except (VerificationError, KeyError, ValueError) as exc:
+                verification_rows.append(
+                    {
+                        "finding_id": finding_id,
+                        "state": "needs_review",
+                        "reason": str(exc),
+                    }
+                )
         errors.extend(
             {
                 "task": f"evidence:{item.get('finding_id')}",
@@ -753,12 +1307,53 @@ async def run_p0_scan(
             reason=f"seal terminal v2 scan evidence ({status})",
             actor="v2-orchestrator",
         )
+        event_bus_stats = await event_bus.stats()
+        scan_memory_end = _process_memory_bytes()
+        backend_summary: dict[str, dict[str, Any]] = {}
+        for backend, row in sorted(backend_metrics.items()):
+            executions = int(row.get("executions") or 0)
+            total_seconds = float(row.get("total_seconds") or 0.0)
+            backend_summary[backend] = {
+                **row,
+                "total_seconds": round(total_seconds, 4),
+                "max_seconds": round(float(row.get("max_seconds") or 0.0), 4),
+                "average_seconds": round(total_seconds / executions, 4) if executions else 0.0,
+            }
+        runtime_metrics = {
+            "correlation_id": correlation_id,
+            "wall_seconds": round(max(0.0, time.perf_counter() - scan_started_perf), 4),
+            "cpu_seconds": round(max(0.0, time.process_time() - scan_started_cpu), 4),
+            "memory_start_bytes": scan_memory_start,
+            "memory_end_bytes": scan_memory_end,
+            "memory_delta_bytes": (
+                int(scan_memory_end - scan_memory_start)
+                if scan_memory_start is not None and scan_memory_end is not None
+                else None
+            ),
+            "event_bus": event_bus_stats,
+            "backends": backend_summary,
+        }
         summary = {
             "mode": mode,
             "tools_planned": len(selected),
+            "runtime_metrics": runtime_metrics,
             "findings": finding_count,
             "chains": chain_count,
             "ranked": ranked_count,
+            "asset_observations": {
+                "count": len(asset_observations),
+                "historical": historical_observations,
+                "current_or_unspecified": len(asset_observations) - historical_observations,
+                "by_tool": dict(sorted(observation_tools.items())),
+                "authorization_relation": authorization_relations,
+                "scope_behavior": "classify-only; discovered observations never rewrite scan authorization or abort sibling tools",
+                "submission_candidates": 0,
+            },
+            "verification": {
+                "records": verification_rows,
+                "verified_recorded": sum(1 for item in verification_rows if item["state"] == "verified_recorded"),
+                "needs_review": sum(1 for item in verification_rows if item["state"] == "needs_review"),
+            },
             "errors": errors,
             "skipped": list(skipped),
             "evidence": {

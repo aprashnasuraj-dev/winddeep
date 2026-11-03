@@ -23,7 +23,15 @@ def _ref(kind: str, value: str) -> dict[str, str]:
 class VerificationPass:
     """Create immutable claim-level verification records backed by P1 artifacts."""
 
-    CLAIM_ORDER = ("title", "affected_asset", "technical_detail", "impact", "reproduction")
+    CLAIM_ORDER = (
+        "title",
+        "affected_asset",
+        "technical_detail",
+        "expected_observed",
+        "control",
+        "impact",
+        "reproduction",
+    )
 
     def __init__(self, database: Any, artifacts: Any) -> None:
         self.database = database
@@ -60,6 +68,7 @@ class VerificationPass:
         provenance = bundle.get("provenance") if isinstance(bundle.get("provenance"), Mapping) else {"nodes": []}
         tool_output = bundle.get("tool_output") if isinstance(bundle.get("tool_output"), Mapping) else None
         reproduction = bundle.get("reproduction") if isinstance(bundle.get("reproduction"), Mapping) else {}
+        proof_context = bundle.get("proof_context") if isinstance(bundle.get("proof_context"), Mapping) else {}
         exploitability = str(bundle.get("exploitability") or "observed")
 
         flow_refs = [
@@ -84,22 +93,64 @@ class VerificationPass:
         replay_refs = [_ref("replay", replay_handle)] if replay_handle else []
         plan = [str(item) for item in reproduction.get("plan") or [] if str(item).strip()]
 
+        def proof_flow_refs(key: str) -> list[dict[str, str]]:
+            values = proof_context.get(key) or []
+            if not isinstance(values, Sequence) or isinstance(values, (str, bytes)):
+                return []
+            refs: list[dict[str, str]] = []
+            for item in values:
+                if not isinstance(item, Mapping) or item.get("id") is None or not item.get("sha256"):
+                    continue
+                refs.append(_ref("proof_flow", f"flow:{int(item['id'])}:{str(item['sha256'])}"))
+            return refs
+
+        candidate_refs = proof_flow_refs("candidate_flows")
+        control_refs = proof_flow_refs("control_flows")
+        proof_complete = all(
+            str(proof_context.get(key) or "").strip()
+            for key in ("security_property", "expected_behavior", "observed_behavior")
+        ) and bool(candidate_refs) and bool(control_refs)
+
         if exploitability == "needs-human-review" and not plan:
             raise VerificationError("needs-human-review bundle requires a human-review plan")
 
         title_refs = [*_ref_list(flow_refs), *_ref_list(provenance_refs)]
         asset_refs = list(flow_refs)
         technical_refs = [*_ref_list(flow_refs), *_ref_list(artifact_refs), *_ref_list(provenance_refs)]
-        impact_state = "partially_verified" if flow_refs else "needs-review"
-        impact_plan = plan or ["Review the recorded evidence and decide whether the stated impact follows from the observed behavior."]
-        repro_state = "verified" if replay_refs and exploitability != "needs-human-review" else "needs-review"
-        repro_plan = plan or ["Review the observation-only reproduction plan against the captured request before any manual action."]
+        proof_state = "verified" if proof_complete else "needs-review"
+        proof_plan = [
+            "Record the security property, expected behavior, observed behavior, and bind the candidate response to captured evidence."
+        ]
+        control_state = "verified" if proof_complete and control_refs else "needs-review"
+        control_plan = [
+            "Capture a matched authorized negative/baseline control and bind it to the same evidence bundle."
+        ]
+        impact_state = "partially_verified" if proof_complete else "needs-review"
+        impact_plan = plan or ["Review the recorded evidence and decide whether the stated impact follows from the controlled expected/observed difference."]
+        repro_state = (
+            "verified"
+            if replay_refs and proof_complete and exploitability != "needs-human-review"
+            else "needs-review"
+        )
+        repro_plan = plan or ["Review the observation-only reproduction plan against the captured request and matched control before any manual action."]
 
         claims = [
             self._claim("title", state="verified", evidence_refs=title_refs),
             self._claim("affected_asset", state="verified", evidence_refs=asset_refs),
             self._claim("technical_detail", state="verified", evidence_refs=technical_refs),
-            self._claim("impact", state=impact_state, evidence_refs=flow_refs, plan=impact_plan if impact_state == "needs-review" else ()),
+            self._claim(
+                "expected_observed",
+                state=proof_state,
+                evidence_refs=[*candidate_refs, *control_refs],
+                plan=proof_plan if proof_state == "needs-review" else (),
+            ),
+            self._claim(
+                "control",
+                state=control_state,
+                evidence_refs=control_refs,
+                plan=control_plan if control_state == "needs-review" else (),
+            ),
+            self._claim("impact", state=impact_state, evidence_refs=[*candidate_refs, *control_refs], plan=impact_plan if impact_state == "needs-review" else ()),
             self._claim("reproduction", state=repro_state, evidence_refs=replay_refs, plan=repro_plan if repro_state == "needs-review" else ()),
         ]
 

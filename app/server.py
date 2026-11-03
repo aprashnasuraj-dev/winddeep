@@ -17,10 +17,12 @@ from typing import Any, Callable, TypeVar, cast
 from flask import Flask, Response, jsonify, make_response, request, send_from_directory, stream_with_context
 
 from app.engine.tool_wrapper import ToolExecutionError, ToolWrapperFactory
+from app.evidence.raw_store import RawArtifactStore
 from app.modules.test_packs import PACK_COUNTS, TOTAL_TESTS, list_tests, run_selected
 from app.migrations import MigrationManager
 from app.tools.release_metadata import apply_release_metadata
 from app.v2_api import register_v2_api
+from app.v2_pipeline import AssetObservationStore
 from app.v3.api import register_v3_api
 from app.v3.events import V3EventPublisher
 from app.v3.release_migration import apply_v3_release_migration
@@ -88,6 +90,9 @@ def create_app() -> Flask:
     ).apply()
     v3_migration = apply_v3_release_migration(database.path)
     flow_database = SecureFlowDatabase(database)
+    legacy_observations = AssetObservationStore(database)
+    legacy_observations.ensure_schema()
+    legacy_raw_store = RawArtifactStore(database, crypto, audit)
     factory = ToolWrapperFactory(registry_path)
     wrapper_classes = factory.load()
     effective_tools = apply_release_metadata(wrapper_classes, registry_path)
@@ -212,17 +217,59 @@ def create_app() -> Flask:
         wrapper = cls(tools_dir=tools_dir, scope_validator=scope.is_allowed)
         run_id = database.create_tool_run(tool_name=tool_name, status="running", scan_id=scan_id, target_id=int(target_row["id"]), command=[tool_name, "<scope-bound target>"])
         try:
-            findings = await wrapper.run(str(target_row["target"]))
-            output: list[dict[str, Any]] = []
-            for finding in findings:
+            execution = await wrapper.run_with_evidence(str(target_row["target"]))
+            evidence_record = None
+            if scan_id is not None:
+                evidence_record = legacy_raw_store.record_execution_result(
+                    scan_id=int(scan_id),
+                    tool_run_id=run_id,
+                    result=execution,
+                    tool_name=tool_name,
+                    command_template=(tool_name, *execution.argument_template),
+                    working_directory=str(tools_dir),
+                )
+            payloads: list[dict[str, Any]] = []
+            for finding in execution.findings:
                 payload = finding.model_dump()
+                evidence = dict(payload.get("evidence") or {})
+                if evidence_record is not None:
+                    evidence["_windeep_execution"] = {
+                        "tool_run_id": run_id,
+                        "backend": execution.backend,
+                        "backend_tier": execution.backend_tier,
+                        "parser": execution.parser_name,
+                        "stdout_sha256": evidence_record["stdout_sha256"],
+                        "stderr_sha256": evidence_record["stderr_sha256"],
+                    }
+                payload["evidence"] = evidence
+                payloads.append(payload)
+
+            if str(getattr(cls, "result_role", "finding")) == "observation":
+                if scan_id is not None:
+                    legacy_observations.persist(
+                        scan_id=int(scan_id),
+                        tool_run_id=run_id,
+                        tool_name=tool_name,
+                        observations=payloads,
+                        scope_check=scope.is_allowed,
+                    )
+                database.finish_tool_run(
+                    run_id,
+                    status="completed",
+                    exit_code=execution.exit_code,
+                    stdout_tail=f"0 findings, {len(payloads)} observation(s)",
+                )
+                return []
+
+            output: list[dict[str, Any]] = []
+            for payload in payloads:
                 finding_id, created = database.create_finding(target_id=int(target_row["id"]), scan_id=scan_id, title=str(payload["title"]), severity=str(payload.get("severity") or "info"), vuln_type=str(payload.get("vuln_type") or "tool_output"), tool=tool_name, endpoint=payload.get("endpoint"), description=str(payload.get("description") or ""), evidence=dict(payload.get("evidence") or {}), confidence=float(payload.get("confidence") or 0.5))
                 payload["id"] = finding_id
                 payload["created"] = created
                 output.append(payload)
                 if created:
                     broadcast("finding", {"finding": payload}, scan_id)
-            database.finish_tool_run(run_id, status="completed", exit_code=0, stdout_tail=f"{len(output)} normalized result(s)")
+            database.finish_tool_run(run_id, status="completed", exit_code=execution.exit_code, stdout_tail=f"{len(output)} finding(s), 0 observations")
             return output
         except Exception as exc:
             database.finish_tool_run(run_id, status="failed", error=str(exc))
@@ -265,7 +312,8 @@ def create_app() -> Flask:
                 progress = round((index / len(tool_names)) * 100.0, 2)
                 database.update_scan(scan_id, progress=progress)
                 broadcast("progress", {"progress": progress, "status": "running"}, scan_id)
-            summary = {"tools": len(tool_names), "findings": total_findings, "errors": errors}
+            observation_count = len(legacy_observations.list_scan(scan_id))
+            summary = {"tools": len(tool_names), "findings": total_findings, "observations": observation_count, "errors": errors}
             database.update_scan(scan_id, status="completed", progress=100.0, finished_at=time.time(), results_summary=summary)
             broadcast("progress", {"progress": 100.0, "status": "completed", "summary": summary}, scan_id)
         except Exception as exc:

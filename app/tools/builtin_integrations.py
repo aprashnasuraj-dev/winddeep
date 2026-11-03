@@ -105,8 +105,6 @@ async def _crtsh(target: str, environment: Mapping[str, str]) -> list[dict[str, 
             if normalized and normalized not in seen:
                 seen.add(normalized)
                 names.append(normalized)
-        if len(names) >= 500:
-            break
     return [
         _finding("crtsh", target, name, description="Certificate Transparency hostname", evidence={"source": "crt.sh", "hostname": name}, endpoint=name)
         for name in names

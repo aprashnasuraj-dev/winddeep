@@ -79,6 +79,37 @@ async def test_slow_subscriber_queue_drops_oldest_event() -> None:
 
 
 @pytest.mark.asyncio
+async def test_v6_backpressure_metrics_remain_bounded_under_10k_event_burst() -> None:
+    bus = EventBus(queue_size=32, heartbeat_interval=60)
+    stream = bus.subscribe("scan.*")
+    pending = asyncio.create_task(anext(stream))
+    await asyncio.sleep(0)
+    await bus.publish("scan.progress", {"seq": -1})
+    await pending
+
+    for index in range(10_000):
+        await bus.publish("scan.progress", {"seq": index})
+
+    stats = await bus.stats()
+    assert stats["queue_size"] == 32
+    assert stats["published_events"] == 10_001
+    assert stats["dropped_events"] > 0
+    assert stats["subscribers"] == 1
+
+    # Loss-tolerant backpressure must retain the newest state, not stale history.
+    newest = None
+    while True:
+        try:
+            newest = await asyncio.wait_for(anext(stream), timeout=0.01)
+        except asyncio.TimeoutError:
+            break
+    assert newest is not None
+    assert newest.payload["seq"] == 9_999
+    await stream.aclose()
+    await bus.close()
+
+
+@pytest.mark.asyncio
 async def test_invalid_topic_root_is_rejected() -> None:
     bus = EventBus(heartbeat_interval=60)
     with pytest.raises(ValueError):

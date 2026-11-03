@@ -42,6 +42,7 @@ class TaskSpec:
     continue_on_error: bool = False
     rate_cost: float = 1.0
     execution_kind: str = "automated_tool"
+    timeout: float | None = None
 
 
 @dataclass(slots=True)
@@ -64,15 +65,19 @@ class TaskScheduler:
         preflight: PreFlightGuard | None = None,
         global_concurrency: int = 8,
         per_tool_concurrency: Mapping[str, int] | None = None,
+        progress_heartbeat_interval: float = 2.0,
     ) -> None:
         if global_concurrency < 1:
             raise ValueError("global_concurrency must be >= 1")
+        if progress_heartbeat_interval <= 0:
+            raise ValueError("progress_heartbeat_interval must be > 0")
         self._event_bus = event_bus
         self._preflight = preflight
         self._global_semaphore = asyncio.Semaphore(global_concurrency)
         self._tool_caps = dict(per_tool_concurrency or {})
         if any(value < 1 for value in self._tool_caps.values()):
             raise ValueError("per-tool concurrency values must be >= 1")
+        self._progress_heartbeat_interval = float(progress_heartbeat_interval)
         self._tool_semaphores: dict[str, asyncio.Semaphore] = {}
         self.states: dict[str, TaskState] = {}
 
@@ -111,6 +116,39 @@ class TaskScheduler:
         task_handles: dict[str, asyncio.Task[Any]] = {}
         await self._event_bus.publish("scan.authorized", {"scan_id": scan_id, "target": target, "consent_id": consent_id})
 
+        async def publish_activity(*, phase: str, task: str | None = None) -> None:
+            async with progress_lock:
+                # Reserve 100% for the outer pipeline's evidence/sealing work.
+                progress = min(99.0, round((completed_weight / total_weight) * 100.0, 2))
+                completed_tasks = sum(1 for state in self.states.values() if state.status == "completed")
+                failed_tasks = sum(1 for state in self.states.values() if state.status == "failed")
+                cancelled_tasks = sum(1 for state in self.states.values() if state.status == "cancelled")
+                now = time.time()
+                running_tasks = [
+                    {
+                        "task": task_name,
+                        "tool": specs[task_name].tool_name or task_name,
+                        "elapsed_seconds": round(max(0.0, now - float(state.started_at or now)), 1),
+                    }
+                    for task_name, state in self.states.items()
+                    if state.status == "running"
+                ]
+            await self._event_bus.publish(
+                "scan.progress",
+                {
+                    "scan_id": scan_id,
+                    "progress": progress,
+                    "status": "running",
+                    "phase": phase,
+                    "task": task,
+                    "completed_tasks": completed_tasks,
+                    "failed_tasks": failed_tasks,
+                    "cancelled_tasks": cancelled_tasks,
+                    "total_tasks": len(specs),
+                    "running_tasks": running_tasks[:16],
+                },
+            )
+
         async def run_node(name: str) -> Any:
             nonlocal completed_weight
             spec = specs[name]
@@ -131,6 +169,7 @@ class TaskScheduler:
             state.started_at = time.time()
             tool_key = spec.tool_name or name
             await self._event_bus.publish("tool.started", {"scan_id": scan_id, "task": name, "tool": tool_key})
+            await publish_activity(phase="started", task=name)
             try:
                 async with self._global_semaphore:
                     semaphore = self._tool_semaphore(tool_key)
@@ -138,7 +177,10 @@ class TaskScheduler:
                         await self._preflight.acquire_rate(tool_key, cost=spec.rate_cost)
                         value = spec.runner(context, dependency_results)
                         if inspect.isawaitable(value):
-                            value = await value
+                            if spec.timeout is not None:
+                                value = await asyncio.wait_for(value, timeout=spec.timeout)
+                            else:
+                                value = await value
                 results[name] = value
                 state.status = "completed"
                 return value
@@ -146,6 +188,25 @@ class TaskScheduler:
                 state.status = "cancelled"
                 await self._event_bus.publish("tool.cancelled", {"scan_id": scan_id, "task": name})
                 raise
+            except asyncio.TimeoutError as exc:
+                state.status = "failed"
+                timeout_text = f"{float(spec.timeout):g}" if spec.timeout is not None else "configured"
+                state.error = f"task timed out after {timeout_text} seconds"
+                await self._event_bus.publish(
+                    "tool.failed",
+                    {
+                        "scan_id": scan_id,
+                        "task": name,
+                        "error": state.error,
+                        "reason": "timeout",
+                        "timeout_seconds": spec.timeout,
+                    },
+                )
+                timeout_error = TimeoutError(state.error)
+                if spec.continue_on_error:
+                    results[name] = timeout_error
+                    return timeout_error
+                raise PipelineExecutionError(name, timeout_error) from exc
             except Exception as exc:
                 state.status = "failed"
                 state.error = str(exc)
@@ -156,16 +217,25 @@ class TaskScheduler:
                 raise PipelineExecutionError(name, exc) from exc
             finally:
                 state.finished_at = time.time()
-                async with progress_lock:
-                    if state.status in {"completed", "failed", "cancelled"}:
+                terminal = state.status in {"completed", "failed", "cancelled"}
+                if terminal:
+                    async with progress_lock:
                         completed_weight += spec.weight
-                        progress = min(100.0, round((completed_weight / total_weight) * 100.0, 2))
-                        await self._event_bus.publish("scan.progress", {"scan_id": scan_id, "task": name, "progress": progress, "status": state.status})
+                    await publish_activity(phase="finished", task=name)
                 if state.status == "completed":
                     await self._event_bus.publish("tool.completed", {"scan_id": scan_id, "task": name})
 
+        async def progress_heartbeat() -> None:
+            while True:
+                await asyncio.sleep(self._progress_heartbeat_interval)
+                await publish_activity(phase="heartbeat")
+
         for name in self._topological_order(specs):
             task_handles[name] = asyncio.create_task(run_node(name), name=f"windeep:{scan_id}:{name}")
+        heartbeat_task = asyncio.create_task(
+            progress_heartbeat(),
+            name=f"windeep:{scan_id}:progress-heartbeat",
+        )
 
         try:
             await asyncio.gather(*task_handles.values())
@@ -186,6 +256,10 @@ class TaskScheduler:
                     await task
             await self._event_bus.publish("scan.failed", {"scan_id": scan_id})
             raise
+        finally:
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
 
         await self._event_bus.publish("scan.completed", {"scan_id": scan_id, "progress": 100.0})
         return results
@@ -209,6 +283,8 @@ class TaskScheduler:
                 raise PipelineConfigurationError(f"task weight must be > 0: {spec.name}")
             if spec.rate_cost <= 0:
                 raise PipelineConfigurationError(f"task rate_cost must be > 0: {spec.name}")
+            if spec.timeout is not None and spec.timeout <= 0:
+                raise PipelineConfigurationError(f"task timeout must be > 0: {spec.name}")
             if not spec.execution_kind.strip():
                 raise PipelineConfigurationError(f"task execution_kind cannot be empty: {spec.name}")
             specs[spec.name] = spec

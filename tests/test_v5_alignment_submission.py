@@ -152,6 +152,187 @@ def submission_client(tmp_path: Path):
     return app.test_client(), crypto, database, allowed, target_id, scan_id, finding_id, flow_id
 
 
+def test_v6_proof_validation_api_binds_only_matched_same_scan_controls(submission_client) -> None:
+    client, crypto, database, _allowed, target_id, scan_id, finding_id, candidate_flow_id = submission_client
+    headers = {"X-Test-Session": "yes"}
+    finding = database.get_finding(finding_id)
+    assert finding is not None
+    store = EvidenceBundleStore(database, crypto)
+    before = store.resolve(finding_id, scan_id=scan_id)
+
+    control_flow_id = database.insert_flow(
+        {
+            "target_id": target_id,
+            "scan_id": scan_id,
+            "method": "GET",
+            "url": finding["endpoint"],
+            "scheme": "https",
+            "host": "example.test",
+            "port": 443,
+            "path": "/api/object/7",
+            "query": "",
+            "request_headers": {"Accept": "application/json"},
+            "request_body": b"",
+            "status": 403,
+            "response_headers": {"Content-Type": "application/json"},
+            "response_body": b'{"error":"forbidden"}',
+            "timing_ms": 1.0,
+            "tls_info": {},
+            "tags": ["fixture", "control"],
+            "created_at": 1_700_000_050.0,
+        }
+    )
+    url = f"/api/v3/scans/{scan_id}/findings/{finding_id}/proof/validate"
+    matched = client.post(
+        url,
+        headers=headers,
+        json={
+            "vulnerability_class": "authorization_boundary",
+            "candidate_flow_id": candidate_flow_id,
+            "control_flow_id": control_flow_id,
+            "context": {"candidate_expected_denied": True},
+        },
+    )
+    assert matched.status_code == 200, matched.get_data(as_text=True)
+    payload = matched.get_json()
+    assert payload["matched"] is True
+    assert payload["bundle_sha256"] != before["bundle_sha256"]
+    assert payload["proof_context"]["candidate_flow_ids"] == [candidate_flow_id]
+    assert payload["proof_context"]["control_flow_ids"] == [control_flow_id]
+
+    rebound = store.resolve(finding_id, scan_id=scan_id)
+    assert rebound["bundle_sha256"] == payload["bundle_sha256"]
+    assert rebound["proof_context"]["security_property"]
+    assert {ref["id"] for ref in rebound["flows"]} >= {candidate_flow_id, control_flow_id}
+
+    patched_candidate = database.insert_flow(
+        {
+            "target_id": target_id,
+            "scan_id": scan_id,
+            "method": "GET",
+            "url": finding["endpoint"],
+            "scheme": "https",
+            "host": "example.test",
+            "port": 443,
+            "path": "/api/object/7",
+            "query": "",
+            "request_headers": {},
+            "request_body": b"",
+            "status": 403,
+            "response_headers": {},
+            "response_body": b"forbidden",
+            "timing_ms": 1.0,
+            "tls_info": {},
+            "tags": ["fixture", "patched"],
+            "created_at": 1_700_000_051.0,
+        }
+    )
+    not_matched = client.post(
+        url,
+        headers=headers,
+        json={
+            "vulnerability_class": "authorization_boundary",
+            "candidate_flow_id": patched_candidate,
+            "control_flow_id": control_flow_id,
+            "context": {"candidate_expected_denied": True},
+        },
+    )
+    assert not_matched.status_code == 200
+    assert not_matched.get_json()["matched"] is False
+    assert store.resolve(finding_id, scan_id=scan_id)["bundle_sha256"] == rebound["bundle_sha256"]
+
+    other_scan = database.create_scan(target_id, "fixture", ["fixture"])
+    foreign_flow = database.insert_flow(
+        {
+            "target_id": target_id,
+            "scan_id": other_scan,
+            "method": "GET",
+            "url": finding["endpoint"],
+            "scheme": "https",
+            "host": "example.test",
+            "port": 443,
+            "path": "/api/object/7",
+            "query": "",
+            "request_headers": {},
+            "request_body": b"",
+            "status": 403,
+            "response_headers": {},
+            "response_body": b"foreign",
+            "timing_ms": 1.0,
+            "tls_info": {},
+            "tags": [],
+            "created_at": 1_700_000_052.0,
+        }
+    )
+    cross_scan = client.post(
+        url,
+        headers=headers,
+        json={
+            "vulnerability_class": "authorization_boundary",
+            "candidate_flow_id": candidate_flow_id,
+            "control_flow_id": foreign_flow,
+            "context": {"candidate_expected_denied": True},
+        },
+    )
+    assert cross_scan.status_code == 400
+    assert "authorized scan/target" in cross_scan.get_json()["error"]
+
+
+def test_v6_proof_validation_api_rejects_unknown_class_and_bad_context(submission_client) -> None:
+    client, _crypto, database, _allowed, target_id, scan_id, finding_id, candidate_flow_id = submission_client
+    headers = {"X-Test-Session": "yes"}
+    finding = database.get_finding(finding_id)
+    assert finding is not None
+    control_flow_id = database.insert_flow(
+        {
+            "target_id": target_id,
+            "scan_id": scan_id,
+            "method": "GET",
+            "url": finding["endpoint"],
+            "scheme": "https",
+            "host": "example.test",
+            "port": 443,
+            "path": "/api/object/7",
+            "query": "",
+            "request_headers": {},
+            "request_body": b"",
+            "status": 403,
+            "response_headers": {},
+            "response_body": b"forbidden",
+            "timing_ms": 1.0,
+            "tls_info": {},
+            "tags": [],
+            "created_at": 1_700_000_053.0,
+        }
+    )
+    url = f"/api/v3/scans/{scan_id}/findings/{finding_id}/proof/validate"
+    unknown = client.post(
+        url,
+        headers=headers,
+        json={
+            "vulnerability_class": "unknown",
+            "candidate_flow_id": candidate_flow_id,
+            "control_flow_id": control_flow_id,
+            "context": {},
+        },
+    )
+    assert unknown.status_code == 400
+    assert "unsupported proof class" in unknown.get_json()["error"]
+
+    bad_context = client.post(
+        url,
+        headers=headers,
+        json={
+            "vulnerability_class": "authorization_boundary",
+            "candidate_flow_id": candidate_flow_id,
+            "control_flow_id": control_flow_id,
+            "context": ["not", "an", "object"],
+        },
+    )
+    assert bad_context.status_code == 400
+    assert "context must be an object" in bad_context.get_json()["error"]
+
+
 def test_submission_api_auth_redaction_unscored_and_package_hashes(submission_client) -> None:
     client, _crypto, database, allowed, _target_id, scan_id, finding_id, _flow_id = submission_client
     url = f"/api/v3/scans/{scan_id}/findings/{finding_id}/submission"

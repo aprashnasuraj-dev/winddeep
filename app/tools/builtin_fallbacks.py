@@ -6,6 +6,7 @@ small CLIs whose behavior can be reproduced through documented public APIs.
 """
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import os
 import re
@@ -73,35 +74,85 @@ def _target_host(target: str) -> str:
 
 
 async def _wayback_cdx(target: str, requested: str) -> list[dict[str, Any]]:
+    """Enumerate the complete collapsed CDX result set using resume-key pagination.
+
+    The page size is an API transport chunk, not a Windeep result cap.  We keep
+    requesting pages until the CDX server stops returning a resume key.
+    """
     host = _target_host(target)
-    params = {
+    base_params = {
         "url": f"{host}/*",
         "output": "json",
         "fl": "original,statuscode,timestamp",
         "filter": "statuscode:200",
         "collapse": "urlkey",
-        "limit": "500",
+        "limit": "5000",
+        "showResumeKey": "true",
     }
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        response = await client.get("https://web.archive.org/cdx/search/cdx", params=params, headers={"User-Agent": "Windeep/4"})
-        response.raise_for_status()
-        payload = response.json()
-    if not isinstance(payload, list) or len(payload) < 2:
-        return []
-    headers = [str(value) for value in payload[0]]
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for raw in payload[1:]:
-        if not isinstance(raw, list):
-            continue
-        item = dict(zip(headers, raw))
-        url = str(item.get("original") or "")
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        rows.append(_finding(requested, target, url, endpoint=url, evidence={"adapter": "wayback_cdx", "url": url, "timestamp": item.get("timestamp"), "statuscode": item.get("statuscode")}))
-        if len(rows) >= 500:
-            break
+    resume_key = ""
+    previous_resume_key = ""
+    async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+        while True:
+            params = dict(base_params)
+            if resume_key:
+                params["resumeKey"] = resume_key
+            response = await client.get(
+                "https://web.archive.org/cdx/search/cdx",
+                params=params,
+                headers={"User-Agent": "Windeep/6"},
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, list) or not payload:
+                break
+
+            raw_headers = payload[0]
+            if not isinstance(raw_headers, list):
+                raise RuntimeError("Wayback CDX returned a malformed header row")
+            headers = [str(value) for value in raw_headers]
+
+            next_resume_key = ""
+            data_rows = payload[1:]
+            if (
+                len(data_rows) >= 2
+                and data_rows[-2] == []
+                and isinstance(data_rows[-1], list)
+                and len(data_rows[-1]) == 1
+            ):
+                next_resume_key = str(data_rows[-1][0] or "")
+                data_rows = data_rows[:-2]
+
+            for raw in data_rows:
+                if not isinstance(raw, list) or not raw:
+                    continue
+                item = dict(zip(headers, raw))
+                url = str(item.get("original") or "")
+                if not url or url in seen:
+                    continue
+                seen.add(url)
+                rows.append(
+                    _finding(
+                        requested,
+                        target,
+                        url,
+                        endpoint=url,
+                        evidence={
+                            "adapter": "wayback_cdx",
+                            "url": url,
+                            "timestamp": item.get("timestamp"),
+                            "statuscode": item.get("statuscode"),
+                        },
+                    )
+                )
+
+            if not next_resume_key:
+                break
+            if next_resume_key == resume_key or next_resume_key == previous_resume_key:
+                raise RuntimeError("Wayback CDX pagination returned a repeated resume key")
+            previous_resume_key, resume_key = resume_key, next_resume_key
+            await asyncio.sleep(0.25)
     return rows
 
 
@@ -185,7 +236,7 @@ async def _crtsh(target: str, requested: str) -> list[dict[str, Any]]:
             if normalized and normalized not in seen:
                 seen.add(normalized)
                 rows.append(_finding(requested, target, normalized, endpoint=normalized, evidence={"adapter": "crtsh", "hostname": normalized}, confidence=0.9))
-    return rows[:500]
+    return rows
 
 
 async def _github_subdomains(target: str, requested: str, environment: Mapping[str, str]) -> list[dict[str, Any]]:

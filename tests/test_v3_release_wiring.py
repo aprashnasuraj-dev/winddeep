@@ -198,7 +198,15 @@ def test_verification_pass_writes_hash_addressed_record_for_every_claim(tmp_path
     second = verifier.verify_finding(finding_id=finding_id, scan_id=scan_id, bundle=bundle)
     assert first["artifact_sha256"] == second["artifact_sha256"]
     assert first["schema"] == "windeep.verification.v1"
-    assert [claim["claim"] for claim in first["claims"]] == ["title", "affected_asset", "technical_detail", "impact", "reproduction"]
+    assert [claim["claim"] for claim in first["claims"]] == [
+        "title",
+        "affected_asset",
+        "technical_detail",
+        "expected_observed",
+        "control",
+        "impact",
+        "reproduction",
+    ]
     assert all(claim["state"] in {"verified", "partially_verified", "needs-review"} for claim in first["claims"])
     assert all(claim["evidence_refs"] or claim["state"] == "needs-review" for claim in first["claims"])
     resolved = verifier.resolve(finding_id)

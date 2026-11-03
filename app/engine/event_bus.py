@@ -43,6 +43,8 @@ class EventBus:
         self._lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
         self._closed = False
+        self._published_events = 0
+        self._dropped_events = 0
 
     @staticmethod
     def _validate_topic(topic: str, *, allow_wildcard: bool = False) -> None:
@@ -84,6 +86,7 @@ class EventBus:
             payload=dict(payload or {}),
             timestamp=time.time(),
         )
+        self._published_events += 1
         async with self._lock:
             queues = {
                 queue
@@ -128,17 +131,25 @@ class EventBus:
         async with self._lock:
             return sum(len(queues) for queues in self._subscriptions.values())
 
-    @staticmethod
-    def _put_loss_tolerant(queue: asyncio.Queue[Event], event: Event) -> None:
+    def _put_loss_tolerant(self, queue: asyncio.Queue[Event], event: Event) -> None:
         try:
             queue.put_nowait(event)
             return
         except asyncio.QueueFull:
-            pass
+            self._dropped_events += 1
         with contextlib.suppress(asyncio.QueueEmpty):
             queue.get_nowait()
         with contextlib.suppress(asyncio.QueueFull):
             queue.put_nowait(event)
+
+    async def stats(self) -> dict[str, int]:
+        """Return bounded backpressure counters for runtime/stress diagnostics."""
+        return {
+            "queue_size": self._queue_size,
+            "subscribers": await self.subscriber_count(),
+            "published_events": self._published_events,
+            "dropped_events": self._dropped_events,
+        }
 
     async def _heartbeat_loop(self) -> None:
         try:
