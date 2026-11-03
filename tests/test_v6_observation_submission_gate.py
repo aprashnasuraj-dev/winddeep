@@ -8,6 +8,7 @@ import pytest
 
 from app.engine.tool_wrapper import ToolWrapperFactory
 from app.evidence.raw_store import RawArtifactStore
+from app.migrations import MigrationManager
 from app.reporting.submission import SubmissionDraftGenerator
 from app.security.audit import AuditLog
 from app.security.crypto import CryptoManager
@@ -194,3 +195,43 @@ def test_submission_candidate_requires_verification_and_actionable_triage(tmp_pa
     assert "source_is_reconnaissance_observation" in recon_readiness["blocking_reasons"]
     assert "source_explicitly_not_submission_candidate" in recon_readiness["blocking_reasons"]
     assert "source_type_builtin_fallback_is_not_vulnerability_proof" in recon_readiness["blocking_reasons"]
+
+def test_v6_observation_inventory_migration_and_rollback_preserve_evidence(tmp_path: Path) -> None:
+    crypto = CryptoManager(wrapped_key_path=tmp_path / "crypto-migration" / "dek.bin")
+    database = SecureDatabase(tmp_path / "migration.db", crypto=crypto)
+    manager = MigrationManager(
+        database.path,
+        ROOT / "app" / "data" / "migrations",
+        backup_dir=tmp_path / "backups",
+        down_migrations_dir=ROOT / "app" / "data" / "migrations_down",
+    )
+    applied = manager.apply()
+    assert applied.target_version == 9
+
+    target_id = database.create_target("migration", "domain", "example.test", scope=["example.test"])
+    scan_id = database.create_scan(target_id, "v2:selected", ["gau"])
+    run_id = database.create_tool_run(
+        tool_name="gau",
+        status="completed",
+        scan_id=scan_id,
+        target_id=target_id,
+        command=["gau", "<scope-bound target>"],
+    )
+    store = AssetObservationStore(database)
+    store.persist(
+        scan_id=scan_id,
+        tool_run_id=run_id,
+        tool_name="gau",
+        observations=[{"title": "historical URL", "endpoint": "https://example.test/old", "evidence": {"adapter": "wayback_cdx"}}],
+    )
+
+    rolled = manager.rollback(target_version=8)
+    assert rolled.reverted_versions == (9,)
+    with database._connect() as conn:
+        table = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='scan_asset_observations'"
+        ).fetchone()
+        count = conn.execute("SELECT COUNT(*) AS n FROM scan_asset_observations").fetchone()["n"]
+    assert table is not None
+    assert count == 1
+
