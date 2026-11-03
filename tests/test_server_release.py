@@ -9,7 +9,7 @@ import pytest
 from app.server import create_app
 
 CERTIFIED = {"subfinder", "dnsx", "httpx", "naabu", "katana", "nuclei"}
-CATALOG_COUNT = 137
+CATALOG_COUNT = 140
 
 
 @pytest.fixture

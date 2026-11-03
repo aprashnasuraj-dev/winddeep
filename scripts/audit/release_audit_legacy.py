@@ -1,7 +1,7 @@
 """Fail-closed release audits for Windeep's Windows v0.1.0 pipeline.
 
 These checks never scan an external target. Phase D uses Flask's local test
-client only. The release contract deliberately separates the complete 137-tool
+client only. The release contract deliberately separates the complete 140-tool
 catalog from the small set of binaries certified for execution in this Windows
 release.
 """
@@ -26,8 +26,8 @@ REPORTS = ROOT / "reports"
 STATUS_FILE = REPORTS / "phase_status.json"
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 PLACEHOLDER_RE = re.compile(r"\b(TODO|FIXME|TBD|PLACEHOLDER)\b", re.IGNORECASE)
-EXPECTED_TOOL_COUNT = 137
-EXPECTED_ACTIVE_TOOL_COUNT = 109
+EXPECTED_TOOL_COUNT = 140
+EXPECTED_ACTIVE_TOOL_COUNT = 112
 EXPECTED_CERTIFIED_TOOL_COUNT = 6
 EXPECTED_CATALOG_FILES = 8
 EXPECTED_TEST_COUNT = 160
@@ -246,7 +246,7 @@ def phase_a() -> bool:
                 invalid_bounds.append(name)
         except (TypeError, ValueError):
             invalid_bounds.append(name)
-    checks.append(Check("137 catalog definitions structurally complete", "PASS" if not malformed else "FAIL", f"{len(catalog)} definitions complete" if not malformed else "; ".join(malformed[:30])))
+    checks.append(Check("140 catalog definitions structurally complete", "PASS" if not malformed else "FAIL", f"{len(catalog)} definitions complete" if not malformed else "; ".join(malformed[:30])))
     checks.append(Check("catalog scope requirement", "PASS" if not unsafe_scope else "FAIL", "all catalog wrappers require explicit scope" if not unsafe_scope else "scope not mandatory: " + ", ".join(unsafe_scope[:30])))
     checks.append(Check("catalog bounded execution", "PASS" if not invalid_bounds else "FAIL", "all catalog definitions have positive timeout/rate and non-negative retries" if not invalid_bounds else "invalid: " + ", ".join(invalid_bounds[:30])))
 

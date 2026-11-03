@@ -28,7 +28,7 @@ def test_release_test_catalog_is_exactly_160() -> None:
 
 def test_release_registry_is_scope_bound_and_manifest_complete() -> None:
     classes = ToolWrapperFactory(ROOT / "tools_config.json").load()
-    assert len(classes) == 137
+    assert len(classes) == 140
     assert CERTIFIED.issubset(classes)
     assert all(cls.requires_scope for cls in classes.values())
     manifest = json.loads((ROOT / "installer" / "tools-manifest.json").read_text(encoding="utf-8"))

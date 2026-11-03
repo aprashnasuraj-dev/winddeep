@@ -66,7 +66,7 @@ def wait_scan(client, scan_id: int, statuses: set[str], timeout: float = 8.0):
 
 def test_catalog_is_fully_runtime_addressable_and_target_aligned() -> None:
     classes = ToolWrapperFactory(ROOT / "tools_config.json").load()
-    assert len(classes) == 137
+    assert len(classes) == 140
     assert all(cls.requires_scope for cls in classes.values())
     assert all(tuple(cls.target_types) for cls in classes.values())
     assert all(isinstance(cls.scan_default, bool) for cls in classes.values())
@@ -87,7 +87,7 @@ def test_startup_status_and_catalog_never_active_probe_external_runtimes(v2_clie
     tools = client.get("/api/v2/tools?target_type=domain")
     assert status.status_code == 200
     assert tools.status_code == 200
-    assert tools.get_json()["total"] == 137
+    assert tools.get_json()["total"] == 140
 
 
 def test_v2_status_tools_settings_and_plan(v2_client) -> None:
@@ -96,14 +96,14 @@ def test_v2_status_tools_settings_and_plan(v2_client) -> None:
     target, _consent = target_and_consent(client, headers, target="example.test", target_type="domain")
 
     status = client.get("/api/v2/status").get_json()
-    assert status["catalog"] == 137
+    assert status["catalog"] == 140
     assert status["raw_proof_exports"] is True
     assert status["cancellable_processes"] is True
     assert status["target_aware_planning"] is True
 
     tools = client.get("/api/v2/tools?target_type=domain").get_json()
-    assert tools["total"] == 137
-    assert len(tools["tools"]) == 137
+    assert tools["total"] == 140
+    assert len(tools["tools"]) == 140
     assert all("target_types" in row and "blocked_reason" in row for row in tools["tools"])
     assert any(row["compatible"] for row in tools["tools"])
 
@@ -137,7 +137,7 @@ def test_v2_status_tools_settings_and_plan(v2_client) -> None:
     assert shodan["ready"] is True
 
     plan = client.get(f"/api/v2/scan-plan?target_id={target['id']}&mode=smart").get_json()
-    assert plan["catalog_count"] == 137
+    assert plan["catalog_count"] == 140
     assert plan["target_type"] == "domain"
     assert plan["selected_count"] >= 1
     assert all(isinstance(name, str) for name in plan["selected"])
@@ -161,7 +161,7 @@ def test_selected_plan_actively_probes_only_the_requested_compatible_tool(v2_cli
     response = client.get(f"/api/v2/scan-plan?target_id={target['id']}&mode=selected&tools=custom_regex")
     assert response.status_code == 200
     plan = response.get_json()
-    assert plan["catalog_count"] == 137
+    assert plan["catalog_count"] == 140
     assert plan["selected"] == ["custom_regex"]
     assert set(probed) == {"custom_regex"}
     assert plan["ready_compatible_count_is_lower_bound"] is True
@@ -330,6 +330,6 @@ def test_v2_dashboard_has_no_idle_primary_navigation() -> None:
         "/api/v2/intelligence", "/api/v2/settings", "/api/v2/status",
     ):
         assert endpoint in js
-    assert "137 Integration Matrix" in html
+    assert "140 Integration Matrix" in html
     assert "raw proof" in html.lower()
     assert "Stop all running scans" in html

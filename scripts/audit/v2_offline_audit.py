@@ -62,10 +62,10 @@ def main() -> int:
 
         inventory = json.loads(archive.read(f"{root}/integration-inventory.json"))
         tools = inventory.get("tools") or []
-        if inventory.get("integration_count") != 137 or len(tools) != 137:
-            raise RuntimeError(f"integration inventory is not exactly 137 entries: declared={inventory.get('integration_count')} actual={len(tools)}")
+        if inventory.get("integration_count") != 140 or len(tools) != 140:
+            raise RuntimeError(f"integration inventory is not exactly 140 entries: declared={inventory.get('integration_count')} actual={len(tools)}")
         names_seen = {str(item.get("name")) for item in tools}
-        if len(names_seen) != 137:
+        if len(names_seen) != 140:
             raise RuntimeError("integration inventory contains duplicate names")
         if not all(item.get("requires_scope") is True for item in tools):
             raise RuntimeError("one or more offline integrations are not scope-bound")
@@ -73,8 +73,8 @@ def main() -> int:
             raise RuntimeError("one or more offline integrations lack target compatibility metadata")
 
         root_registry = json.loads(archive.read(f"{root}/Windeep/tools_config.json"))
-        if root_registry.get("tool_count") != 137 or root_registry.get("active_tool_count") != 109:
-            raise RuntimeError("packaged root registry must declare 137 registered integrations and 109 active v4.1 launch integrations")
+        if root_registry.get("tool_count") != 140 or root_registry.get("active_tool_count") != 112:
+            raise RuntimeError("packaged root registry must declare 140 registered integrations and 112 active v4.1 launch integrations")
 
         manifest = json.loads(archive.read(f"{root}/Windeep/installer/tools-manifest.json")) if f"{root}/Windeep/installer/tools-manifest.json" in names else None
         # PyInstaller currently embeds the staged tools themselves, while the repository
@@ -88,7 +88,7 @@ def main() -> int:
         if len(tool_files) < 6:
             raise RuntimeError(f"offline kit contains too few staged certified tool files: {len(tool_files)}")
 
-    print("Windeep v2 offline kit audit: PASS (137 integrations, UI, runtime, setup and portable payload present)")
+    print("Windeep v2 offline kit audit: PASS (140 integrations, UI, runtime, setup and portable payload present)")
     return 0
 
 

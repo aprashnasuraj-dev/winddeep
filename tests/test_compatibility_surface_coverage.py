@@ -112,7 +112,7 @@ def test_legacy_api_crud_errors_settings_and_inventory_remain_compatible(compati
     assert masked["api_token"] == "configured"
 
     tools = client.get("/api/tools").get_json()
-    assert len(tools) == 137
+    assert len(tools) == 140
     assert client.post("/api/tools/run", json={"target_id": 999999, "tool": "whois", "consent_id": consent["id"]}, headers=headers).status_code == 404
     unknown_tool = client.post("/api/tools/run", json={"target_id": target_id, "tool": "definitely-not-a-tool", "consent_id": consent["id"]}, headers=headers)
     assert unknown_tool.status_code == 400
@@ -121,7 +121,7 @@ def test_legacy_api_crud_errors_settings_and_inventory_remain_compatible(compati
     assert packs["total"] > 0
     assert client.get("/api/test-packs/not-a-pack/status").status_code == 404
     integrations = client.get("/api/integrations").get_json()
-    assert integrations["tools"]["active"] == 137
+    assert integrations["tools"]["active"] == 140
 
     assert client.delete(f"/api/findings/{finding_id}", headers=headers).status_code == 200
     assert client.get(f"/api/findings/{finding_id}").status_code == 404
@@ -148,7 +148,7 @@ def test_v2_error_paths_and_target_alignment_stay_stable(compatibility_client) -
     mobile_tools = client.get("/api/v2/tools?target_type=apk")
     assert mobile_tools.status_code == 200
     rows = mobile_tools.get_json()["tools"]
-    assert len(rows) == 137
+    assert len(rows) == 140
     assert any(row["compatible"] is False for row in rows)
 
     assert client.post("/api/v2/scans", json={}, headers=headers).status_code == 400
