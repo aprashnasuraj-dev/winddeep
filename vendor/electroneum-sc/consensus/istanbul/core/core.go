@@ -1,0 +1,408 @@
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
+package core
+
+import (
+	"math"
+	"math/big"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/electroneum/electroneum-sc/common"
+	"github.com/electroneum/electroneum-sc/common/prque"
+	"github.com/electroneum/electroneum-sc/consensus/istanbul"
+	qbfttypes "github.com/electroneum/electroneum-sc/consensus/istanbul/types"
+	"github.com/electroneum/electroneum-sc/core/types"
+	"github.com/electroneum/electroneum-sc/event"
+	"github.com/electroneum/electroneum-sc/log"
+	metrics "github.com/electroneum/electroneum-sc/metrics"
+)
+
+var (
+	roundMeter     = metrics.NewRegisteredMeter("consensus/istanbul/qbft/core/round", nil)
+	sequenceMeter  = metrics.NewRegisteredMeter("consensus/istanbul/qbft/core/sequence", nil)
+	consensusTimer = metrics.NewRegisteredTimer("consensus/istanbul/qbft/core/consensus", nil)
+)
+
+// New creates an Istanbul consensus core
+func New(backend istanbul.Backend, config *istanbul.Config) istanbul.Core {
+	c := &core{
+		config:             config,
+		address:            backend.Address(),
+		state:              StateAcceptRequest,
+		handlerWg:          new(sync.WaitGroup),
+		logger:             log.New("address", backend.Address()),
+		cleanLogger:        log.New(),
+		backend:            backend,
+		backlogs:           make(map[common.Address]*prque.Prque),
+		backlogsBytes:      make(map[common.Address]int),
+		backlogsMu:         new(sync.Mutex),
+		pendingRequests:    prque.New(nil),
+		pendingRequestsMu:  new(sync.Mutex),
+		consensusTimestamp: time.Time{},
+		currentMutex:       new(sync.Mutex),
+	}
+
+	c.validateFn = c.checkValidatorSignature
+	return c
+}
+
+// ----------------------------------------------------------------------------
+
+type core struct {
+	config      *istanbul.Config
+	address     common.Address
+	state       State
+	logger      log.Logger
+	cleanLogger log.Logger
+
+	backend               istanbul.Backend
+	events                *event.TypeMuxSubscription
+	finalCommittedSub     *event.TypeMuxSubscription
+	timeoutSub            *event.TypeMuxSubscription
+	futurePreprepareTimer *time.Timer
+
+	valSet     istanbul.ValidatorSet
+	validateFn func([]byte, []byte) (common.Address, error)
+
+	backlogs      map[common.Address]*prque.Prque
+	backlogsMu    *sync.Mutex
+	backlogsTotal int
+	// backlogsBytes tracks retained encoded bytes per source and in aggregate, so
+	// that future-message admission can enforce a byte budget in addition to the
+	// message-count caps. Kept in lockstep with backlogs under backlogsMu.
+	backlogsBytes      map[common.Address]int
+	backlogsBytesTotal int
+
+	current      *roundState
+	currentMutex *sync.Mutex
+	handlerWg    *sync.WaitGroup
+
+	roundChangeSet   *roundChangeSet
+	roundChangeTimer *time.Timer
+
+	QBFTPreparedPrepares []*qbfttypes.Prepare
+
+	pendingRequests   *prque.Prque
+	pendingRequestsMu *sync.Mutex
+
+	consensusTimestamp time.Time
+
+	// roundStateInfo holds the latest *istanbul.RoundStateInfo published by
+	// publishRoundState, for lock-free reads from outside the event loop.
+	roundStateInfo atomic.Pointer[istanbul.RoundStateInfo]
+}
+
+func (c *core) currentView() *istanbul.View {
+	return &istanbul.View{
+		Sequence: new(big.Int).Set(c.current.Sequence()),
+		Round:    new(big.Int).Set(c.current.Round()),
+	}
+}
+
+// isProposer reports from the live validator set whether this node is the
+// proposer for the current round. Only for use on the consensus event loop,
+// which owns that state; other goroutines use IsProposer.
+func (c *core) isProposer() bool {
+	v := c.valSet
+	if v == nil {
+		return false
+	}
+	return v.IsProposer(c.backend.Address())
+}
+
+// IsProposer implements istanbul.Core.IsProposer. It is called from the p2p
+// handler, outside the event loop that replaces the validator set and
+// recalculates the proposer on every round, so it reads the published
+// snapshot instead of that live state.
+func (c *core) IsProposer() bool {
+	info := c.roundStateInfo.Load()
+	return info != nil && info.IsProposer
+}
+
+// IsCurrentProposal implements istanbul.Core.IsCurrentProposal. Like
+// IsProposer it is called from the p2p handler and reads the published
+// snapshot rather than the round state the event loop is mutating.
+func (c *core) IsCurrentProposal(blockHash common.Hash) bool {
+	info := c.roundStateInfo.Load()
+	return info != nil && info.PendingProposal != nil && *info.PendingProposal == blockHash
+}
+
+// startNewRound starts a new round. if round equals to 0, it means to starts a new sequence
+func (c *core) startNewRound(round *big.Int) {
+	c.currentMutex.Lock()
+	defer c.currentMutex.Unlock()
+	defer c.newRoundChangeTimer()
+
+	var logger log.Logger
+	if c.current == nil {
+		logger = c.logger.New("old.round", -1, "old.seq", 0)
+	} else {
+		logger = c.currentLogger(false, nil)
+	}
+	logger = logger.New("target.round", round)
+
+	roundChange := false
+
+	// Try to get last proposal
+	lastProposal, lastProposer := c.backend.LastProposal()
+	if lastProposal != nil {
+		logger = logger.New("lastProposal.number", lastProposal.Number().Uint64(), "lastProposal.hash", lastProposal.Hash())
+	}
+
+	c.cleanLogger.Info("=====================================================")
+
+	logger.Info("[Consensus]: Initializing new round")
+
+	if c.current == nil {
+		logger.Debug("IBFT: start at the initial round")
+	} else if lastProposal.Number().Cmp(c.current.Sequence()) >= 0 {
+		diff := new(big.Int).Sub(lastProposal.Number(), c.current.Sequence())
+		sequenceMeter.Mark(new(big.Int).Add(diff, common.Big1).Int64())
+
+		if !c.consensusTimestamp.IsZero() {
+			consensusTimer.UpdateSince(c.consensusTimestamp)
+			c.consensusTimestamp = time.Time{}
+		}
+		logger.Debug("IBFT: catch up last block proposal")
+	} else if lastProposal.Number().Cmp(big.NewInt(c.current.Sequence().Int64()-1)) == 0 {
+		if round.Cmp(common.Big0) == 0 {
+			// same seq and round, don't need to start new round
+			logger.Debug("IBFT: same round, no need to start new round")
+			return
+		} else if round.Cmp(c.current.Round()) < 0 {
+			logger.Warn("IBFT: next round is inferior to current round")
+			return
+		}
+		roundChange = true
+	} else {
+		logger.Warn("IBFT: next sequence is before last block proposal")
+		return
+	}
+
+	var oldLogger log.Logger
+	if c.current == nil {
+		oldLogger = c.logger.New("old.round", -1, "old.seq", 0)
+	} else {
+		oldLogger = c.logger.New("old.round", c.current.Round().Uint64(), "old.sequence", c.current.Sequence().Uint64(), "old.state", c.state.String(), "old.proposer", c.valSet.GetProposer())
+	}
+
+	// Create next view
+	var newView *istanbul.View
+	if roundChange {
+		newView = &istanbul.View{
+			Sequence: new(big.Int).Set(c.current.Sequence()),
+			Round:    new(big.Int).Set(round),
+		}
+	} else {
+		newView = &istanbul.View{
+			Sequence: new(big.Int).Add(lastProposal.Number(), common.Big1),
+			Round:    new(big.Int),
+		}
+		c.valSet = c.backend.Validators(lastProposal)
+	}
+
+	// New snapshot for new round
+	c.updateRoundState(newView, c.valSet, roundChange)
+
+	// Calculate new proposer
+	c.valSet.CalcProposer(lastProposer, newView.Round.Uint64())
+	c.setState(StateAcceptRequest)
+
+	c.cleanLogger.Info("[Consensus]: Proposer selected", "proposer", c.valSet.GetProposer().Address())
+
+	if c.current != nil && round.Cmp(c.current.Round()) > 0 {
+		roundMeter.Mark(new(big.Int).Sub(round, c.current.Round()).Int64())
+	}
+
+	// Update RoundChangeSet by deleting older round messages
+	if round.Uint64() == 0 {
+		c.QBFTPreparedPrepares = nil
+		c.roundChangeSet = newRoundChangeSet(c.valSet)
+	} else {
+		// Clear earlier round messages
+		c.roundChangeSet.ClearLowerThan(round)
+	}
+	c.roundChangeSet.NewRound(round)
+	c.publishRoundStateLocked()
+
+	oldLogger.Trace("IBFT: start new round", "next.round", newView.Round, "next.seq", newView.Sequence, "next.proposer", c.valSet.GetProposer(), "next.valSet", c.valSet.List(), "next.size", c.valSet.Size(), "next.IsProposer", c.isProposer())
+}
+
+// updateRoundState updates round state by checking if locking block is necessary
+func (c *core) updateRoundState(view *istanbul.View, validatorSet istanbul.ValidatorSet, roundChange bool) {
+	if roundChange && c.current != nil {
+		c.current = newRoundState(view, validatorSet, c.current.Preprepare, c.current.preparedRound, c.current.preparedBlock, c.current.pendingRequest, c.backend.HasBadProposal)
+	} else {
+		c.current = newRoundState(view, validatorSet, nil, nil, nil, nil, c.backend.HasBadProposal)
+	}
+}
+
+func (c *core) setState(state State) {
+	if c.state != state {
+		oldState := c.state
+		c.state = state
+		c.currentLogger(false, nil).Trace("[Consensus]: State changed", "from", oldState.String(), "to", state.String())
+	}
+	if state == StateAcceptRequest {
+		c.processPendingRequests()
+	}
+
+	// each time we change state, we process backlog for possible message that are
+	// now ready
+	c.processBacklog()
+}
+
+func (c *core) Address() common.Address {
+	return c.address
+}
+
+func (c *core) stopFuturePreprepareTimer() {
+	if c.futurePreprepareTimer != nil {
+		c.futurePreprepareTimer.Stop()
+	}
+}
+
+func (c *core) stopTimer() {
+	c.stopFuturePreprepareTimer()
+	if c.roundChangeTimer != nil {
+		c.roundChangeTimer.Stop()
+	}
+}
+
+func (c *core) newRoundChangeTimer() {
+	c.stopTimer()
+
+	// set timeout based on the round number
+	baseTimeout := time.Duration(c.config.GetConfig(c.current.Sequence()).RequestTimeoutSeconds) * time.Second
+	round := c.current.Round().Uint64()
+	maxRequestTimeout := time.Duration(c.config.GetConfig(c.current.Sequence()).MaxRequestTimeoutSeconds) * time.Second
+
+	// If the upper limit of the request timeout is capped by small maxRequestTimeout, round can be a quite large number,
+	// which leads to float64 overflow, making its value negative or zero forever after some point.
+	// In this case we cannot simply use math.Pow and have to implement a safeguard on our own, at the cost of performance (which is not important in this case).
+	var timeout time.Duration
+	if maxRequestTimeout > time.Duration(0) {
+		timeout = baseTimeout
+		for i := uint64(0); i < round; i++ {
+			timeout = timeout * 2
+			if timeout > maxRequestTimeout {
+				timeout = maxRequestTimeout
+				break
+			}
+		}
+		// prevent log storm when unexpected overflow happens
+		if timeout < baseTimeout {
+			c.currentLogger(true, nil).Error("QBFT: Possible request timeout overflow detected, setting timeout value to maxRequestTimeout",
+				"timeout", timeout.Seconds(),
+				"max_request_timeout", maxRequestTimeout.Seconds(),
+			)
+			timeout = maxRequestTimeout
+		}
+	} else {
+		// effectively impossible to observe overflow happen when maxRequestTimeout is disabled
+		timeout = baseTimeout * time.Duration(math.Pow(2, float64(round)))
+	}
+
+	c.currentLogger(true, nil).Trace("IBFT: start new ROUND-CHANGE timer", "timeout", timeout.Seconds())
+	c.cleanLogger.Info("[Consensus]: Start new ROUND-CHANGE timer", "timeout", timeout.Seconds())
+	c.roundChangeTimer = time.AfterFunc(timeout, func() {
+		c.sendEvent(timeoutEvent{round: round})
+	})
+}
+
+func (c *core) checkValidatorSignature(data []byte, sig []byte) (common.Address, error) {
+	return istanbul.CheckValidatorSignature(c.valSet, data, sig)
+}
+
+func (c *core) QuorumSize() int {
+	return int(math.Ceil(float64(2*c.valSet.Size()) / 3))
+}
+
+// PrepareCommittedSeal returns a committed seal for the given header and takes current round under consideration
+func PrepareCommittedSeal(header *types.Header, round uint32) []byte {
+	h := types.CopyHeader(header)
+	return h.QBFTHashWithRoundNumber(round).Bytes()
+}
+
+// RoundState implements istanbul.Core.RoundState.
+func (c *core) RoundState() *istanbul.RoundStateInfo {
+	return c.roundStateInfo.Load()
+}
+
+// publishRoundState takes a snapshot of the consensus state for RoundState.
+// It is called by the event loop after every event it handles.
+func (c *core) publishRoundState() {
+	c.currentMutex.Lock()
+	defer c.currentMutex.Unlock()
+	c.publishRoundStateLocked()
+}
+
+// publishRoundStateLocked is publishRoundState for callers that already hold
+// currentMutex.
+func (c *core) publishRoundStateLocked() {
+	if c.current == nil || c.valSet == nil {
+		return
+	}
+	now := uint64(time.Now().Unix())
+	info := &istanbul.RoundStateInfo{
+		Sequence:     c.current.Sequence().Uint64(),
+		Round:        c.current.Round().Uint64(),
+		State:        c.state.String(),
+		HasProposal:  c.current.Proposal() != nil,
+		Validators:   c.valSet.Size(),
+		QuorumSize:   c.QuorumSize(),
+		RoundChanges: map[uint64]int{},
+		UpdatedAt:    now,
+	}
+	if proposer := c.valSet.GetProposer(); proposer != nil {
+		info.Proposer = proposer.Address()
+		info.IsProposer = info.Proposer == c.address
+	}
+	if req := c.current.pendingRequest; req != nil && req.Proposal != nil {
+		hash := req.Proposal.Hash()
+		info.PendingProposal = &hash
+	}
+	if c.current.QBFTPrepares != nil {
+		info.Prepares = c.current.QBFTPrepares.Size()
+	}
+	if c.current.QBFTCommits != nil {
+		info.Commits = c.current.QBFTCommits.Size()
+	}
+	if c.current.preparedRound != nil {
+		pr := c.current.preparedRound.Uint64()
+		info.PreparedRound = &pr
+	}
+	if rcs := c.roundChangeSet; rcs != nil {
+		rcs.mu.Lock()
+		for round, msgs := range rcs.roundChanges {
+			if round < info.Round || msgs == nil {
+				continue
+			}
+			if n := msgs.Size(); n > 0 {
+				info.RoundChanges[round] = n
+			}
+		}
+		rcs.mu.Unlock()
+	}
+	info.RoundStartedAt = now
+	if prev := c.roundStateInfo.Load(); prev != nil && prev.Sequence == info.Sequence && prev.Round == info.Round {
+		info.RoundStartedAt = prev.RoundStartedAt
+	}
+	c.roundStateInfo.Store(info)
+}

@@ -1,0 +1,343 @@
+// Copyright 2017 The go-ethereum Authors
+// This file is part of the go-ethereum library.
+//
+// The go-ethereum library is free software: you can redistribute it and/or modify
+// it under the terms of the GNU Lesser General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+//
+// The go-ethereum library is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU Lesser General Public License for more details.
+//
+// You should have received a copy of the GNU Lesser General Public License
+// along with the go-ethereum library. If not, see <http://www.gnu.org/licenses/>.
+
+package core
+
+import (
+	"errors"
+	"math/big"
+	"sort"
+	"sync"
+
+	"github.com/electroneum/electroneum-sc/common"
+	"github.com/electroneum/electroneum-sc/common/hexutil"
+	"github.com/electroneum/electroneum-sc/consensus/istanbul"
+	qbfttypes "github.com/electroneum/electroneum-sc/consensus/istanbul/types"
+	"github.com/electroneum/electroneum-sc/core/types"
+	"github.com/electroneum/electroneum-sc/log"
+	"github.com/electroneum/electroneum-sc/rlp"
+)
+
+// broadcastNextRoundChange sends the ROUND CHANGE message with current round + 1
+func (c *core) broadcastNextRoundChange() {
+	cv := c.currentView()
+	c.broadcastRoundChange(new(big.Int).Add(cv.Round, common.Big1))
+}
+
+// broadcastRoundChange is called when either
+// - ROUND-CHANGE timeout expires (meaning either we have not received PRE-PREPARE message or we have not received a quorum of COMMIT messages)
+// -
+
+// It
+// - Creates and sign ROUND-CHANGE message
+// - broadcast the ROUND-CHANGE message with the given round
+func (c *core) broadcastRoundChange(round *big.Int) {
+	logger := c.currentLogger(true, nil)
+
+	// Validates new round corresponds to current view
+	cv := c.currentView()
+	if cv.Round.Cmp(round) > 0 {
+		logger.Error("[Consensus]: Invalid past target round", "target", round)
+		return
+	}
+
+	// Check if we should round-change due to a bad block proposal
+	hasBadProposal := false
+	if c.current.preparedBlock != nil {
+		hasBadProposal = c.current.hasBadProposal(c.current.preparedBlock.Hash())
+	}
+
+	roundChange := qbfttypes.NewRoundChange(c.current.Sequence(), round, c.current.preparedRound, c.current.preparedBlock, hasBadProposal)
+
+	// Sign message
+	encodedPayload, err := roundChange.EncodePayloadForSigning()
+	if err != nil {
+		withMsg(logger, roundChange).Error("[Consensus]: Failed to encode ROUND-CHANGE message", "err", err)
+		return
+	}
+	signature, err := c.backend.Sign(encodedPayload)
+	if err != nil {
+		withMsg(logger, roundChange).Error("[Consensus]: Failed to sign ROUND-CHANGE message", "err", err)
+		return
+	}
+	roundChange.SetSignature(signature)
+
+	// Extend ROUND-CHANGE message with PREPARE justification
+	if c.QBFTPreparedPrepares != nil {
+		roundChange.Justification = c.QBFTPreparedPrepares
+		withMsg(logger, roundChange).Debug("[Consensus]: Extended ROUND-CHANGE message with PREPARE justification", "justification", roundChange.Justification)
+	}
+
+	// RLP-encode message
+	data, err := rlp.EncodeToBytes(roundChange)
+	if err != nil {
+		withMsg(logger, roundChange).Error("[Consensus]: Failed to encode ROUND-CHANGE message", "err", err)
+		return
+	}
+
+	withMsg(logger, roundChange).Trace("[Consensus]: Broadcast ROUND-CHANGE message", "payload", hexutil.Encode(data))
+	c.cleanLogger.Info("[Consensus]: -> Broadcasting ROUND-CHANGE message to validators")
+
+	// Broadcast RLP-encoded message
+	if err = c.backend.Broadcast(c.valSet, roundChange.Code(), data); err != nil {
+		withMsg(logger, roundChange).Error("[Consensus]: Failed to broadcast ROUND-CHANGE message", "err", err)
+		return
+	}
+}
+
+// handleRoundChange is called when receiving a ROUND-CHANGE message from another validator
+// - accumulates ROUND-CHANGE messages until reaching quorum for a given round
+// - when quorum of ROUND-CHANGE messages is reached then
+func (c *core) handleRoundChange(roundChange *qbfttypes.RoundChange) error {
+	logger := c.currentLogger(true, roundChange)
+	view := roundChange.View()
+	currentRound := c.currentView().Round
+
+	// number of validators we received ROUND-CHANGE from for the current round
+	currentRoundMessages := c.roundChangeSet.getRCMessagesForGivenRound(currentRound)
+	logger.Trace("IBFT: handle ROUND-CHANGE message", "currentRoundChanges.count", currentRoundMessages)
+
+	// Drop far-future ROUND-CHANGE messages.
+	//
+	// roundChangeSet.roundChanges is keyed by round number, so accepting an
+	// unbounded range of distinct rounds lets a single validator grow the map
+	// without limit (each distinct round allocates a new qbftMsgSet). Such
+	// messages can never legitimately advance consensus: jumping to a round
+	// requires F+1 validators agreeing on the SAME round, which a flood of
+	// distinct rounds never produces. Cap the accepted round at the same
+	// MaxFutureRoundGap that addToBacklog already enforces for future-sequence
+	// ROUND-CHANGE messages (see withinBacklogFutureWindow), so the bound holds
+	// regardless of which path the message arrives on.
+	maxAllowedRound := new(big.Int).Add(currentRound, new(big.Int).SetUint64(MaxFutureRoundGap))
+	if view.Round.Cmp(maxAllowedRound) > 0 {
+		logger.Trace("[Consensus]: Dropping far-future ROUND-CHANGE message",
+			"round", view.Round, "max", maxAllowedRound)
+		return nil
+	}
+
+	// Add ROUND-CHANGE message to message set
+	if view.Round.Cmp(currentRound) >= 0 {
+		var prepareMessages []*qbfttypes.Prepare = nil
+		var pr *big.Int = nil
+		var pb *types.Block = nil
+		if roundChange.PreparedRound != nil && roundChange.PreparedBlock != nil && roundChange.Justification != nil && len(roundChange.Justification) > 0 {
+			prepareMessages = roundChange.Justification
+			pr = roundChange.PreparedRound
+			pb = roundChange.PreparedBlock
+		}
+		err := c.roundChangeSet.Add(view.Round, roundChange, pr, pb, prepareMessages, c.QuorumSize())
+		if err != nil {
+			logger.Warn("[Consensus]: Failed to add ROUND-CHANGE message", "err", err)
+			return err
+		}
+	}
+
+	// number of validators we received ROUND-CHANGE from for the current round
+	currentRoundMessages = c.roundChangeSet.getRCMessagesForGivenRound(currentRound)
+	logger = logger.New("currentRoundChanges.count", currentRoundMessages)
+
+	// If there exists some round > currentRound with at least F+1 RCs,
+	// jump to the MINIMUM such round (do not aggregate heterogeneous higher rounds).
+	target := c.roundChangeSet.MinRoundAboveWithAtLeast(currentRound, c.valSet.F()+1)
+	if target != nil {
+		logger.Trace("[Consensus]: Received >=F+1 ROUND-CHANGE messages for target round",
+			"F", c.valSet.F(), "target", target)
+		c.cleanLogger.Info("[Consensus]: <- Received >=F+1 ROUND-CHANGE messages for round",
+			"round", target, "threshold", c.valSet.F()+1)
+		c.startNewRound(target)
+		c.broadcastRoundChange(target)
+	} else if currentRoundMessages >= c.QuorumSize() && c.isProposer() && c.current.preprepareSent.Cmp(currentRound) < 0 {
+		logger.Trace("[Consensus]: Received quorum of ROUND-CHANGE messages")
+		c.cleanLogger.Info("[Consensus]: <- Received quorum of ROUND-CHANGE messages", "count", currentRoundMessages, "quorum", c.QuorumSize())
+
+		// We received quorum of ROUND-CHANGE for current round and we are proposer
+
+		// If we have received a quorum of PREPARE message
+		// then we propose the same block proposal again if not we
+		// propose the block proposal that we generated
+		//
+		// If we have received a quorum of PREPARE messages with hadBlockProposal=false,
+		// propose the same block again. If hadBlockProposal=true, propose the block that we generated
+		_, proposal := c.highestPrepared(currentRound)
+		if proposal == nil || c.backend.HasBadProposal(proposal.Hash()) {
+			if c.current != nil && c.current.pendingRequest != nil {
+				proposal = c.current.pendingRequest.Proposal
+			} else {
+				log.Warn("round change returns an error: no proposal as pending request is nil")
+				return errors.New("no proposal as pending request is nil")
+			}
+		}
+
+		// Prepare justification for ROUND-CHANGE messages
+		roundChangeMessages := c.roundChangeSet.roundChanges[currentRound.Uint64()]
+		rcSignedPayloads := make([]*qbfttypes.SignedRoundChangePayload, 0)
+		for _, m := range roundChangeMessages.Values() {
+			rcMsg := m.(*qbfttypes.RoundChange)
+			rcSignedPayloads = append(rcSignedPayloads, &rcMsg.SignedRoundChangePayload)
+		}
+
+		prepareMessages := c.roundChangeSet.prepareMessages[currentRound.Uint64()]
+		if err := isJustified(c.current.Sequence(), currentRound, proposal, rcSignedPayloads, prepareMessages, c.QuorumSize(), c.valSet); err != nil {
+			logger.Error("IBFT: invalid ROUND-CHANGE message justification", "err", err)
+			return nil
+		}
+
+		r := &Request{
+			Proposal:        proposal,
+			RCMessages:      roundChangeMessages,
+			PrepareMessages: prepareMessages,
+		}
+		c.sendPreprepareMsg(r)
+	} else {
+		logger.Trace("IBFT: accepted ROUND-CHANGE messages")
+	}
+
+	if currentRoundMessages >= c.QuorumSize() {
+		c.cleanLogger.Info("[Consensus]: <- Received quorum of ROUND-CHANGE messages", "count", currentRoundMessages, "quorum", c.QuorumSize())
+	}
+	return nil
+}
+
+// MinRoundAboveWithAtLeast returns the minimum round above the given round with enough supporting ROUND-CHANGE messages
+func (rcs *roundChangeSet) MinRoundAboveWithAtLeast(cur *big.Int, num int) *big.Int {
+	rcs.mu.Lock()
+	defer rcs.mu.Unlock()
+
+	var candidates []uint64
+	for k, rms := range rcs.roundChanges {
+		if cur.Uint64() < k && rms.Size() >= num {
+			candidates = append(candidates, k)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i] < candidates[j] })
+	return big.NewInt(int64(candidates[0]))
+}
+
+// highestPrepared returns the highest Prepared Round and the corresponding Prepared Block
+func (c *core) highestPrepared(round *big.Int) (*big.Int, istanbul.Proposal) {
+	return c.roundChangeSet.highestPreparedRound[round.Uint64()], c.roundChangeSet.highestPreparedBlock[round.Uint64()]
+}
+
+// ----------------------------------------------------------------------------
+
+func newRoundChangeSet(valSet istanbul.ValidatorSet) *roundChangeSet {
+	return &roundChangeSet{
+		validatorSet:         valSet,
+		roundChanges:         make(map[uint64]*qbftMsgSet),
+		prepareMessages:      make(map[uint64][]*qbfttypes.Prepare),
+		highestPreparedRound: make(map[uint64]*big.Int),
+		highestPreparedBlock: make(map[uint64]istanbul.Proposal),
+		mu:                   new(sync.Mutex),
+	}
+}
+
+type roundChangeSet struct {
+	validatorSet         istanbul.ValidatorSet
+	roundChanges         map[uint64]*qbftMsgSet
+	prepareMessages      map[uint64][]*qbfttypes.Prepare
+	highestPreparedRound map[uint64]*big.Int
+	highestPreparedBlock map[uint64]istanbul.Proposal
+	mu                   *sync.Mutex
+}
+
+func (rcs *roundChangeSet) NewRound(r *big.Int) {
+	rcs.mu.Lock()
+	defer rcs.mu.Unlock()
+	round := r.Uint64()
+	if rcs.roundChanges[round] == nil {
+		rcs.roundChanges[round] = newQBFTMsgSet(rcs.validatorSet)
+	}
+	if rcs.prepareMessages[round] == nil {
+		rcs.prepareMessages[round] = make([]*qbfttypes.Prepare, 0)
+	}
+}
+
+// Add adds the round and message into round change set
+func (rcs *roundChangeSet) Add(r *big.Int, msg qbfttypes.QBFTMessage, preparedRound *big.Int, preparedBlock istanbul.Proposal, prepareMessages []*qbfttypes.Prepare, quorumSize int) error {
+	rcs.mu.Lock()
+	defer rcs.mu.Unlock()
+
+	round := r.Uint64()
+	if rcs.roundChanges[round] == nil {
+		rcs.roundChanges[round] = newQBFTMsgSet(rcs.validatorSet)
+	}
+	if err := rcs.roundChanges[round].Add(msg); err != nil {
+		return err
+	}
+
+	if preparedRound != nil && (rcs.highestPreparedRound[round] == nil || preparedRound.Cmp(rcs.highestPreparedRound[round]) > 0) {
+		roundChange := msg.(*qbfttypes.RoundChange)
+		// A single ROUND-CHANGE cannot assert its own bad-proposal exemption: HasBadProposal must be
+		// corroborated by a quorum of distinct signers, which is only ever established in isJustified
+		// at read time. Passing that per-message flag here would let one Byzantine validator skip the
+		// digest binding and pin highestPreparedBlock to a block of its choosing, stalling the round.
+		if hasMatchingRoundChangeAndPrepares(roundChange, prepareMessages, quorumSize, false, rcs.validatorSet) == nil {
+			rcs.highestPreparedRound[round] = preparedRound
+			rcs.highestPreparedBlock[round] = preparedBlock
+			rcs.prepareMessages[round] = prepareMessages
+		}
+	}
+
+	return nil
+}
+
+// getRCMessagesForGivenRound return the count ROUND-CHANGE messages
+// received for a given round
+func (rcs *roundChangeSet) getRCMessagesForGivenRound(round *big.Int) int {
+	rcs.mu.Lock()
+	defer rcs.mu.Unlock()
+
+	if rms := rcs.roundChanges[round.Uint64()]; rms != nil {
+		return len(rms.messages)
+	}
+	return 0
+}
+
+// ClearLowerThan deletes the messages for round earlier than the given round
+func (rcs *roundChangeSet) ClearLowerThan(round *big.Int) {
+	rcs.mu.Lock()
+	defer rcs.mu.Unlock()
+
+	for k, rms := range rcs.roundChanges {
+		if len(rms.Values()) == 0 || k < round.Uint64() {
+			delete(rcs.roundChanges, k)
+			delete(rcs.highestPreparedRound, k)
+			delete(rcs.highestPreparedBlock, k)
+			delete(rcs.prepareMessages, k)
+		}
+	}
+}
+
+// MaxRound returns the max round which the number of messages is equal or larger than num
+func (rcs *roundChangeSet) MaxRound(num int) *big.Int {
+	rcs.mu.Lock()
+	defer rcs.mu.Unlock()
+
+	var maxRound *big.Int
+	for k, rms := range rcs.roundChanges {
+		if rms.Size() < num {
+			continue
+		}
+		r := big.NewInt(int64(k))
+		if maxRound == nil || maxRound.Cmp(r) < 0 {
+			maxRound = r
+		}
+	}
+	return maxRound
+}
