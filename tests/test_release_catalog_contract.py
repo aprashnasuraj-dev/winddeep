@@ -11,16 +11,16 @@ ROOT = Path(__file__).resolve().parents[1]
 CERTIFIED = {"subfinder", "dnsx", "httpx", "naabu", "katana", "nuclei"}
 
 
-def test_complete_catalog_contains_exactly_137_unique_definitions() -> None:
+def test_complete_catalog_contains_exactly_140_unique_definitions() -> None:
     definitions = load_definitions(ROOT / "tools_config.json")
-    assert len(definitions) == 137
-    assert len(set(definitions)) == 137
+    assert len(definitions) == 140
+    assert len(set(definitions)) == 140
     assert all(definition.get("requires_scope") is True for definition in definitions.values())
 
 
 def test_release_policy_certifies_only_reviewed_bundled_tools() -> None:
     effective = effective_definitions(ROOT / "tools_config.json")
-    assert len(effective) == 137
+    assert len(effective) == 140
     bundled = {name for name, definition in effective.items() if definition.get("release_support") == "bundled"}
     assert bundled == CERTIFIED
     assert all(
@@ -34,7 +34,7 @@ def test_release_policy_certifies_only_reviewed_bundled_tools() -> None:
 def test_runtime_registry_exposes_complete_catalog() -> None:
     classes = ToolWrapperFactory(ROOT / "tools_config.json").load()
     effective = effective_definitions(ROOT / "tools_config.json")
-    assert len(classes) == 137
+    assert len(classes) == 140
     assert set(classes) == set(effective)
     assert all(wrapper.requires_scope is True for wrapper in classes.values())
 
@@ -42,7 +42,7 @@ def test_runtime_registry_exposes_complete_catalog() -> None:
 def test_release_metadata_annotates_only_the_runtime_subset() -> None:
     classes = ToolWrapperFactory(ROOT / "tools_config.json").load()
     effective = apply_release_metadata(classes, ROOT / "tools_config.json")
-    assert len(effective) == 137
+    assert len(effective) == 140
     assert set(classes) == set(effective)
     assert {name for name, wrapper in classes.items() if wrapper.release_support == "bundled"} == CERTIFIED
     for name in CERTIFIED:
