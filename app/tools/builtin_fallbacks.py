@@ -6,6 +6,7 @@ small CLIs whose behavior can be reproduced through documented public APIs.
 """
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 import os
 import re
