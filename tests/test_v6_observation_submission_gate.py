@@ -14,6 +14,7 @@ from app.security.audit import AuditLog
 from app.security.crypto import CryptoManager
 from app.security.secure_database import SecureDatabase
 from app.security.scope import ScopeEnforcer
+from app.tools import builtin_fallbacks
 from app.v2_pipeline import AssetObservationStore, FindingBatchWriter
 from app.v3.triage import ManualTriage
 from app.v3.verification import VerificationPass
@@ -74,6 +75,64 @@ def test_587_item_recon_noise_shape_creates_zero_findings(tmp_path: Path) -> Non
     assert all(item["submission_candidate"] is False for item in rows)
     assert all(item["result_role"] == "observation" for item in rows)
     assert database.list_findings(target_id=target_id, limit=5000) == []
+
+
+@pytest.mark.asyncio
+async def test_wayback_inventory_paginates_until_resume_key_is_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, str]] = []
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return self._payload
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, _url, *, params, headers):
+            del headers
+            snapshot = {str(key): str(value) for key, value in params.items()}
+            calls.append(snapshot)
+            if "resumeKey" not in snapshot:
+                return FakeResponse(
+                    [
+                        ["original", "statuscode", "timestamp"],
+                        ["https://example.test/a", "200", "20200101000000"],
+                        [],
+                        ["next-page"],
+                    ]
+                )
+            assert snapshot["resumeKey"] == "next-page"
+            return FakeResponse(
+                [
+                    ["original", "statuscode", "timestamp"],
+                    ["https://example.test/b", "200", "20210101000000"],
+                ]
+            )
+
+    monkeypatch.setattr(builtin_fallbacks.httpx, "AsyncClient", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(builtin_fallbacks.asyncio, "sleep", lambda *_args, **_kwargs: _noop_async())
+    rows = await builtin_fallbacks.run_adapter("wayback_cdx", "example.test", requested_name="gau")
+    assert [row["endpoint"] for row in rows] == [
+        "https://example.test/a",
+        "https://example.test/b",
+    ]
+    assert len(calls) == 2
+    assert calls[0]["limit"] == "5000"
+    assert calls[0]["showResumeKey"] == "true"
+
+
+async def _noop_async() -> None:
+    return None
 
 
 def test_discovered_scope_relation_is_classification_only_and_never_filters_observations(tmp_path: Path) -> None:
