@@ -16,9 +16,10 @@ func TestWorkerDHistoricalCommitments(t *testing.T) {
     base := types.NewTransaction(2,recipient,big.NewInt(10),21000,big.NewInt(1),nil)
     amountChanged := types.NewTransaction(2,recipient,big.NewInt(11),21000,big.NewInt(1),nil)
     nonceChanged := types.NewTransaction(3,recipient,big.NewInt(10),21000,big.NewInt(1),nil)
+    payloadChanged := types.NewTransaction(2,recipient,big.NewInt(10),21000,big.NewInt(1),[]byte{0x01})
     goodTxRoot := types.DeriveSha(types.Transactions{base},trie.NewStackTrie(nil))
     for _, tc := range []struct{name string; tx *types.Transaction}{
-        {"amount", amountChanged}, {"nonce",nonceChanged},
+        {"amount", amountChanged}, {"nonce",nonceChanged}, {"payload",payloadChanged},
     }{
         t.Run(tc.name,func(t *testing.T){
             newRoot := types.DeriveSha(types.Transactions{tc.tx},trie.NewStackTrie(nil))
