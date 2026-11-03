@@ -4,9 +4,10 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Literal, Mapping, Sequence
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -107,6 +108,15 @@ class PlanValidationError(ValueError):
 class AuthorizationDiffer:
     """Compare two operator-supplied role/session views of one captured safe request."""
 
+    _SENSITIVE_PERSISTED_HEADERS = {
+        "authorization",
+        "cookie",
+        "set-cookie",
+        "x-api-key",
+        "x-auth-token",
+        "proxy-authorization",
+    }
+
     def __init__(self, *, preflight: Any, replay: Any, audit: Any) -> None:
         self.preflight = preflight
         self.replay = replay
@@ -133,6 +143,61 @@ class AuthorizationDiffer:
             raise ValueError("authorization diff requires at least one session/auth header")
         return result
 
+    @classmethod
+    def _redacted_headers(cls, headers: Mapping[str, Any]) -> dict[str, str]:
+        return {
+            str(key): ("[REDACTED]" if str(key).casefold() in cls._SENSITIVE_PERSISTED_HEADERS else str(value))
+            for key, value in headers.items()
+        }
+
+    def _proof_flow(
+        self,
+        *,
+        source: Mapping[str, Any],
+        plan: Any,
+        result: Mapping[str, Any],
+        role: str,
+    ) -> int:
+        flows = getattr(self.replay, "flows", None)
+        insert = getattr(flows, "insert_flow", None)
+        if not callable(insert):
+            raise ValueError("proof capture requires a replay client with persistent flow storage")
+        source_scan = source.get("scan_id")
+        source_target = source.get("target_id")
+        if source_scan is None or source_target is None:
+            raise ValueError("proof capture requires a source flow bound to both scan and target")
+        parts = urlsplit(str(result.get("url") or getattr(plan, "url", "") or source.get("url") or ""))
+        if parts.scheme not in {"http", "https"} or not parts.hostname:
+            raise ValueError("proof replay produced an invalid HTTP(S) URL")
+        request_headers = self._redacted_headers(dict(getattr(plan, "headers", {}) or {}))
+        response_headers = self._redacted_headers(dict(result.get("response_headers") or {}))
+        source_tags = [str(item) for item in source.get("tags") or []]
+        tags = list(dict.fromkeys([*source_tags, "v6-proof", f"proof:{role}"]))
+        return int(
+            insert(
+                {
+                    "target_id": int(source_target),
+                    "scan_id": int(source_scan),
+                    "method": str(result.get("method") or getattr(plan, "method", "GET")).upper(),
+                    "url": urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, "")),
+                    "scheme": parts.scheme,
+                    "host": parts.hostname,
+                    "port": parts.port or (443 if parts.scheme == "https" else 80),
+                    "path": parts.path or "/",
+                    "query": parts.query,
+                    "request_headers": request_headers,
+                    "request_body": b"",
+                    "status": result.get("status"),
+                    "response_headers": response_headers,
+                    "response_body": self._bytes(result.get("response_body")),
+                    "timing_ms": 0.0,
+                    "tls_info": {},
+                    "tags": tags,
+                    "created_at": time.time(),
+                }
+            )
+        )
+
     @staticmethod
     def _json_fields(left: bytes, right: bytes) -> list[str]:
         try:
@@ -145,14 +210,14 @@ class AuthorizationDiffer:
         keys = set(left_json) | set(right_json)
         return sorted(str(key) for key in keys if left_json.get(key) != right_json.get(key))
 
-    async def _run_role(
+    async def _run_role_with_plan(
         self,
         *,
         target: str,
         consent_id: str,
         flow_id: int,
         session: Mapping[str, str],
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], Any]:
         self.preflight.authorize_scan(target=target, consent_id=consent_id)
         parsed = urlsplit(target)
         await self.preflight.acquire_rate(parsed.netloc or target)
@@ -164,7 +229,23 @@ class AuthorizationDiffer:
             raise ValueError("authorization diff refuses captured requests with a body")
         for key, value in self._normalized_session(session).items():
             plan.set_header(key, value)
-        return await self.replay.execute(plan)
+        return await self.replay.execute(plan), plan
+
+    async def _run_role(
+        self,
+        *,
+        target: str,
+        consent_id: str,
+        flow_id: int,
+        session: Mapping[str, str],
+    ) -> dict[str, Any]:
+        result, _plan = await self._run_role_with_plan(
+            target=target,
+            consent_id=consent_id,
+            flow_id=flow_id,
+            session=session,
+        )
+        return result
 
     async def compare(
         self,
@@ -216,6 +297,102 @@ class AuthorizationDiffer:
             "p4.authorization_diff.observed",
             {
                 "flow_id": flow_id,
+                "target": target,
+                "diff_sha256": result["diff_sha256"],
+                "exploitability": result["exploitability"],
+            },
+        )
+        return result
+
+
+    async def compare_for_proof(
+        self,
+        *,
+        target: str,
+        consent_id: str,
+        flow_id: int,
+        candidate_session: Mapping[str, str],
+        control_session: Mapping[str, str],
+        security_property: str,
+        expected_behavior: str,
+        observed_behavior: str,
+    ) -> dict[str, Any]:
+        """Capture an explicit candidate/control comparison as redacted evidence flows.
+
+        This does not decide vulnerability status. It only turns two authorized,
+        read-only role observations into a hashable proof context for later
+        verification and human triage.
+        """
+        proof_text = {
+            "security_property": str(security_property).strip(),
+            "expected_behavior": str(expected_behavior).strip(),
+            "observed_behavior": str(observed_behavior).strip(),
+        }
+        missing = [key for key, value in proof_text.items() if not value]
+        if missing:
+            raise ValueError("proof comparison requires: " + ", ".join(missing))
+        flows = getattr(self.replay, "flows", None)
+        source_get = getattr(flows, "get_flow_by_id", None)
+        if not callable(source_get):
+            raise ValueError("proof capture requires a replay client with persistent flow storage")
+        source = source_get(int(flow_id))
+        if source is None:
+            raise KeyError(f"flow not found: {flow_id}")
+
+        candidate, candidate_plan = await self._run_role_with_plan(
+            target=target,
+            consent_id=consent_id,
+            flow_id=flow_id,
+            session=candidate_session,
+        )
+        control, control_plan = await self._run_role_with_plan(
+            target=target,
+            consent_id=consent_id,
+            flow_id=flow_id,
+            session=control_session,
+        )
+        candidate_id = self._proof_flow(source=source, plan=candidate_plan, result=candidate, role="candidate")
+        control_id = self._proof_flow(source=source, plan=control_plan, result=control, role="control")
+        if candidate_id == control_id:
+            raise RuntimeError("proof capture did not create distinct candidate/control flows")
+
+        candidate_body = self._bytes(candidate.get("response_body"))
+        control_body = self._bytes(control.get("response_body"))
+        observation = {
+            "status_equal": candidate.get("status") == control.get("status"),
+            "body_equal": candidate_body == control_body,
+            "candidate_status": candidate.get("status"),
+            "control_status": control.get("status"),
+            "candidate_body_sha256": hashlib.sha256(candidate_body).hexdigest(),
+            "control_body_sha256": hashlib.sha256(control_body).hexdigest(),
+            "differing_json_fields": self._json_fields(candidate_body, control_body),
+        }
+        canonical = json.dumps(observation, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        result = {
+            "source_flow_id": int(flow_id),
+            "candidate_flow_id": candidate_id,
+            "control_flow_id": control_id,
+            "target": target,
+            "exploitability": "needs-human-review",
+            "observation": observation,
+            "diff_sha256": hashlib.sha256(canonical).hexdigest(),
+            "proof_context": {
+                **proof_text,
+                "candidate_flow_ids": [candidate_id],
+                "control_flow_ids": [control_id],
+            },
+            "reproduction_plan": [
+                "Re-run the same captured read-only request under the explicitly supplied candidate and control sessions.",
+                "Compare only the persisted response status/body evidence.",
+                "Require human triage before treating the difference as a vulnerability.",
+            ],
+        }
+        self.audit.append(
+            "p4.authorization_proof.captured",
+            {
+                "source_flow_id": int(flow_id),
+                "candidate_flow_id": candidate_id,
+                "control_flow_id": control_id,
                 "target": target,
                 "diff_sha256": result["diff_sha256"],
                 "exploitability": result["exploitability"],
