@@ -89,9 +89,9 @@ def test_safe_down_migration_preserves_findings_and_can_be_reapplied(tmp_path: P
         evidence={"proof": "retained"},
     )
     rollback = manager.rollback(target_version=7)
-    assert rollback.from_version == 8
+    assert rollback.from_version == 9
     assert rollback.target_version == 7
-    assert rollback.reverted_versions == (8,)
+    assert rollback.reverted_versions == (9, 8)
     assert database.get_finding(finding_id) is not None
     with database._connect() as conn:
         applied = [int(row[0]) for row in conn.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()]
@@ -100,7 +100,7 @@ def test_safe_down_migration_preserves_findings_and_can_be_reapplied(tmp_path: P
     assert row[0] == 0
 
     reapplied = manager.apply()
-    assert reapplied.target_version == 8
+    assert reapplied.target_version == 9
     assert database.get_finding(finding_id) is not None
     assert SchemaCompatibilityRegistry(database).get("core")["writer_version"] == 2
 
@@ -109,6 +109,7 @@ def test_rollback_requires_paired_down_migration_and_refuses_destructive_sql(tmp
     database, _manager = _db(tmp_path)
     custom_down = tmp_path / "down"
     custom_down.mkdir()
+    (custom_down / "0009_v6_observation_inventory.sql").write_text("SELECT 1;\n", encoding="utf-8")
     (custom_down / "0008_p8_schema_compatibility.sql").write_text("DROP TABLE findings;\n", encoding="utf-8")
     manager = MigrationManager(database.path, MIGRATIONS, backup_dir=tmp_path / "backups2", down_migrations_dir=custom_down)
     with pytest.raises(MigrationSafetyError, match="destructive"):
