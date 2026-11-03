@@ -141,12 +141,18 @@ jobs:
 
           python scripts/validate_v4_doctor_report.py v4-doctor-Windows.json --healed-from v4-heal-Windows.json
           if ($LASTEXITCODE -ne 0) { throw "Post-heal doctor report is not clean" }
-      - uses: actions/upload-artifact@v4
+      - name: Stage doctor reports for cross-job union
         if: always()
+        shell: bash
+        run: |
+          mkdir -p v4-doctor-reports
+          find . -maxdepth 1 -type f -name 'v4-*.json' -exec cp {} v4-doctor-reports/ \;
+      - name: Cache doctor reports for cross-job union
+        if: always()
+        uses: actions/cache/save@v4
         with:
-          name: v4-doctor-${{ runner.os }}
-          path: v4-*.json
-          if-no-files-found: error
+          path: v4-doctor-reports
+          key: v4-doctor-${{ runner.os }}-${{ github.sha }}
 
   catalog-union:
     name: Catalog runtime union
@@ -161,19 +167,29 @@ jobs:
           cache: pip
       - name: Install runtime dependencies
         run: python -m pip install -r requirements.txt
-      - uses: actions/download-artifact@v5
+      - name: Restore Linux doctor report
+        uses: actions/cache/restore@v4
         with:
-          pattern: v4-doctor-*
           path: v4-doctor-reports
-          merge-multiple: true
+          key: v4-doctor-Linux-${{ github.sha }}
+          fail-on-cache-miss: true
+      - name: Restore Windows doctor report
+        uses: actions/cache/restore@v4
+        with:
+          path: v4-doctor-reports
+          key: v4-doctor-Windows-${{ github.sha }}
+          fail-on-cache-miss: true
       - name: Require every catalog tool to have runtime or explicit host/credential contract
         shell: bash
         run: |
           python scripts/validate_v4_runtime_matrix.py v4-doctor-reports/v4-doctor-*.json --output v4-runtime-matrix.json
-      - uses: actions/upload-artifact@v4
+      - name: Upload runtime matrix (diagnostic only)
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
         with:
           name: v4-runtime-matrix
           path: v4-runtime-matrix.json
+          retention-days: 1
       - name: Require generated v4 metadata to match resolver
         shell: bash
         run: |
