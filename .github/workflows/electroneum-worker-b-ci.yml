@@ -1,0 +1,72 @@
+name: Electroneum Worker B consensus smoke
+on:
+  push:
+    branches: [electroneum-sc-master-audit]
+    paths:
+      - .github/workflows/electroneum-worker-b-ci.yml
+      - tools/qbft_round_contract.py
+      - tools/electroneum_target_bootstrap.sh
+      - reports/electroneum/TARGET_CERTIFICATE.json
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  worker-b-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: electroneum-sc-master-audit
+          fetch-depth: 0
+      - name: Bootstrap immutable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          printf '%s\n' "$WINDEEP_ETN_SOURCE" > "$RUNNER_TEMP/etn-source-path"
+      - name: Exercise actual QBFT source-contract checker
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="$(cat "$RUNNER_TEMP/etn-source-path")"
+          python3 tools/qbft_round_contract.py "$source_dir" | tee "$RUNNER_TEMP/worker-b-source-contract.json"
+          python3 - "$RUNNER_TEMP/worker-b-source-contract.json" <<'PY'
+          import json, sys
+          d=json.load(open(sys.argv[1]))
+          assert all(d["checks"].values()), d["checks"]
+          assert d["round_width_collision"]["a"] == d["round_width_collision"]["encoded_b"]
+          assert d["status"].startswith("HYPOTHESIS:")
+          print("Worker B: source-contract assertions PASS; round-wrap remains unproven hypothesis")
+          PY
+      - name: Independent BFT quorum controls for N=1..13
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import math
+          for n in range(1,14):
+              # Current target source uses ceil(2*N/3), validated by the previous step.
+              required=(2*n+2)//3
+              assert required==math.ceil(2*n/3)
+              ids=list(range(n))
+              assert len(set(ids[:required]))>=required
+              if required>1:
+                  duplicate=[0]*required
+                  assert len(set(duplicate))<required, f"duplicate signatures would satisfy membership count at N={n}"
+                  assert len(set(ids[:required-1]))<required
+              outsider=n
+              assert outsider not in ids
+              signed=list(range(max(required-1,0)))+[outsider]
+              valid={v for v in signed if v in ids}
+              assert len(valid)<required
+              print(f"N={n} quorum={required} duplicate/non-validator controls=REJECT")
+          print("Worker B: independent oracle fixture PASS; NOT proof of target-runtime signature enforcement")
+          PY
+      - name: Upload reproducible checker evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-b-source-contract
+          path: ${{ runner.temp }}/worker-b-source-contract.json
+          if-no-files-found: ignore
