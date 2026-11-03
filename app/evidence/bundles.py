@@ -648,10 +648,28 @@ class EvidenceBundleStore:
                     if not valid:
                         raise EvidenceIntegrityError("evidence artifact belongs to a different scan or is unavailable")
 
+        flow_refs_by_id: dict[int, Mapping[str, Any]] = {}
         for flow_ref in payload.get("flows") or []:
             current = self._flow_ref(int(flow_ref["id"]))
             if current["sha256"] != flow_ref.get("sha256"):
                 raise EvidenceIntegrityError(f"flow hash mismatch: {flow_ref['id']}")
+            flow_refs_by_id[int(flow_ref["id"])] = flow_ref
+
+        proof_context = payload.get("proof_context")
+        if isinstance(proof_context, Mapping):
+            for role in ("candidate_flows", "control_flows"):
+                refs = proof_context.get(role) or []
+                if not isinstance(refs, Sequence) or isinstance(refs, (str, bytes)):
+                    raise EvidenceIntegrityError(f"proof_context.{role} is malformed")
+                for ref in refs:
+                    if not isinstance(ref, Mapping) or ref.get("id") is None or not ref.get("sha256"):
+                        raise EvidenceIntegrityError(f"proof_context.{role} contains a malformed flow reference")
+                    flow_id = int(ref["id"])
+                    bound = flow_refs_by_id.get(flow_id)
+                    if bound is None or str(bound.get("sha256")) != str(ref.get("sha256")):
+                        raise EvidenceIntegrityError(
+                            f"proof_context.{role} is not bound to the evidence flow set: {flow_id}"
+                        )
         tool_output = payload.get("tool_output")
         if isinstance(tool_output, Mapping):
             artifact = self.read_artifact(
