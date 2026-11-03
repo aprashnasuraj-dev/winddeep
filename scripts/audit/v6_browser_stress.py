@@ -70,21 +70,10 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         scope=["fixture.local"],
         out_of_scope=[],
     )
-    scan_id = database.create_scan(target_id, "v6:ui-stress", ["synthetic"])
-    database.update_scan(
-        scan_id,
-        status="running",
-        progress=15.0,
-        results_summary={
-            "runtime": {
-                "phase": "heartbeat",
-                "completed_tasks": 1,
-                "total_tasks": 10,
-                "running_tasks": [{"tool": "synthetic", "task": "synthetic", "elapsed_seconds": 1.0}],
-                "last_event_at": time.time(),
-            }
-        },
-    )
+    # Create the synthetic active scan only after server recovery has run.
+    # Otherwise restart recovery correctly marks an orphaned pre-boot "running"
+    # scan interrupted, which would stop the active-scan reconcile timer.
+    scan_id = 0
 
     port = args.port or _free_port()
     env = dict(os.environ)
@@ -120,6 +109,23 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     try:
         base = f"http://127.0.0.1:{port}"
         _wait_health(f"{base}/api/health")
+        scan_id = database.create_scan(target_id, "v6:ui-stress", ["synthetic"])
+        database.update_scan(
+            scan_id,
+            status="running",
+            progress=15.0,
+            results_summary={
+                "runtime": {
+                    "phase": "heartbeat",
+                    "completed_tasks": 1,
+                    "total_tasks": 10,
+                    "running_tasks": [
+                        {"tool": "synthetic", "task": "synthetic", "elapsed_seconds": 1.0}
+                    ],
+                    "last_event_at": time.time(),
+                }
+            },
+        )
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
