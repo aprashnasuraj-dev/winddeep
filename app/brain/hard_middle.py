@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.brain.prompt_guard import PromptGuard
+from app.evidence.proof_validators import ControlledProofValidator
 from app.reporting.redaction import redact_url
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -319,6 +320,7 @@ class AuthorizationDiffer:
         security_property: str,
         expected_behavior: str,
         observed_behavior: str,
+        candidate_expected_denied: bool,
     ) -> dict[str, Any]:
         """Capture an explicit candidate/control comparison as redacted evidence flows.
 
@@ -331,6 +333,8 @@ class AuthorizationDiffer:
             "expected_behavior": str(expected_behavior).strip(),
             "observed_behavior": str(observed_behavior).strip(),
         }
+        if candidate_expected_denied is not True:
+            raise ValueError("authorization proof requires candidate_expected_denied=true")
         missing = [key for key, value in proof_text.items() if not value]
         if missing:
             raise ValueError("proof comparison requires: " + ", ".join(missing))
@@ -359,6 +363,21 @@ class AuthorizationDiffer:
         if candidate_id == control_id:
             raise RuntimeError("proof capture did not create distinct candidate/control flows")
 
+        candidate_flow = source_get(candidate_id)
+        control_flow = source_get(control_id)
+        if candidate_flow is None or control_flow is None:
+            raise RuntimeError("persisted proof flows could not be reloaded")
+        validated = ControlledProofValidator.validate(
+            "authorization_boundary",
+            candidate=candidate_flow,
+            control=control_flow,
+            context={"candidate_expected_denied": True},
+        )
+        if validated is None:
+            raise ValueError(
+                "captured role comparison does not satisfy the V6 authorization-boundary proof invariant"
+            )
+
         candidate_body = self._bytes(candidate.get("response_body"))
         control_body = self._bytes(control.get("response_body"))
         observation = {
@@ -380,9 +399,8 @@ class AuthorizationDiffer:
             "observation": observation,
             "diff_sha256": hashlib.sha256(canonical).hexdigest(),
             "proof_context": {
+                **validated,
                 **proof_text,
-                "candidate_flow_ids": [candidate_id],
-                "control_flow_ids": [control_id],
             },
             "reproduction_plan": [
                 "Re-run the same captured read-only request under the explicitly supplied candidate and control sessions.",
