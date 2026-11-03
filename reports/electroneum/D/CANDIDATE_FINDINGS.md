@@ -1,0 +1,11 @@
+# Worker D — Evidence-backed candidates (not confirmed vulnerabilities)
+
+## D-CAND-001 — Receipt-delivery queue synchronization omission
+- **Status:** SUSPECTED; static source evidence only, no executed race reproducer.
+- **Source:** certified immutable Windeep commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, `eth/downloader/queue.go:805-826` `(*queue).DeliverReceipts`, `:831-904` `(*queue).deliver`, compared with `:769-772` `DeliverBodies` and `:907-915` `Prepare`.
+- **Observed:** `DeliverReceipts` invokes `q.deliver` without `q.lock.Lock/Unlock`; `DeliverBodies` holds that lock. `deliver` explicitly documents that the caller MUST hold the queue write lock; it reads/deletes `pendPool[id]`, mutates task queues/result slots and signals active results. `Prepare` locks the same mutex.
+- **Attacker prerequisites/reachability:** an untrusted sync peer can supply a receipt response; whether the production downloader calls `DeliverReceipts` concurrently with other queue mutations, or serializes externally, is NOT yet established. No peer-controlled historical rewrite demonstrated.
+- **Impact if proven:** concurrent map read/write panic, data race or inconsistent receipt task bookkeeping during snap/fast synchronization; potential sync interruption. Historical commitment substitution is NOT demonstrated. Availability effects may warrant class-B handoff after confirmation; class-D ownership remains receipt ingestion integrity.
+- **Strongest counterexample:** caller-side global serialization, single downloader event-loop delivery, or other synchronization might prevent actual concurrent entry; Go race detector or deterministic interleaving may show no reachable race.
+- **Confidence:** high in source-level missing lock relative to explicit internal contract; low-to-moderate in production exploitability until caller/concurrency traced.
+- **Next reproduction:** on certified scratch source, create a queue with pending receipt request and run concurrent `DeliverReceipts` vs `Prepare`/receipt reservation; use `go test -race` with valid synthetic receipt payload and matched header root; run negative control after adding ONLY the missing mutex to disposable scratch; trace actual peer handler and scheduler to establish external reachability. No mainnet traffic.
