@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/electroneum-worker-b-ci.yml
       - reports/electroneum/B/test_committed_seal_runtime_test.go
+      - reports/electroneum/B/test_roundchange_arithmetic_test.go
       - reports/electroneum/B/test_source_contract_mutations.py
       - reports/electroneum/B/test_committed_seal_bound.py
       - reports/electroneum/B/test_seal_admission_order.py
@@ -122,6 +123,15 @@ jobs:
           cd "$scratch"
           go test -count=1 -timeout=30m -run '^TestWorkerB' -v ./consensus/istanbul/engine
           echo "WORKER_B_ACTUAL_QBFT_RUNTIME_PASS"
+      - name: Runtime QBFT signed round reconstruction and 64-bit state-key tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod u+w "$WORKER_B_SCRATCH/consensus/istanbul/core"
+          cp reports/electroneum/B/test_roundchange_arithmetic_test.go "$WORKER_B_SCRATCH/consensus/istanbul/core/worker_b_roundchange_arithmetic_test.go"
+          cd "$WORKER_B_SCRATCH"
+          go test -count=1 -timeout=10m -run TestWorkerBRoundChangeArithmetic -v ./consensus/istanbul/core
+          echo WORKER_B_ROUND_ARITHMETIC_CHARACTERIZATION_PASS
       - name: Sustained cryptographic quorum and admission fuzz
         shell: bash
         env:
