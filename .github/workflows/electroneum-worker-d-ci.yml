@@ -17,6 +17,7 @@ on:
         default: 300
 permissions:
   contents: read
+  statuses: write
 concurrency:
   group: etn-worker-d-${{ github.ref }}
   cancel-in-progress: false
@@ -30,6 +31,11 @@ jobs:
           ref: electroneum-sc-master-audit
           fetch-depth: 0
           persist-credentials: false
+      - name: Publish class D CI run ID for scheduled audit monitor
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/electroneum_ci_status.sh D start
       - name: Bootstrap certified Git source
         shell: bash
         run: |
@@ -77,3 +83,11 @@ jobs:
           cd "$RUNNER_TEMP/worker-d-scratch"
           go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerDCommitmentSensitivity$' -fuzztime="${minutes}m" -v ./core
           echo "CERTIFIED_CLASS_D_FUZZ_PASS; minutes_requested=$minutes"
+
+      - name: Publish class D final CI outcome
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: bash tools/electroneum_ci_status.sh D finish
