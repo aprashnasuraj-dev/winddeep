@@ -270,7 +270,7 @@ def test_finding_writer_fails_closed_on_misrouted_observation(tmp_path: Path) ->
 
 
 def test_submission_candidate_requires_verification_and_actionable_triage(tmp_path: Path) -> None:
-    crypto, database, generator, _target_id, scan_id, finding_id, _second_id, _flow_id, _second_flow = _fixture(tmp_path)
+    crypto, database, generator, target_id, scan_id, finding_id, _second_id, flow_id, _second_flow = _fixture(tmp_path)
     database.update_scan(scan_id, status="completed")
 
     blocked = SubmissionDraftGenerator(generator).render_finding(
@@ -299,13 +299,58 @@ def test_submission_candidate_requires_verification_and_actionable_triage(tmp_pa
 
     audit = AuditLog(tmp_path / "audit" / "v6-proof-gate.jsonl")
     raw_store = RawArtifactStore(database, crypto, audit)
-    bundle = generator.evidence.resolve(finding_id, scan_id=scan_id)
+    existing_bundle = generator.evidence.resolve(finding_id, scan_id=scan_id)
+    control_flow_id = database.insert_flow(
+        {
+            "target_id": target_id,
+            "scan_id": scan_id,
+            "method": "GET",
+            "url": "https://example.test/api/object/7",
+            "scheme": "https",
+            "host": "example.test",
+            "port": 443,
+            "path": "/api/object/7",
+            "query": "",
+            "request_headers": {"Accept": "application/json", "Authorization": "Bearer baseline-role"},
+            "request_body": b"",
+            "status": 403,
+            "response_headers": {"Content-Type": "application/json"},
+            "response_body": b'{"error":"forbidden"}',
+            "timing_ms": 9.0,
+            "tls_info": {"sni": "example.test", "alpn": "h2"},
+            "tags": ["fixture", "control"],
+            "created_at": 1_700_000_003.0,
+        }
+    )
+    tool_output = existing_bundle["tool_output"]
+    bundle = generator.evidence.build(
+        finding=finding,
+        scan_id=scan_id,
+        tool_run_id=existing_bundle["tool_run_id"],
+        flow_ids=[flow_id, control_flow_id],
+        artifact_sha256=tool_output["artifact_sha256"],
+        line_start=tool_output["line_start"],
+        line_end=tool_output["line_end"],
+        provenance=existing_bundle["provenance"],
+        exploitability="observed",
+        proof_context={
+            "security_property": "Object reads must enforce the caller's authorization boundary.",
+            "expected_behavior": "The non-owner/control role is denied access to object 7.",
+            "observed_behavior": "The candidate role receives object 7 data with HTTP 200.",
+            "candidate_flow_ids": [flow_id],
+            "control_flow_ids": [control_flow_id],
+        },
+        close=True,
+    )
     record = VerificationPass(database, raw_store).verify_finding(
         finding_id=finding_id,
         scan_id=scan_id,
         bundle=bundle,
     )
-    assert {claim["claim"]: claim["state"] for claim in record["claims"]}["reproduction"] == "verified"
+    claim_states = {claim["claim"]: claim["state"] for claim in record["claims"]}
+    assert claim_states["reproduction"] == "verified"
+    assert claim_states["expected_observed"] == "verified"
+    assert claim_states["control"] == "verified"
 
     triage = ManualTriage(database, audit)
     triage.classify(
@@ -328,6 +373,10 @@ def test_submission_candidate_requires_verification_and_actionable_triage(tmp_pa
     assert readiness["human_approval_required"] is True
     assert readiness["blocking_reasons"] == []
     assert readiness["verification"]["claims"]["impact"] in {"verified", "partially_verified"}
+    assert readiness["verification"]["claims"]["expected_observed"] == "verified"
+    assert readiness["verification"]["claims"]["control"] == "verified"
+    assert "Security property and expected vs observed" in candidate.markdown
+    assert "Matched controls" in candidate.markdown
 
     # A legacy/misclassified reconnaissance record must remain non-submittable
     # even after claim verification and actionable tester triage.
