@@ -19,20 +19,11 @@ on:
         type: number
         required: false
         default: 300
-    inputs:
-      fuzz_minutes:
-        description: 'Sustained QBFT seal-admission fuzz budget (1..300 minutes)'
-        required: false
-        type: number
-        default: 300
 permissions:
   contents: read
   statuses: write
 concurrency:
   group: etn-worker-b-certified-${{ github.ref }}
-  cancel-in-progress: false
-concurrency:
-  group: etn-worker-b-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   worker-b-smoke:
