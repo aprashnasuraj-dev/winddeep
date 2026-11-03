@@ -64,15 +64,19 @@ class TaskScheduler:
         preflight: PreFlightGuard | None = None,
         global_concurrency: int = 8,
         per_tool_concurrency: Mapping[str, int] | None = None,
+        progress_heartbeat_interval: float = 2.0,
     ) -> None:
         if global_concurrency < 1:
             raise ValueError("global_concurrency must be >= 1")
+        if progress_heartbeat_interval <= 0:
+            raise ValueError("progress_heartbeat_interval must be > 0")
         self._event_bus = event_bus
         self._preflight = preflight
         self._global_semaphore = asyncio.Semaphore(global_concurrency)
         self._tool_caps = dict(per_tool_concurrency or {})
         if any(value < 1 for value in self._tool_caps.values()):
             raise ValueError("per-tool concurrency values must be >= 1")
+        self._progress_heartbeat_interval = float(progress_heartbeat_interval)
         self._tool_semaphores: dict[str, asyncio.Semaphore] = {}
         self.states: dict[str, TaskState] = {}
 
@@ -111,6 +115,39 @@ class TaskScheduler:
         task_handles: dict[str, asyncio.Task[Any]] = {}
         await self._event_bus.publish("scan.authorized", {"scan_id": scan_id, "target": target, "consent_id": consent_id})
 
+        async def publish_activity(*, phase: str, task: str | None = None) -> None:
+            async with progress_lock:
+                # Reserve 100% for the outer pipeline's evidence/sealing work.
+                progress = min(99.0, round((completed_weight / total_weight) * 100.0, 2))
+                completed_tasks = sum(1 for state in self.states.values() if state.status == "completed")
+                failed_tasks = sum(1 for state in self.states.values() if state.status == "failed")
+                cancelled_tasks = sum(1 for state in self.states.values() if state.status == "cancelled")
+                now = time.time()
+                running_tasks = [
+                    {
+                        "task": task_name,
+                        "tool": specs[task_name].tool_name or task_name,
+                        "elapsed_seconds": round(max(0.0, now - float(state.started_at or now)), 1),
+                    }
+                    for task_name, state in self.states.items()
+                    if state.status == "running"
+                ]
+            await self._event_bus.publish(
+                "scan.progress",
+                {
+                    "scan_id": scan_id,
+                    "progress": progress,
+                    "status": "running",
+                    "phase": phase,
+                    "task": task,
+                    "completed_tasks": completed_tasks,
+                    "failed_tasks": failed_tasks,
+                    "cancelled_tasks": cancelled_tasks,
+                    "total_tasks": len(specs),
+                    "running_tasks": running_tasks[:16],
+                },
+            )
+
         async def run_node(name: str) -> Any:
             nonlocal completed_weight
             spec = specs[name]
@@ -131,6 +168,7 @@ class TaskScheduler:
             state.started_at = time.time()
             tool_key = spec.tool_name or name
             await self._event_bus.publish("tool.started", {"scan_id": scan_id, "task": name, "tool": tool_key})
+            await publish_activity(phase="started", task=name)
             try:
                 async with self._global_semaphore:
                     semaphore = self._tool_semaphore(tool_key)
@@ -156,16 +194,25 @@ class TaskScheduler:
                 raise PipelineExecutionError(name, exc) from exc
             finally:
                 state.finished_at = time.time()
-                async with progress_lock:
-                    if state.status in {"completed", "failed", "cancelled"}:
+                terminal = state.status in {"completed", "failed", "cancelled"}
+                if terminal:
+                    async with progress_lock:
                         completed_weight += spec.weight
-                        progress = min(100.0, round((completed_weight / total_weight) * 100.0, 2))
-                        await self._event_bus.publish("scan.progress", {"scan_id": scan_id, "task": name, "progress": progress, "status": state.status})
+                    await publish_activity(phase="finished", task=name)
                 if state.status == "completed":
                     await self._event_bus.publish("tool.completed", {"scan_id": scan_id, "task": name})
 
+        async def progress_heartbeat() -> None:
+            while True:
+                await asyncio.sleep(self._progress_heartbeat_interval)
+                await publish_activity(phase="heartbeat")
+
         for name in self._topological_order(specs):
             task_handles[name] = asyncio.create_task(run_node(name), name=f"windeep:{scan_id}:{name}")
+        heartbeat_task = asyncio.create_task(
+            progress_heartbeat(),
+            name=f"windeep:{scan_id}:progress-heartbeat",
+        )
 
         try:
             await asyncio.gather(*task_handles.values())
@@ -186,6 +233,10 @@ class TaskScheduler:
                     await task
             await self._event_bus.publish("scan.failed", {"scan_id": scan_id})
             raise
+        finally:
+            heartbeat_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat_task
 
         await self._event_bus.publish("scan.completed", {"scan_id": scan_id, "progress": 100.0})
         return results
