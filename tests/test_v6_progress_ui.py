@@ -37,8 +37,22 @@ def test_v6_ui_coalesces_event_refreshes_and_blocks_unrunnable_tools() -> None:
     assert 'else if(x.type==="progress")scheduleUiRefresh' in source
     assert 'if(x.type==="finding")loadFindings()' not in source
     assert 'disabled aria-disabled="true"' in source
-    assert 't.ready&&t.compatible?"":"disabled"' in source
+    assert 'runnable=Boolean(t.compatible&&t.ready)' in source
+    assert 'data-tool-probe=' in source
+    assert 'probeTool(p.dataset.toolProbe)' in source
     assert 'active=(runtime.running_tasks||[])[0]' in source
+
+
+def test_v6_tool_probe_is_separate_from_run_and_cached_server_side() -> None:
+    api_source = (ROOT / "app" / "v2_api.py").read_text(encoding="utf-8")
+    ui_source = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+    assert '@app.post("/api/v2/tools/<string:tool_name>/probe")' in api_source
+    assert "active_probe=True" in api_source
+    assert "tool_probe_cache" in api_source
+    assert "tool_probe_ttl_seconds = 45.0" in api_source
+    assert 'readiness_state==="probe-required"' in ui_source
+    assert "runnable=Boolean(t.compatible&&t.ready)" in ui_source
+    assert "Probe runtime" in ui_source
 
 
 def test_v6_dashboard_javascript_is_syntax_valid_when_node_is_available() -> None:
