@@ -304,3 +304,66 @@ def test_scheduler_rejects_invalid_progress_heartbeat_interval() -> None:
     with pytest.raises(ValueError, match="progress_heartbeat_interval"):
         TaskScheduler(bus, preflight=FakePreflight(), progress_heartbeat_interval=0)
 
+@pytest.mark.asyncio
+async def test_scheduler_timeout_fails_task_with_bounded_terminal_state() -> None:
+    bus = EventBus(heartbeat_interval=60)
+    cancelled = asyncio.Event()
+
+    async def hang(context: object, deps: dict[str, object]) -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    scheduler = TaskScheduler(bus, preflight=FakePreflight(), progress_heartbeat_interval=0.01)
+    with pytest.raises(PipelineExecutionError) as exc:
+        await scheduler.execute(
+            [TaskSpec("hang", hang, tool_name="hang-tool", timeout=0.03)],
+            _context(),
+            scan_id="v6-timeout",
+        )
+
+    assert exc.value.task_name == "hang"
+    assert scheduler.states["hang"].status == "failed"
+    assert scheduler.states["hang"].error == "task timed out after 0.03 seconds"
+    assert cancelled.is_set()
+    await bus.close()
+
+
+@pytest.mark.asyncio
+async def test_scheduler_timeout_can_continue_and_propagate_dependency_error() -> None:
+    bus = EventBus(heartbeat_interval=60)
+    observed: list[str] = []
+
+    async def hang(context: object, deps: dict[str, object]) -> None:
+        await asyncio.Event().wait()
+
+    async def dependent(context: object, deps: dict[str, object]) -> str:
+        observed.append(str(deps["hang"]))
+        return "continued"
+
+    scheduler = TaskScheduler(bus, preflight=FakePreflight())
+    result = await scheduler.execute(
+        [
+            TaskSpec("hang", hang, tool_name="hang-tool", timeout=0.02, continue_on_error=True),
+            TaskSpec("dependent", dependent, dependencies=("hang",), timeout=1.0, continue_on_error=True),
+        ],
+        _context(),
+        scan_id="v6-timeout-continue",
+    )
+
+    assert isinstance(result["hang"], TimeoutError)
+    assert result["dependent"] == "continued"
+    assert observed == ["task timed out after 0.02 seconds"]
+    assert scheduler.states["hang"].status == "failed"
+    assert scheduler.states["dependent"].status == "completed"
+    await bus.close()
+
+
+def test_scheduler_rejects_nonpositive_task_timeout() -> None:
+    async def noop(context: object, deps: dict[str, object]) -> None:
+        return None
+
+    with pytest.raises(PipelineConfigurationError, match="task timeout must be > 0"):
+        TaskScheduler._validate([TaskSpec("bad-timeout", noop, timeout=0)])
+
