@@ -14,6 +14,9 @@
     "jadx_gui": "jadx"
   },
   "tools": {
+    "gosec": {"provision":{"ecosystem":"go","package":"github.com/securego/gosec/v2/cmd/gosec","version":"v2.29.0","binary":"gosec","timeout":2400},"execution_preference":["local_binary","provisioned_binary","wsl","remote_worker"],"probe":["-version"]},
+    "govulncheck": {"provision":{"ecosystem":"go","package":"golang.org/x/vuln/cmd/govulncheck","version":"v1.9.0","binary":"govulncheck","timeout":2400},"execution_preference":["local_binary","provisioned_binary","wsl","remote_worker"],"probe":["-version"]},
+    "staticcheck": {"provision":{"ecosystem":"go","package":"honnef.co/go/tools/cmd/staticcheck","version":"v0.8.2","binary":"staticcheck","timeout":2400},"execution_preference":["local_binary","provisioned_binary","wsl","remote_worker"],"probe":["-version"]},
     "subfinder": {"provision":{"ecosystem":"go","package":"github.com/projectdiscovery/subfinder/v2/cmd/subfinder","version":"latest","binary":"subfinder"},"probe":["-version"]},
     "dnsx": {"provision":{"ecosystem":"go","package":"github.com/projectdiscovery/dnsx/cmd/dnsx","version":"latest","binary":"dnsx"},"probe":["-version"]},
     "httpx": {"provision":{"ecosystem":"go","package":"github.com/projectdiscovery/httpx/cmd/httpx","version":"latest","binary":"httpx"},"probe":["-version"]},
