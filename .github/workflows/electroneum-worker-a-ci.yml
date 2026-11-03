@@ -21,6 +21,7 @@ on:
         default: 300
 permissions:
   contents: read
+  statuses: write
 concurrency:
   group: etn-worker-a-certified-campaign
   cancel-in-progress: false
@@ -33,6 +34,12 @@ jobs:
         with:
           ref: electroneum-sc-master-audit
           fetch-depth: 0
+          persist-credentials: false
+      - name: Publish class A CI run ID for scheduled audit monitor
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/electroneum_ci_status.sh A start
       - uses: actions/setup-go@v5
         with:
           go-version-file: vendor/electroneum-sc/go.mod
@@ -138,3 +145,11 @@ jobs:
           cd "$RUNNER_TEMP/worker-a-scratch"
           go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerASupplySnapshotJournal$' -fuzztime="${minutes}m" -v ./core/state
           echo "CERTIFIED_CLASS_A_FUZZ_PASS; minutes_requested=$minutes"
+
+      - name: Publish class A final CI outcome
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: bash tools/electroneum_ci_status.sh A finish
