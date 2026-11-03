@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import sqlite3
 from typing import Any, Mapping
 
 from app.reporting.generator import ReportArtifact, ReportGenerator
@@ -43,21 +44,26 @@ class SubmissionDraftGenerator:
         self.generator = generator
 
     def _verification_snapshot(self, finding_id: int, scan_id: int, bundle_sha256: str) -> dict[str, Any]:
-        with self.generator.database._connect() as conn:
-            record = conn.execute(
-                """
-                SELECT id, artifact_sha256 FROM verification_record
-                WHERE finding_id = ? AND scan_id = ? AND bundle_sha256 = ?
-                ORDER BY id DESC LIMIT 1
-                """,
-                (int(finding_id), int(scan_id), str(bundle_sha256)),
-            ).fetchone()
-            if record is None:
+        try:
+            with self.generator.database._connect() as conn:
+                record = conn.execute(
+                    """
+                    SELECT id, artifact_sha256 FROM verification_record
+                    WHERE finding_id = ? AND scan_id = ? AND bundle_sha256 = ?
+                    ORDER BY id DESC LIMIT 1
+                    """,
+                    (int(finding_id), int(scan_id), str(bundle_sha256)),
+                ).fetchone()
+                if record is None:
+                    return {"recorded": False, "claims": {}, "record_id": None, "artifact_sha256": None}
+                rows = conn.execute(
+                    "SELECT claim_key, state FROM verification_claim WHERE record_id = ? ORDER BY id ASC",
+                    (int(record["id"]),),
+                ).fetchall()
+        except sqlite3.OperationalError as exc:
+            if "no such table" in str(exc).casefold():
                 return {"recorded": False, "claims": {}, "record_id": None, "artifact_sha256": None}
-            rows = conn.execute(
-                "SELECT claim_key, state FROM verification_claim WHERE record_id = ? ORDER BY id ASC",
-                (int(record["id"]),),
-            ).fetchall()
+            raise
         return {
             "recorded": True,
             "record_id": int(record["id"]),
