@@ -14,7 +14,7 @@ from typing import Any, Callable, Mapping
 from flask import Flask, Response, jsonify, request, stream_with_context
 
 from app.migrations import MigrationManager
-from app.v2_pipeline import ScanEventLog, SchedulerRuntimeRegistry, canonical_bytes, run_p0_scan
+from app.v2_pipeline import AssetObservationStore, ScanEventLog, SchedulerRuntimeRegistry, canonical_bytes, run_p0_scan
 
 
 _CATEGORY_TARGET_TYPES: dict[str, tuple[str, ...]] = {
@@ -219,7 +219,9 @@ def register_v2_api(
     MigrationManager(database.path, root / "app" / "data" / "migrations").apply()
     runtime = SchedulerRuntimeRegistry()
     event_log = ScanEventLog(database, crypto)
+    asset_observations = AssetObservationStore(database)
     event_log.ensure_schema()
+    asset_observations.ensure_schema()
     settings_path = state / "settings.enc"
 
     def read_settings() -> dict[str, Any]:
@@ -554,6 +556,38 @@ def register_v2_api(
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-Accel-Buffering"] = "no"
         return response
+
+    @app.get("/api/v2/scans/<int:scan_id>/observations")
+    @authenticated
+    def v2_scan_observations(scan_id: int) -> tuple[Response, int] | Response:
+        try:
+            target_row, consent_id = load_scan_authorization(scan_id)
+            preflight_for(target_row, consent_id)
+        except PermissionError as exc:
+            return jsonify({"error": str(exc)}), 403
+        with database._connect() as conn:
+            row = conn.execute("SELECT id FROM scans WHERE id = ?", (scan_id,)).fetchone()
+        if row is None:
+            return jsonify({"error": "scan not found"}), 404
+        items = asset_observations.list_scan(scan_id)
+        by_tool: dict[str, int] = {}
+        historical = 0
+        for item in items:
+            tool = str(item.get("tool") or "unknown")
+            by_tool[tool] = by_tool.get(tool, 0) + 1
+            if item.get("temporal_scope") == "historical":
+                historical += 1
+        return jsonify(
+            {
+                "scan_id": scan_id,
+                "count": len(items),
+                "historical": historical,
+                "current_or_unspecified": len(items) - historical,
+                "submission_candidates": 0,
+                "by_tool": dict(sorted(by_tool.items())),
+                "observations": items,
+            }
+        )
 
     @app.post("/api/v2/reports/generate")
     @authenticated
