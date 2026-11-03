@@ -33,6 +33,8 @@ def test_v6_ui_coalesces_event_refreshes_and_blocks_unrunnable_tools() -> None:
     source = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
     assert "UI_REFRESH_DELAY_MS=750" in source
     assert "MAX_RENDERED_FINDINGS=500" in source
+    assert "DURABLE_RECONCILE_MS=5000" in source
+    assert "ACTIVE_SCAN_STATES" in source
     assert 'if(x.type==="finding")scheduleUiRefresh' in source
     assert 'else if(x.type==="progress")scheduleUiRefresh' in source
     assert 'if(x.type==="finding")loadFindings()' not in source
@@ -41,6 +43,10 @@ def test_v6_ui_coalesces_event_refreshes_and_blocks_unrunnable_tools() -> None:
     assert 'data-tool-probe=' in source
     assert 'probeTool(p.dataset.toolProbe)' in source
     assert 'active=(runtime.running_tasks||[])[0]' in source
+    assert 'scheduleUiRefresh({scans:true,findings:true,overview:true})' in source
+    assert 'globalStreamConnected=false' in source
+    assert 'setInterval(()=>{if(scans.some' in source
+    assert 'terminalTransition' in source
 
 
 def test_v6_tool_probe_is_separate_from_run_and_cached_server_side() -> None:
