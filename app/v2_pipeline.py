@@ -11,9 +11,11 @@ import hashlib
 import ipaddress
 import json
 import math
+import os
 import random
 import re
 import threading
+import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -47,6 +49,45 @@ _SECRET_LITERAL_RE = re.compile(r"(?i)(api[_-]?key|token|password|secret)\s*[:=]
 def canonical_bytes(value: Any) -> bytes:
     """Serialize stage output with stable key ordering and fixed separators."""
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+
+
+def _process_memory_bytes() -> int | None:
+    """Return a best-effort resident-memory snapshot without third-party deps."""
+    try:
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(counters)
+            process = ctypes.windll.kernel32.GetCurrentProcess()
+            ok = ctypes.windll.psapi.GetProcessMemoryInfo(
+                process,
+                ctypes.byref(counters),
+                counters.cb,
+            )
+            return int(counters.WorkingSetSize) if ok else None
+
+        import resource
+
+        usage = int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        return usage if sys.platform == "darwin" else usage * 1024
+    except Exception:
+        return None
 
 
 def _sanitize_string(value: str) -> str:
@@ -750,6 +791,60 @@ async def run_p0_scan(
     event_bus = EventBus(heartbeat_interval=60.0)
     event_log = ScanEventLog(database, crypto)
     writer = FindingBatchWriter(database)
+    correlation_id = f"scan:{scan_id}"
+    scan_started_perf = time.perf_counter()
+    scan_started_cpu = time.process_time()
+    scan_memory_start = _process_memory_bytes()
+    backend_metrics: dict[str, dict[str, Any]] = {}
+    metrics_lock = asyncio.Lock()
+
+    async def record_execution_metric(result: Any, *, success: bool) -> None:
+        backend = str(getattr(result, "backend", "") or "unknown")
+        elapsed = max(
+            0.0,
+            float(getattr(result, "finished_at_monotonic", 0.0))
+            - float(getattr(result, "started_at_monotonic", 0.0)),
+        )
+        async with metrics_lock:
+            row = backend_metrics.setdefault(
+                backend,
+                {
+                    "executions": 0,
+                    "successes": 0,
+                    "failures": 0,
+                    "total_seconds": 0.0,
+                    "max_seconds": 0.0,
+                    "fallback_misses": 0,
+                    "fallback_rejections": 0,
+                },
+            )
+            row["executions"] += 1
+            row["successes" if success else "failures"] += 1
+            row["total_seconds"] += elapsed
+            row["max_seconds"] = max(float(row["max_seconds"]), elapsed)
+            for attempt in getattr(result, "attempted_backends", ()) or ():
+                if not isinstance(attempt, Mapping):
+                    continue
+                attempted_backend = str(attempt.get("backend") or "unknown")
+                attempted = backend_metrics.setdefault(
+                    attempted_backend,
+                    {
+                        "executions": 0,
+                        "successes": 0,
+                        "failures": 0,
+                        "total_seconds": 0.0,
+                        "max_seconds": 0.0,
+                        "fallback_misses": 0,
+                        "fallback_rejections": 0,
+                    },
+                )
+                outcome = str(attempt.get("outcome") or "").upper()
+                if outcome == "MISSING":
+                    attempted["fallback_misses"] += 1
+                elif outcome == "REJECTED":
+                    attempted["fallback_rejections"] += 1
+
+    writer = FindingBatchWriter(database)
     observations = AssetObservationStore(database)
     raw_store = RawArtifactStore(database, crypto, audit)
     event_log.ensure_schema()
@@ -829,7 +924,15 @@ async def run_p0_scan(
                 )
 
     database.update_scan(scan_id, status="running", started_at=time.time(), progress=0.0)
-    emit("log", {"level": "info", "module": "v2-orchestrator", "message": f"{mode} DAG scan starting with {len(selected)} integration(s)."})
+    emit(
+        "log",
+        {
+            "level": "info",
+            "module": "v2-orchestrator",
+            "message": f"{mode} DAG scan starting with {len(selected)} integration(s).",
+            "correlation_id": correlation_id,
+        },
+    )
 
     def runner_factory(tool_name: str) -> Runner:
         cls = wrapper_classes[tool_name]
@@ -879,6 +982,7 @@ async def run_p0_scan(
                     guard.authorize_scan(target=target, consent_id=consent_id)
                     await guard.acquire_rate(_host_rate_key(target))
                     execution = await asyncio.wait_for(wrapper.run_with_evidence(target, options=options), timeout=timeout)
+                    await record_execution_metric(execution, success=True)
                     evidence_record = raw_store.record_execution_result(
                         scan_id=scan_id,
                         tool_run_id=run_id,
@@ -948,6 +1052,11 @@ async def run_p0_scan(
                             "backend": execution.backend,
                             "backend_tier": execution.backend_tier,
                             "parser": execution.parser_name,
+                            "correlation_id": correlation_id,
+                            "execution_seconds": round(
+                                max(0.0, execution.finished_at_monotonic - execution.started_at_monotonic),
+                                4,
+                            ),
                         },
                     )
                     return persisted
@@ -962,6 +1071,7 @@ async def run_p0_scan(
                     raise
                 except ToolExecutionError as exc:
                     if exc.result is not None:
+                        await record_execution_metric(exc.result, success=False)
                         raw_store.record_execution_result(
                             scan_id=scan_id,
                             tool_run_id=run_id,
@@ -1197,9 +1307,36 @@ async def run_p0_scan(
             reason=f"seal terminal v2 scan evidence ({status})",
             actor="v2-orchestrator",
         )
+        event_bus_stats = await event_bus.stats()
+        scan_memory_end = _process_memory_bytes()
+        backend_summary: dict[str, dict[str, Any]] = {}
+        for backend, row in sorted(backend_metrics.items()):
+            executions = int(row.get("executions") or 0)
+            total_seconds = float(row.get("total_seconds") or 0.0)
+            backend_summary[backend] = {
+                **row,
+                "total_seconds": round(total_seconds, 4),
+                "max_seconds": round(float(row.get("max_seconds") or 0.0), 4),
+                "average_seconds": round(total_seconds / executions, 4) if executions else 0.0,
+            }
+        runtime_metrics = {
+            "correlation_id": correlation_id,
+            "wall_seconds": round(max(0.0, time.perf_counter() - scan_started_perf), 4),
+            "cpu_seconds": round(max(0.0, time.process_time() - scan_started_cpu), 4),
+            "memory_start_bytes": scan_memory_start,
+            "memory_end_bytes": scan_memory_end,
+            "memory_delta_bytes": (
+                int(scan_memory_end - scan_memory_start)
+                if scan_memory_start is not None and scan_memory_end is not None
+                else None
+            ),
+            "event_bus": event_bus_stats,
+            "backends": backend_summary,
+        }
         summary = {
             "mode": mode,
             "tools_planned": len(selected),
+            "runtime_metrics": runtime_metrics,
             "findings": finding_count,
             "chains": chain_count,
             "ranked": ranked_count,
