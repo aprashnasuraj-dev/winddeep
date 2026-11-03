@@ -13,6 +13,7 @@ from app.reporting.submission import SubmissionDraftGenerator
 from app.security.audit import AuditLog
 from app.security.crypto import CryptoManager
 from app.security.secure_database import SecureDatabase
+from app.security.scope import ScopeEnforcer
 from app.v2_pipeline import AssetObservationStore, FindingBatchWriter
 from app.v3.triage import ManualTriage
 from app.v3.verification import VerificationPass
@@ -73,6 +74,60 @@ def test_587_item_recon_noise_shape_creates_zero_findings(tmp_path: Path) -> Non
     assert all(item["submission_candidate"] is False for item in rows)
     assert all(item["result_role"] == "observation" for item in rows)
     assert database.list_findings(target_id=target_id, limit=5000) == []
+
+
+def test_discovered_scope_relation_is_classification_only_and_never_filters_observations(tmp_path: Path) -> None:
+    crypto = CryptoManager(wrapped_key_path=tmp_path / "crypto" / "dek.bin")
+    database = SecureDatabase(tmp_path / "windeep.db", crypto=crypto)
+    target_id = database.create_target(
+        "scope-fixture",
+        "domain",
+        "example.test",
+        scope=["example.test", "*.example.test"],
+        out_of_scope=["blocked.example.test"],
+    )
+    before = database.get_target(target_id)
+    assert before is not None
+    scan_id = database.create_scan(target_id, "v2:selected", ["gau"])
+    run_id = database.create_tool_run(
+        tool_name="gau",
+        status="completed",
+        scan_id=scan_id,
+        target_id=target_id,
+        command=["gau", "<scope-bound target>"],
+    )
+    scope = ScopeEnforcer(
+        target="example.test",
+        allow=["example.test", "*.example.test"],
+        deny=["blocked.example.test"],
+    )
+    store = AssetObservationStore(database)
+    store.ensure_schema()
+    rows = store.persist(
+        scan_id=scan_id,
+        tool_run_id=run_id,
+        tool_name="gau",
+        scope_check=scope.is_allowed,
+        observations=[
+            {"title": "root", "endpoint": "https://example.test/a", "evidence": {"adapter": "wayback_cdx"}},
+            {"title": "subdomain", "endpoint": "https://api.example.test/a", "evidence": {"adapter": "wayback_cdx"}},
+            {"title": "explicit deny", "endpoint": "https://blocked.example.test/a", "evidence": {"adapter": "wayback_cdx"}},
+            {"title": "external", "endpoint": "https://third-party.invalid/a", "evidence": {"adapter": "wayback_cdx"}},
+        ],
+    )
+    assert len(rows) == 4
+    assert [row["authorization_relation"] for row in rows].count("in_scope") == 2
+    assert [row["authorization_relation"] for row in rows].count("out_of_scope") == 2
+    assert all(row["temporal_scope"] == "historical" for row in rows)
+    assert all(row["submission_candidate"] is False for row in rows)
+    assert database.list_findings(target_id=target_id, limit=100) == []
+
+    # Recon discoveries are inventory only: they must not rewrite the operator's
+    # allow/deny configuration or turn an external archive URL into scan scope.
+    after = database.get_target(target_id)
+    assert after is not None
+    assert after["scope"] == before["scope"]
+    assert after["out_of_scope"] == before["out_of_scope"]
 
 
 def test_finding_writer_fails_closed_on_misrouted_observation(tmp_path: Path) -> None:
