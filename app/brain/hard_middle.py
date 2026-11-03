@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.brain.prompt_guard import PromptGuard
+from app.reporting.redaction import redact_url
 
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 _SESSION_HEADERS = {"authorization", "cookie", "x-api-key", "x-auth-token"}
@@ -166,7 +167,9 @@ class AuthorizationDiffer:
         source_target = source.get("target_id")
         if source_scan is None or source_target is None:
             raise ValueError("proof capture requires a source flow bound to both scan and target")
-        parts = urlsplit(str(result.get("url") or getattr(plan, "url", "") or source.get("url") or ""))
+        raw_url = str(result.get("url") or getattr(plan, "url", "") or source.get("url") or "")
+        safe_url = redact_url(raw_url)
+        parts = urlsplit(safe_url)
         if parts.scheme not in {"http", "https"} or not parts.hostname:
             raise ValueError("proof replay produced an invalid HTTP(S) URL")
         request_headers = self._redacted_headers(dict(getattr(plan, "headers", {}) or {}))
