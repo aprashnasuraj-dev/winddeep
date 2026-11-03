@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/electroneum-worker-b-ci.yml
       - reports/electroneum/B/test_source_contract_mutations.py
+      - reports/electroneum/B/test_committed_seal_bound.py
       - tools/qbft_round_contract.py
       - tools/electroneum_target_bootstrap.sh
       - reports/electroneum/TARGET_CERTIFICATE.json
@@ -46,6 +47,12 @@ jobs:
           set -euo pipefail
           source_dir="$(cat "$RUNNER_TEMP/etn-source-path")"
           python3 reports/electroneum/B/test_source_contract_mutations.py "$source_dir"
+      - name: Certified committed-seal pre-recovery bound adversarial oracle
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="$(cat "$RUNNER_TEMP/etn-source-path")"
+          python3 reports/electroneum/B/test_committed_seal_bound.py "$source_dir"
       - name: Independent BFT quorum controls for N=1..13
         shell: bash
         run: |
