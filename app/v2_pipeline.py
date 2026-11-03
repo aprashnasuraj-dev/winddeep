@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import ipaddress
 import json
 import math
 import random
@@ -439,6 +440,52 @@ class AssetObservationStore:
             return "historical"
         return "current_or_unspecified"
 
+    @staticmethod
+    def _looks_like_candidate(value: str) -> bool:
+        candidate = str(value or "").strip().strip("'\"")
+        if not candidate or any(ch.isspace() for ch in candidate):
+            return False
+        if candidate.startswith(("http://", "https://")):
+            return True
+        try:
+            ipaddress.ip_address(candidate.strip("[]"))
+            return True
+        except ValueError:
+            pass
+        try:
+            ipaddress.ip_network(candidate, strict=False)
+            return True
+        except ValueError:
+            pass
+        host = candidate.split("/", 1)[0].rstrip(".")
+        return "." in host and bool(re.fullmatch(r"[A-Za-z0-9_.*?\[\]-]+(?:\.[A-Za-z0-9_.*?\[\]-]+)+(?::\d+)?", host))
+
+    @classmethod
+    def _observed_candidate(cls, payload: Mapping[str, Any]) -> str:
+        """Resolve the discovered asset rather than blindly trusting parser endpoint.
+
+        Line parsers intentionally bind endpoint to the authorized invocation
+        target.  Their raw/title value is often the actual discovered hostname
+        or URL, so use structured discovery fields first, then raw/title, and
+        only finally the endpoint.
+        """
+        evidence = payload.get("evidence") if isinstance(payload.get("evidence"), Mapping) else {}
+        candidates = [
+            evidence.get("url"),
+            evidence.get("final_url"),
+            evidence.get("hostname"),
+            evidence.get("host"),
+            evidence.get("value"),
+            evidence.get("raw"),
+            payload.get("title"),
+            payload.get("endpoint"),
+        ]
+        for raw in candidates:
+            value = str(raw or "").strip()
+            if cls._looks_like_candidate(value):
+                return value
+        return str(payload.get("endpoint") or "").strip()
+
     def persist(
         self,
         *,
@@ -455,17 +502,19 @@ class AssetObservationStore:
             evidence = dict(payload.get("evidence") or {})
             endpoint = str(payload.get("endpoint") or "")
             title = str(payload.get("title") or endpoint or "Reconnaissance observation")
+            observed_candidate = self._observed_candidate(payload)
             temporal_scope = self._temporal_scope(tool_name, payload)
             authorization_relation = "unknown"
-            if endpoint and scope_check is not None:
+            if observed_candidate and scope_check is not None:
                 try:
-                    authorization_relation = "in_scope" if scope_check(endpoint) else "out_of_scope"
+                    authorization_relation = "in_scope" if scope_check(observed_candidate) else "out_of_scope"
                 except Exception:
                     authorization_relation = "unknown"
             evidence["result_role"] = "observation"
             evidence["submission_candidate"] = False
             evidence["temporal_scope"] = temporal_scope
             evidence["authorization_relation"] = authorization_relation
+            evidence["observed_candidate"] = observed_candidate or None
             payload.update(
                 {
                     "title": title,
@@ -477,6 +526,7 @@ class AssetObservationStore:
                     "submission_candidate": False,
                     "temporal_scope": temporal_scope,
                     "authorization_relation": authorization_relation,
+                    "observed_candidate": observed_candidate or None,
                     "evidence": evidence,
                 }
             )
@@ -484,6 +534,7 @@ class AssetObservationStore:
                 "tool": tool_name,
                 "endpoint": endpoint,
                 "title": title,
+                "observed_candidate": observed_candidate,
                 "temporal_scope": temporal_scope,
                 "authorization_relation": authorization_relation,
             }
