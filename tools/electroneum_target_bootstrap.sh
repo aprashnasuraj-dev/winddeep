@@ -91,6 +91,12 @@ git -C "$repo_root" archive --format=tar "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT:$
   fail 29 "failed to materialize certified Git tree"
 }
 
+# Git does not store empty directories. The historical GitHub ZIP represented
+# the two upstream gitlinks as empty directories. Recreate only those empty
+# structural placeholders so legacy/new audit inputs are path-equivalent; do
+# not initialize or fetch submodule content.
+mkdir -p "$source_dir/tests/evm-benchmarks" "$source_dir/tests/testdata"
+
 [[ -f "$source_dir/go.mod" ]] || {
   rm -rf "$WINDEEP_ETN_TARGET_BASE"
   fail 30 "certified materialization is missing go.mod"
