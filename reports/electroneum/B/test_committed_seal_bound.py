@@ -21,7 +21,7 @@ assert check(body), "certified-source guard ordering mismatch"
 print("PASS baseline: trusted validator-set cap precedes recovery/dedup/quorum")
 for label,mutated in [
     ("remove_cap",body.replace(bound,"if false {",1)),
-    ("cap_after_recovery",body.replace(bound,"if false {",1).replace(recover,bound+"\n\t"+recover,1)),
+    ("cap_after_recovery",body.replace(bound,"if false {",1).replace(recover,recover+"\n\t"+bound,1)),
     ("remove_dedup",body.replace(dedup,"true",1)),
     ("remove_quorum",body.replace(quorum,"if false {",1)),
 ]:
