@@ -60,8 +60,8 @@ def main() -> int:
 
             # Tool matrix must render the complete catalog.
             page.locator('button[data-view="tools"]').click()
-            expect(page.locator(".tool-card")).to_have_count(137, timeout=15_000)
-            assert page.locator(".tool-card").count() == 137
+            expect(page.locator(".tool-card")).to_have_count(140, timeout=15_000)
+            assert page.locator(".tool-card").count() == 140
 
             # Signed consent, selected-tool execution, and process-level stop.
             page.locator('button[data-view="scans"]').click()
