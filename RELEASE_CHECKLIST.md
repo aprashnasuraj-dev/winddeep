@@ -1,75 +1,38 @@
-# Windeep v3.0.0 release checklist
+# Windeep v6 release checklist
 
-## Release identity and frozen contracts
+Status: **BLOCKED / DRAFT**.
 
-- [ ] `VERSION` is exactly `3.0.0`.
-- [ ] `CHANGELOG.md` contains `## [3.0.0]`, P0–P8 phase map, V3-A/V3-B/V3-C summary, breaking changes and migration notes.
-- [ ] Frozen public contracts remain: `windeep.sse.v1`, `windeep.har-extension.v1`, `windeep.evidence-bundle.v1`, `windeep.artifact.v1`, `windeep.report.v1`, `windeep.verification.v1`.
-- [ ] `0030_v3_release.py` applies/reverts cleanly; down never drops or rewrites evidence-bearing tables.
+This is the canonical V6 release checklist. Detailed acceptance criteria and evidence requirements live in `docs/V6_CRITICAL_RELEASE_GATES.md`. PR #34 must remain draft and unmerged until **all ten** blockers below are closed with code, tests, negative controls, and release artifacts.
 
-## Security invariants
+Do **not** bump `VERSION` to 6.x, tag V6, or publish V6 binaries merely to make CI pass. A scanner cannot guarantee a bounty-worthy vulnerability exists on an arbitrary target; V6 must instead demonstrate that it can produce a reproducible, impact-bearing, human-reviewable submission when a real vulnerability exists and produce zero submission candidates for controlled negative/noise fixtures.
 
-- [ ] Preflight remains fail-closed for target/tool activity and v3 evidence/report reads reuse stored scan authorization.
-- [ ] Loopback-only dashboard and encrypted-at-rest stores remain unchanged.
-- [ ] No plaintext scan temp survives cleanup.
-- [ ] C7 forbidden-pattern audit is green.
-- [ ] IPv4/IPv6/IP-URL/CIDR/SNI/Host/non-standard-port fixtures are green.
-- [ ] Undeclared SNI, Host and port values are denied before connector invocation.
+## Ten critical V6 blockers
 
-## Tester triage and reporting
+- [ ] **V6-01 — Live scan progress and freeze-free UI.** Scheduler activity must reach durable SSE/UI state; reconnects reconcile; long tools show active task, elapsed time, completed/total tasks, and last activity without blocking the browser.
+- [ ] **V6-02 — Cancellation, timeout, deadlock, and restart recovery.** Hanging tools, failed prerequisites, cancellation, and restart must end in bounded truthful states with no zombie subprocesses or infinite spinner.
+- [ ] **V6-03 — Honest tool readiness and repair.** Every catalog entry must distinguish ready, credentials-required, dependency-missing, policy-blocked, unsupported, or deprecated; an unavailable tool cannot be launched as if ready.
+- [ ] **V6-04 — Recon observations are not vulnerabilities.** Archive URLs, DNS/RDAP, crawled links, generic 200 responses, and fallback reconnaissance stay evidence/inventory unless a detector proves a security property violation.
+- [ ] **V6-05 — Proof-graded finding lifecycle.** Enforce observation -> hypothesis -> candidate -> verified -> human-approved submission. Promotion requires current affected asset, reproducible expected/observed difference, controls, and supported impact.
+- [ ] **V6-06 — Controlled vulnerable + patched validation fixtures.** At least five supported vulnerability classes must pass paired positive/negative lab fixtures with measured recall and false-positive rate.
+- [ ] **V6-07 — Evidence custody and authorization.** Per-scan raw evidence, hashes, observation association, class-aware closure, redaction, encryption, and live authorization must remain intact through report/submission export.
+- [ ] **V6-08 — Submission quality gate.** A draft needs affected asset, scope, reproducible steps, expected vs observed behavior, proof of impact, uncertainty/duplicate notes, remediation, and explicit human approval. CVSS stays unset without a defensible vector.
+- [ ] **V6-09 — Observability and resource budgets.** Correlation IDs, bounded queues, backpressure, per-backend latency/error telemetry, rate/scope state, and CPU/memory responsiveness must survive high-event scans without losing terminal events.
+- [ ] **V6-10 — Reproducible V6 release qualification.** Exact-commit CI, Windows installer/portable smoke, Linux smoke, migration/upgrade/rollback, offline/no-AI behavior, package hashes/SBOM, and manual UI acceptance must all pass.
 
-- [ ] Tester triage supports HTTP, HTTPS, IPv4 and IPv6.
-- [ ] Actionable / Needs-review / Not-actionable UI tabs render as views only.
-- [ ] Every finding remains stored and every scan finding appears in the v3 report.
-- [ ] Unclassified findings default to Needs-review and remain reportable.
-- [ ] No `handling_policy`, `handling_rule`, `policy: unspecified`, or policy citation is required for report inclusion.
-- [ ] Verification state is shown when present; absence displays `not-recorded` and never suppresses a finding.
-- [ ] “Why this rank” resolves to tester priority, severity, disposition and duplicate-risk inputs.
+## Mandatory release evidence
 
-## SSE and replay
+Before any checkbox above can be marked complete, attach its before/after reproduction, automated test or benchmark, negative control, relevant OS/backend coverage, and reviewer-visible artifact. A green unit-test run alone is not enough for a live-runtime gate.
 
-- [ ] `finding`, `progress`, `log`, `evidence`, `chain`, `ranked`, `verification`, `disposition`, and `target` all use `windeep.sse.v1`.
-- [ ] Event sequence is monotonic and encrypted at rest.
-- [ ] Reconnect test with `Last-Event-ID` is gap-free.
-- [ ] Export/broadcast payloads pass the existing secret-redaction sanitizer.
+The final V6 candidate must include both:
 
-## Automated release gates
-
-Run from a clean checkout:
-
-```bash
-python scripts/audit/release_audit.py --phase A
-python scripts/audit/release_audit.py --phase B
-python scripts/audit/release_audit.py --phase V3
-python -m pytest -q --cov=app --cov=launcher --cov-report=term-missing --cov-report=xml:reports/coverage-v3.xml --cov-fail-under=85
-python scripts/audit/ui_v2_smoke.py
-```
-
-- [ ] Overall coverage is at least 85%.
-- [ ] Every new v3 module is at least 90% covered.
-- [ ] Phase A/B audits pass.
-- [ ] Phase V3 audit passes.
-- [ ] Full pytest passes.
-- [ ] Browser/UI smoke passes.
-
-## Manual verification note for the release PR
-
-Record exact commands and resulting scan id for a fixture scan. Then reproduce all of the following from the encrypted store alone:
-
-1. Open the scan's persistent SSE endpoint and save the last sequence id.
-2. Reconnect with `Last-Event-ID: <seq>` and confirm replay resumes at `<seq + 1>` without a gap.
-3. Open **Findings & Proof** and inspect **Actionable**, **Needs-review**, and **Not-actionable** tabs.
-4. Classify one HTTP/HTTPS or IPv4/IPv6 finding and inspect **Why this rank**.
-5. Inspect at least one verification badge; also confirm a `not-recorded` finding remains visible.
-6. Generate the v3 all-findings report and confirm the finding count equals the scan's normalized finding set.
-7. Export a redacted HAR and the v3 report; confirm no unredacted secret survives.
-8. For an IP-URL fixture, confirm replay stays pinned to the literal server IP.
-9. Verify the artifact hashes, redaction map hash, flow/replay handles where present, and append-only custody/audit log.
-10. Confirm the same report inputs and durable event history can be reconstructed from the encrypted store without network discovery.
+1. **Noise benchmark:** the synthetic equivalent of the supplied 587 informational HostGator-style report yields **0 submission-ready findings** while retaining reconnaissance evidence.
+2. **Positive benchmark:** controlled vulnerable fixtures yield repeatable evidence-backed candidates and reviewable submission drafts; matched patched fixtures yield **0 verified findings** for the same checks.
 
 ## Release cut
 
-- [ ] PR stack is green and reviewed.
-- [ ] No workstream PR is merged out of order.
-- [ ] Create/tag `v3.0.0` only after every checkbox above is satisfied.
-- [ ] Any post-freeze contract fix is released as v3.0.x, not by silently changing v3.0.0 schemas.
+- [ ] All V6-01 through V6-10 are checked with linked evidence.
+- [ ] No release-blocking regression remains open.
+- [ ] Full automated suite and V6 runtime/release gates are green on the exact candidate commit.
+- [ ] Windows clean install/upgrade/uninstall and portable launch are verified.
+- [ ] Limitations and unsupported tool/runtime combinations are documented.
+- [ ] Only then set the release version, cut the V6 tag, and move PR #34 out of draft for final review.
