@@ -85,11 +85,14 @@ jobs:
         run: |
           if [[ '${{ needs.version-check.outputs.is_v6 }}' == 'true' ]]; then duration=1800; else duration=90; fi
           python scripts/audit/v6_browser_stress.py --duration-seconds "$duration" --events-per-cycle 1000
-      - uses: actions/upload-artifact@v7
+      - name: Preserve V6 stress diagnostics when quota permits
         if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v7
         with:
           name: v6-browser-stress-compat-${{ github.sha }}
           if-no-files-found: warn
+          retention-days: 1
           path: reports/v6_browser_stress*
 
   release-windows:
@@ -357,6 +360,7 @@ jobs:
 
       - name: Preserve release evidence as workflow artifact
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: Windeep-${{ needs.version-check.outputs.tag }}-${{ github.sha }}-release-evidence
