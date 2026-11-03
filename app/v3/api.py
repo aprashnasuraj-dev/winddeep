@@ -8,6 +8,7 @@ from typing import Any
 
 from flask import Flask, Response, jsonify, request
 
+from app.evidence.proof_validators import ControlledProofValidator, ProofValidationError
 from app.reporting.export import ExportBundleBuilder
 from app.reporting.generator import ReportingError
 from app.v3.events import V3EventPublisher
@@ -58,6 +59,37 @@ def register_v3_api(
         if scan_id is None:
             raise PermissionError("finding has no authorized scan context")
         return finding, int(scan_id)
+
+    def scan_flow(scan_id: int, target_id: int, flow_id: int) -> dict[str, Any]:
+        with database._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM flows WHERE id = ? AND scan_id = ? AND target_id = ?",
+                (int(flow_id), int(scan_id), int(target_id)),
+            ).fetchone()
+        if row is None:
+            raise KeyError(f"flow is not bound to the authorized scan/target: {flow_id}")
+        item = dict(row)
+        decoder = getattr(database, "decode_flow_row", None)
+        return decoder(item) if callable(decoder) else item
+
+    def finding_belongs_to_scan(scan_id: int, target_id: int, finding_id: int) -> bool:
+        with database._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1 FROM findings f
+                WHERE f.id = ? AND f.target_id = ?
+                  AND (
+                    f.scan_id = ?
+                    OR EXISTS (
+                        SELECT 1 FROM scan_findings sf
+                        WHERE sf.scan_id = ? AND sf.finding_id = f.id
+                    )
+                  )
+                LIMIT 1
+                """,
+                (int(finding_id), int(target_id), int(scan_id), int(scan_id)),
+            ).fetchone()
+        return row is not None
 
     def verification_state(finding_id: int) -> str:
         with database._connect() as conn:
@@ -159,6 +191,123 @@ def register_v3_api(
         except PermissionError as exc:
             audit.append("v3.api.denied", {"finding_id": finding_id, "path": request.path, "reason": str(exc)})
             return jsonify({"error": str(exc)}), 403
+
+    @app.post("/api/v3/scans/<int:scan_id>/findings/<int:finding_id>/proof/validate")
+    @authenticated
+    def v3_validate_finding_proof(scan_id: int, finding_id: int) -> tuple[Response, int] | Response:
+        """Validate already-captured candidate/control flows and bind proof on success."""
+        try:
+            target, _consent_id = scan_access(scan_id)
+            target_id = int(target["id"])
+            if not finding_belongs_to_scan(scan_id, target_id, finding_id):
+                return jsonify({"error": "finding is not associated with the authorized scan"}), 404
+            body = request.get_json(silent=True) or {}
+            vulnerability_class = str(body.get("vulnerability_class") or "").strip()
+            candidate_flow_id = int(body["candidate_flow_id"])
+            control_flow_id = int(body["control_flow_id"])
+            context = body.get("context") or {}
+            if not isinstance(context, dict):
+                raise ValueError("context must be an object")
+
+            candidate = scan_flow(scan_id, target_id, candidate_flow_id)
+            control = scan_flow(scan_id, target_id, control_flow_id)
+            proof_context = ControlledProofValidator.validate(
+                vulnerability_class,
+                candidate=candidate,
+                control=control,
+                context=context,
+            )
+            if proof_context is None:
+                audit.append(
+                    "v3.proof.not_matched",
+                    {
+                        "scan_id": int(scan_id),
+                        "finding_id": int(finding_id),
+                        "vulnerability_class": vulnerability_class,
+                        "candidate_flow_id": candidate_flow_id,
+                        "control_flow_id": control_flow_id,
+                    },
+                )
+                return jsonify(
+                    {
+                        "matched": False,
+                        "scan_id": int(scan_id),
+                        "finding_id": int(finding_id),
+                        "vulnerability_class": vulnerability_class,
+                    }
+                )
+
+            finding = database.get_finding(int(finding_id))
+            if finding is None:
+                return jsonify({"error": "finding not found"}), 404
+            evidence = reports.finding_renderer.evidence
+            try:
+                existing = evidence.resolve(int(finding_id), scan_id=int(scan_id))
+            except KeyError:
+                return jsonify({"error": "existing evidence bundle is required before proof validation"}), 409
+
+            existing_flow_ids = [
+                int(item["id"])
+                for item in existing.get("flows") or []
+                if isinstance(item, dict) and item.get("id") is not None
+            ]
+            tool_output = existing.get("tool_output") if isinstance(existing.get("tool_output"), dict) else {}
+            reproduction = existing.get("reproduction") if isinstance(existing.get("reproduction"), dict) else {}
+            rebound = evidence.build(
+                finding=finding,
+                scan_id=int(scan_id),
+                tool_run_id=existing.get("tool_run_id"),
+                flow_ids=[*existing_flow_ids, candidate_flow_id, control_flow_id],
+                artifact_sha256=str(tool_output.get("artifact_sha256") or "") or None,
+                line_start=int(tool_output["line_start"]) if tool_output.get("line_start") is not None else None,
+                line_end=int(tool_output["line_end"]) if tool_output.get("line_end") is not None else None,
+                provenance=existing.get("provenance") if isinstance(existing.get("provenance"), dict) else None,
+                exploitability=str(existing.get("exploitability") or "observed"),
+                human_plan=tuple(str(item) for item in reproduction.get("plan") or []),
+                reflected_marker=existing.get("reflected_marker") if isinstance(existing.get("reflected_marker"), dict) else None,
+                browser_observation=existing.get("browser_observation") if isinstance(existing.get("browser_observation"), dict) else None,
+                evidence_profile=str(existing.get("evidence_profile") or "") or None,
+                proof_context=proof_context,
+                close=True,
+            )
+            audit.append(
+                "v3.proof.bound",
+                {
+                    "scan_id": int(scan_id),
+                    "finding_id": int(finding_id),
+                    "vulnerability_class": vulnerability_class,
+                    "candidate_flow_id": candidate_flow_id,
+                    "control_flow_id": control_flow_id,
+                    "bundle_sha256": str(rebound["bundle_sha256"]),
+                },
+            )
+            if event_publisher is not None:
+                event_publisher.emit(
+                    scan_id,
+                    "proof",
+                    {
+                        "finding_id": int(finding_id),
+                        "vulnerability_class": vulnerability_class,
+                        "bundle_sha256": str(rebound["bundle_sha256"]),
+                    },
+                )
+            return jsonify(
+                {
+                    "matched": True,
+                    "scan_id": int(scan_id),
+                    "finding_id": int(finding_id),
+                    "vulnerability_class": vulnerability_class,
+                    "bundle_sha256": str(rebound["bundle_sha256"]),
+                    "proof_context": proof_context,
+                }
+            )
+        except PermissionError as exc:
+            audit.append("v3.api.denied", {"scan_id": scan_id, "finding_id": finding_id, "path": request.path, "reason": str(exc)})
+            return jsonify({"error": str(exc)}), 403
+        except (KeyError, TypeError, ValueError, ProofValidationError) as exc:
+            return jsonify({"error": str(exc)}), 400
+        except ReportingError as exc:
+            return jsonify({"error": str(exc)}), 409
 
     @app.get("/api/v3/scans/<int:scan_id>/report")
     @authenticated
