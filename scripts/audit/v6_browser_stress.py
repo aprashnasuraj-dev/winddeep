@@ -216,7 +216,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                         const card = document.querySelector('[data-scan-id="' + scanId + '"]');
                         return card && card.textContent.includes(String(Math.round(expected)) + '%');
                     }""",
-                    {"scanId": scan_id, "expected": progress},
+                    arg={"scanId": scan_id, "expected": progress},
                     timeout=15_000,
                 )
                 reconcile_seconds.append(time.perf_counter() - reconcile_started)
@@ -246,7 +246,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                     const card = document.querySelector('[data-scan-id="' + scanId + '"]');
                     return card && card.textContent.includes('100%') && card.textContent.includes('completed');
                 }""",
-                scan_id,
+                arg=scan_id,
                 timeout=20_000,
             )
             screenshot = ROOT / args.screenshot
