@@ -253,6 +253,49 @@ def register_v2_api(
             return explicit
         return _CATEGORY_TARGET_TYPES.get(str(getattr(cls, "category", "utilities")), _CATEGORY_TARGET_TYPES["utilities"])
 
+    def readiness_detail(
+        cls: type[Any],
+        *,
+        missing_env: list[str],
+        runtime_tier: str,
+        runtime_deferred: bool,
+        runtime_verified: bool,
+        compatible: bool,
+        ready: bool,
+    ) -> tuple[str, str]:
+        release_support = str(getattr(cls, "release_support", "runtime"))
+        unsupported_reason = str(getattr(cls, "unsupported_reason", "") or "").strip()
+        replacement = str(getattr(cls, "replacement", "") or "").strip()
+        requires_host = str(getattr(cls, "requires_host", "") or "").strip()
+        has_provision = bool(getattr(cls, "provision", None))
+        container_image = str(getattr(cls, "container_image", "") or "").strip()
+        alias_to = str(getattr(cls, "alias_to", "") or "").strip()
+
+        if not compatible:
+            return "target-mismatch", "Select a target type supported by this integration."
+        if missing_env:
+            return "credentials-required", "Configure required setting(s): " + ", ".join(missing_env)
+        if release_support == "unsupported":
+            detail = unsupported_reason or "This integration is catalog-only for the current release."
+            if replacement:
+                detail += f" Use {replacement} instead."
+            return "unsupported", detail
+        if runtime_deferred:
+            return "probe-required", "Runtime exists but was not actively probed; preview/start this selected tool or run 'winddeep doctor --json'."
+        if ready and runtime_verified:
+            if alias_to:
+                return "ready-deprecated-alias", f"Ready through compatibility alias '{alias_to}'; prefer the canonical integration."
+            return "ready", "Ready on the current host."
+        if requires_host:
+            return "remote-host-required", f"Requires host capability '{requires_host}'; configure an authenticated remote worker on that host."
+        if runtime_tier == "unavailable" and has_provision:
+            return "dependency-missing", "A managed install recipe exists; run 'winddeep doctor --heal' with explicit provisioning consent."
+        if runtime_tier == "unavailable" and container_image:
+            return "container-runtime-missing", f"Enable Docker/Podman and prepare image '{container_image}', or use an alternate declared backend."
+        if runtime_tier == "unavailable":
+            return "unavailable", "No declared backend is runnable; inspect 'winddeep doctor --backends' and the tool's execution chain."
+        return "not-verified", "Runtime resolution is not verified; actively probe the selected integration before use."
+
     def tool_descriptor(name: str, cls: type[Any], *, target_type: str | None = None, active_probe: bool = False) -> dict[str, Any]:
         env = runtime_environment()
         wrapper = cls(tools_dir=tools_dir, scope_validator=lambda _value: True, environment=env)
@@ -278,6 +321,15 @@ def register_v2_api(
         else:
             blocked_reason = ""
         release_support = str(getattr(cls, "release_support", "runtime"))
+        readiness_state, repair_hint = readiness_detail(
+            cls,
+            missing_env=missing_env,
+            runtime_tier=runtime_tier,
+            runtime_deferred=runtime_deferred,
+            runtime_verified=runtime_verified,
+            compatible=compatible,
+            ready=ready,
+        )
         try:
             options_schema = cls.input_schema.model_json_schema()
         except Exception:
@@ -309,6 +361,8 @@ def register_v2_api(
             "compatible": compatible,
             "scan_default": bool(getattr(cls, "scan_default", True)),
             "result_role": str(getattr(cls, "result_role", "finding")),
+            "readiness_state": readiness_state,
+            "repair_hint": repair_hint,
             "release_support": release_support,
             "windows_certified": release_support == "bundled",
             "timeout": float(getattr(cls, "timeout", 120.0)),
@@ -422,9 +476,12 @@ def register_v2_api(
         target_type = request.args.get("target_type")
         rows = all_descriptors(target_type)
         tiers: dict[str, int] = {}
+        readiness: dict[str, int] = {}
         for row in rows:
             tier = str(row["runtime_tier"])
             tiers[tier] = tiers.get(tier, 0) + 1
+            state = str(row["readiness_state"])
+            readiness[state] = readiness.get(state, 0) + 1
         return jsonify({
             "total": len(rows),
             "ready": sum(1 for row in rows if row["ready"]),
@@ -432,6 +489,7 @@ def register_v2_api(
             "resolved": sum(1 for row in rows if row["resolved"]),
             "unavailable": sum(1 for row in rows if row["runtime_tier"] == "unavailable"),
             "tiers": tiers,
+            "readiness": dict(sorted(readiness.items())),
             "windows_certified": sum(1 for row in rows if row["windows_certified"]),
             "tools": rows,
         })
@@ -893,9 +951,12 @@ def register_v2_api(
     def v2_status() -> Response:
         descriptors = all_descriptors()
         tiers: dict[str, int] = {}
+        readiness: dict[str, int] = {}
         for item in descriptors:
             tier = str(item["runtime_tier"])
             tiers[tier] = tiers.get(tier, 0) + 1
+            state = str(item["readiness_state"])
+            readiness[state] = readiness.get(state, 0) + 1
         with database._connect() as conn:
             running = conn.execute("SELECT COUNT(*) AS count FROM scans WHERE status IN ('queued','running','cancelling')").fetchone()["count"]
             finding_count = conn.execute("SELECT COUNT(*) AS count FROM findings").fetchone()["count"]
@@ -907,6 +968,7 @@ def register_v2_api(
             "unavailable": sum(1 for item in descriptors if item["runtime_tier"] == "unavailable"),
             "configured": sum(1 for item in descriptors if item["configured"]),
             "tiers": tiers,
+            "readiness": dict(sorted(readiness.items())),
             "running_scans": int(running),
             "findings": int(finding_count),
             "raw_proof_exports": True,
