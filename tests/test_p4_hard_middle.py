@@ -206,8 +206,8 @@ def test_authorization_diff_captures_distinct_redacted_proof_flows() -> None:
     assert {row["tags"][-1] for row in replay.flows.rows} == {"proof:candidate", "proof:control"}
     assert all(row["request_headers"]["Authorization"] == "[REDACTED]" for row in replay.flows.rows)
     assert all(row["response_headers"]["set-cookie"] == "[REDACTED]" for row in replay.flows.rows)
-    assert all("candidate-secret" not in json.dumps(row) for row in replay.flows.rows)
-    assert all("control-secret" not in json.dumps(row) for row in replay.flows.rows)
+    assert all("candidate-secret" not in json.dumps(row, default=str) for row in replay.flows.rows)
+    assert all("control-secret" not in json.dumps(row, default=str) for row in replay.flows.rows)
     assert all("replay-secret" not in row["url"] for row in replay.flows.rows)
     assert all("REDACTED" in row["url"] for row in replay.flows.rows)
     assert audit.events[-1][0] == "p4.authorization_proof.captured"
