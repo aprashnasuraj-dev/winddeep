@@ -38,20 +38,22 @@
       "A"
     ],
     "withinWorker": "most recently discovered active unresolved candidate first; skip disproven or resolved exact claims",
-    "cursor": 0,
+    "cursor": 1,
     "advanceOnlyAfter": "falsification with accepted runtime controls or documented proof of unreproducibility, otherwise leave WAITING_CI and rotate independent new evidence",
     "queue": [
       {
         "id": "E-RPC-010",
         "category": "E",
         "focus": "London receipt nil header and real backend/reorg counterexamples",
-        "status": "WAITING_CI"
+        "status": "VERIFIED_SOFTWARE_DEFECT__REMOTE_REACHABILITY_OPEN",
+        "lastEvidence": "Certified Go runtime nil-header panic, independent oracle expected exit 1, scratch defensive guard re-run pass, no production reachability",
+        "ciRun": 41742642862
       },
       {
         "id": "E-RPC-008",
         "category": "E",
         "focus": "range-log partial success with missing intermediate header",
-        "status": "QUEUED"
+        "status": "ACTIVE"
       },
       {
         "id": "E-RPC-004",
@@ -131,13 +133,20 @@
     "workflow": ".github/workflows/electroneum-reverse-independent-ci.yml",
     "runId": 41742642862,
     "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41742642862",
-    "status": "IN_PROGRESS_AT_INITIAL_CHECK",
+    "status": "COMPLETED_SUCCESS",
     "firstCase": "E-RPC-010",
     "jobId": 126287716651,
     "triggerSha": "9cd0963117ee3fd93990a999cafa009eed836f5b",
-    "concurrentClassRunsMax": 1
+    "concurrentClassRunsMax": 1,
+    "closedAfter": [
+      "REVERSE_E_RUNTIME_NIL_HEADER_PANIC_OBSERVED",
+      "REVERSE_R_ORIGINAL_SOURCE_ORACLE_REJECTED exit=1",
+      "REVERSE_E_FAIL_CLOSED_ORACLE_PASS"
+    ]
   },
   "confirmedFindingGate": "Only reproduce plus attacker-controlled lower-trust production path plus concrete impact; four headings exactly; never insert status/hypothesis material",
   "pausedOtherAutomations": false,
-  "reportedAt": "2026-11-04 Asia/Kathmandu"
+  "reportedAt": "2026-11-04 Asia/Kathmandu",
+  "currentObjective": "E-RPC-008: reverse-audit eth/filters unindexed and indexed partial-success on missing middle block header, against normal full-node counterexample",
+  "nextAction": "Implement independent certified E-RPC-008 Go fixtures in R-owned files; verify no active R CI before new workflow dispatch; then complete synthetic and backend reachability checks"
 }
