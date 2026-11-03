@@ -132,6 +132,7 @@ class PipelineNode:
             continue_on_error=True,
             rate_cost=self.rate_cost,
             execution_kind=self.execution_kind,
+            timeout=self.timeout,
         )
 
 
