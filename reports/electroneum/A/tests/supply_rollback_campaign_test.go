@@ -71,7 +71,7 @@ func FuzzWorkerAStateConservation(f *testing.F) {
    op:=int(data[i]%5)
    from,to:=op%3,(op%3+1)%3
    if op==4 {from,to=2,0}
-   amount:=int64(data[i])*int64(data[(i+1)%len]+1)
+   amount:=int64(data[i])*(int64(data[(i+1)%len(data)])+1)
    if want[from]<amount {amount=want[from]}
    if op==3 {
     // A reverted speculative transfer must not affect any account.
