@@ -53,6 +53,7 @@ jobs:
             14-leveldb-wal-fault) mode=walfault ;;
             15-leveldb-batch-write) mode=batchfault ;;
             16-fsize-qbft-reachability) mode=realos ;;
+            17-enospc-peer-threshold) mode=enospc ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -173,6 +174,22 @@ jobs:
               cp reports/electroneum/R/production_depth/lower_authority_peer_test.go "$scratch/eth/worker_r_lower_authority_peer_helper_test.go"
               cp reports/electroneum/R/production_depth/qbft_storage_fault_reachability_test.go "$scratch/eth/worker_r_qbft_storage_fault_test.go"
               cp reports/electroneum/R/production_depth/qbft_eth66_real_disk_limit_test.go "$scratch/eth/worker_r_qbft_eth66_disk_limit_test.go"
+              ;;
+            enospc)
+              chmod u+w "$scratch/core"
+              cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
+              cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_helper_test.go"
+              cp reports/electroneum/R/production_depth/persistent_batch_write_failure_test.go "$scratch/core/worker_r_batch_helper_test.go"
+              cp reports/electroneum/R/production_depth/persistent_real_os_wal_limit_test.go "$scratch/core/worker_r_real_os_limit_helper_test.go"
+              chmod u+w "$scratch/eth"
+              cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
+              cp reports/electroneum/R/production_depth/peer_downloader_reorg_test.go "$scratch/eth/worker_r_peer_downloader_helper_test.go"
+              cp reports/electroneum/R/production_depth/devp2p_loopback_reorg_test.go "$scratch/eth/worker_r_devp2p_helper_test.go"
+              cp reports/electroneum/R/production_depth/qbft_devp2p_reorg_test.go "$scratch/eth/worker_r_qbft_devp2p_helper_test.go"
+              cp reports/electroneum/R/production_depth/lower_authority_peer_test.go "$scratch/eth/worker_r_lower_authority_peer_helper_test.go"
+              cp reports/electroneum/R/production_depth/qbft_storage_fault_reachability_test.go "$scratch/eth/worker_r_qbft_storage_fault_helper_test.go"
+              cp reports/electroneum/R/production_depth/qbft_eth66_real_disk_limit_test.go "$scratch/eth/worker_r_qbft_eth66_disk_limit_helper_test.go"
+              cp reports/electroneum/R/production_depth/qbft_real_enospc_peer_threshold_test.go "$scratch/eth/worker_r_qbft_real_enospc_threshold_test.go"
               ;;
             consumerfinality)
               chmod u+w "$scratch/eth"
@@ -588,6 +605,72 @@ jobs:
           go test -count=1 -timeout=8m -run '^TestRPriorityReorgPoolState$' -v ./core 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/priority_reorg.log"
           grep -Eq 'R_PRIORITY_REORG_POOL_STATE_PASS|R_PRIORITY_REORG_PRECONDITION_POOL_REJECT' "$RUNNER_TEMP/r-prod-evidence/priority_reorg.log"
           echo "G6_production_reachability=OPEN_no_live_validator_or_peer_network" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+
+      - name: P2h real ext4 ENOSPC threshold over ETH66
+        if: env.R_PROD_MODE == 'enospc'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/r-g6-enospc.ext4"
+          mountpoint="$RUNNER_TEMP/r-g6-enospc-mnt"
+          truncate -s 128M "$image"
+          mkfs.ext4 -q -F -m 0 "$image"
+          mkdir -p "$mountpoint"
+          sudo mount -o loop "$image" "$mountpoint"
+          sudo chown "$(id -u):$(id -g)" "$mountpoint"
+          cleanup() {
+            sync || true
+            sudo umount "$mountpoint" || true
+          }
+          trap cleanup EXIT
+
+          fs_type="$(findmnt -n -o FSTYPE --target "$mountpoint")"
+          test "$fs_type" = "ext4"
+          df -B1 "$mountpoint" | tee "$RUNNER_TEMP/r-prod-evidence/enospc_df_before.txt"
+
+          cd "$R_PROD_SCRATCH"
+          R_G6_ENOSPC_MOUNT="$mountpoint" go test -count=1 -timeout=18m -run '^TestRQBFTWireRealENOSPCThresholdSweep
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code -- vendor/electroneum-sc
+          {
+            echo "certified_source_unchanged=PASS"
+            echo "finding_gate=G1_G7_POLICY_ENFORCED"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          cat "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: Preserve evidence and deterministic reproducers
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r-production-depth-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/r-prod-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+ -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/enospc_threshold.log"
+
+          grep -Fq 'R_G6_ENOSPC_THRESHOLD_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/enospc_threshold.log"
+          grep -Fq 'result=SUCCESS' "$RUNNER_TEMP/r-prod-evidence/enospc_threshold.log"
+          grep -Fq 'result=ENOSPC_FATAL_EXIT' "$RUNNER_TEMP/r-prod-evidence/enospc_threshold.log"
+          grep -Fq 'R_G6_ENOSPC_G6_CLASSIFICATION PARTIAL_TRIGGER_ONLY' "$RUNNER_TEMP/r-prod-evidence/enospc_threshold.log"
+          {
+            echo "G2_positive_control=PASS_valid_QBFT_block_over_real_TCP_RLPx_ETH66_with_head_and_receipt"
+            echo "G3_named_oracle=PASS_native_LevelDB_ENOSPC_plus_exit1"
+            echo "G4_reproducer=reports/electroneum/R/production_depth/qbft_real_enospc_peer_threshold_test.go"
+            echo "G5_sensitivity=PASS_multiple_real_ext4_free_space_margins_bracket_success_and_ENOSPC"
+            echo "G6_lower_trust_trigger=PARTIAL_ESTABLISHED_peer_can_time_delivery_of_already_valid_quorum_block_to_tip_preexisting_near_full_node"
+            echo "G6_storage_condition_creation=OPEN_peer_did_not_create_initial_near_full_filesystem"
+            echo "validator_bypass=DISPROVEN_NOT_ATTEMPTED_peer_serves_existing_valid_quorum_block"
+            echo "G7_concrete_impact=LOCAL_NODE_FATAL_EXIT_ONLY_no_third_party_financial_loss"
+            echo "filesystem=REAL_EXT4_LOOPBACK_ENOSPC"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: Verify source untouched and complete triage
         if: always()
