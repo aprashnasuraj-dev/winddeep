@@ -12,7 +12,6 @@ package eth
 
 import (
     "bytes"
-    "crypto/ecdsa"
     "fmt"
     "math/big"
     "os"
@@ -197,9 +196,6 @@ func TestRQBFTLowerAuthorityNodeDataNoncanonicalChurn(t *testing.T) {
         if !wireClosed{_ = rP2JStopChain(wireBE,wireChain,wireDB)}
         if !directClosed{_ = rP2JStopChain(directBE,directChain,directDB)}
     })
-    if err:=wireBE.VerifyHeader(wireChain,invalid.Header(),true);err==nil {
-        t.Fatal("R_P2L_SUBQUORUM_HEADER_UNEXPECTED_DIRECT_ACCEPT")
-    }
     directBefore:=rG6PhysicalBytes(t,directPath)
     if i,err:=directChain.InsertChain(types.Blocks{canonical});err!=nil{
         t.Fatalf("R_P2L_DIRECT_BASELINE_IMPORT_FAIL idx=%d err=%v",i,err)
@@ -227,6 +223,11 @@ func TestRQBFTLowerAuthorityNodeDataNoncanonicalChurn(t *testing.T) {
         t.Fatalf("R_P2L_REAL_ETH66_CANONICAL_SYNC_FAIL: %v",err)
     }
     rP2JValidateCanonical(t,wireDB,wireChain,canonical,canonicalTx,nil)
+    if err:=wireBE.VerifyHeader(wireChain,invalid.Header(),true);err==nil {
+        t.Fatal("R_P2L_SUBQUORUM_HEADER_UNEXPECTED_DIRECT_ACCEPT")
+    } else {
+        t.Logf("R_P2L_SUBQUORUM_DIRECT_VERIFIER_REJECTED seals=2of4 err=%v",err)
+    }
     wireAfter:=rG6PhysicalBytes(t,wirePath)
     t.Logf("R_P2L_CANONICAL_BASELINE height=%d wire_growth=%d direct_growth=%d wire_body_responses=%d attacker_keys=0",
         canonical.NumberU64(),wireAfter-wireBefore,directAfter-directBefore,wireState.bodyResponses.Load())
