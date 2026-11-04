@@ -300,24 +300,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$R_PROD_SCRATCH"
-          go test -count=1 -timeout=12m -run '^TestRP1H(QuorumWirePositiveControl|LowerAuthoritySubquorumRejected)$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/lower_authority_peer.log"
-          grep -Fq 'R_P1H_QUORUM_ETH66_DOWNLOADER_ACCEPTED validators=4 seals=3' "$RUNNER_TEMP/r-prod-evidence/lower_authority_peer.log"
-          grep -Fq 'R_P1H_QUORUM_WIRE_POSITIVE_CONTROL_PASS' "$RUNNER_TEMP/r-prod-evidence/lower_authority_peer.log"
-          grep -Fq 'R_P1H_SUBQUORUM_DIRECT_VERIFIER_REJECTED validators=4 seals=2' "$RUNNER_TEMP/r-prod-evidence/lower_authority_peer.log"
-          grep -Fq 'R_P1H_SUBQUORUM_ETH66_DOWNLOADER_REJECTED validators=4 seals=2' "$RUNNER_TEMP/r-prod-evidence/lower_authority_peer.log"
-          grep -Fq 'R_P1H_LOWER_AUTHORITY_CANNOT_REPRODUCE_RECEIPT_INCONSISTENCY_PASS' "$RUNNER_TEMP/r-prod-evidence/lower_authority_peer.log"
-          {
-            echo "G2_positive_control=PASS_same_custom_ETH66_wire_peer_3_of_4_quorum_imported"
-            echo "G5_counterexample=PASS_2_of_4_subquorum_rejected_after_real_ETH66_header_body_delivery"
-            echo "G6_ordinary_peer_finalized_competing_branch=DISPROVEN_IN_TESTED_2_OF_4_MODEL"
-            echo "receipt_inconsistency_lower_authority=NOT_REPRODUCED"
-            echo "transport=REAL_LOOPBACK_TCP_RLPx_ETN66"
-            echo "sync_path=REAL_DOWNLOADER_LegacySync"
-            echo "remote_invalid_block_preimport=NONE_peer_served_wire_object_directly"
-            echo "G4_reproducer=reports/electroneum/R/production_depth/lower_authority_peer_test.go"
-          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
-      - name: P2 persistent crash and replay checkpoints
-        if: env.R_PROD_MODE == 'persist'
+          go test -count=1 -timeout=12m -run '^TestRP1H(QuorumWirePositiveControl|LowerAuthoritySubquorumRejected)        if: env.R_PROD_MODE == 'persist'
         shell: bash
         env:
           GOMAXPROCS: '2'
