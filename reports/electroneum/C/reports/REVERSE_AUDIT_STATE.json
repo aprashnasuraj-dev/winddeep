@@ -38,7 +38,7 @@
       "A"
     ],
     "withinWorker": "most recently discovered active unresolved candidate first; skip disproven or resolved exact claims",
-    "cursor": 7,
+    "cursor": 8,
     "advanceOnlyAfter": "falsification with accepted runtime controls or documented proof of unreproducibility, otherwise leave WAITING_CI and rotate independent new evidence",
     "queue": [
       {
@@ -77,37 +77,39 @@
         "id": "D-PARTIAL-RECEIPT",
         "category": "D",
         "focus": "receipt partial prefix/cancel/retry, rewind and restart consistency",
-        "status": "TESTED_REVOKE_RESET_EXPIRY_REPLAY_PATHS_PASS__SYNC_RESTART_OPEN",
-        "ciRun": 41747025272,
-        "lastEvidence": "Certified Go: revoked stale peer rejected, 1+2 prefix/suffix retry, malformed RLP and duplicate replay rejected, cancel/reset/timeout recovery passed; no synchronized real-node restart/pivot proof."
+        "status": "TESTED_REVOKE_RESET_EXPIRY_PASS__PRODUCTION_RESTART_OPEN",
+        "ciRun": 41746346715,
+        "lastEvidence": "Run 41746131665 4 peer/replay/invalid-RLP controls PASS; run 41746346715 reset/expiry old-session rejected, fresh 3 receipts accepted; outside realistic restart crash/pivot conditions untested."
       },
       {
         "id": "D-HEADER-ROLLBACK",
         "category": "D",
         "focus": "authentic header restart and canonical root rollback",
-        "status": "TESTED_REWIND_REIMPORT_PASS__LOCAL_STALE_FINALIZED_METADATA_CANDIDATE",
-        "ciRun": 41747025272,
-        "lastEvidence": "Certified Go local SetHead(4) from eight blocks retained canonical 0..4; reopened correct head; invalid forged batch rejected; finalized 7 pointer persisted above head 4 and rawdb finalized marker survived restart (admin-only precondition)."
+        "status": "TESTED_SETHEAD_REIMPORT__FINALIZED_MARKER_REACHABILITY_OPEN",
+        "ciRun": 41746803595,
+        "lastEvidence": "Run 41746803595 real BlockChain SetHead(2), restart, valid reimport height5 and invalid receipt root rejected; separate R-D-FINALIZED-REWIND conditional source discrepancy retained without QBFT attacker path."
       },
       {
         "id": "D-RECEIPT-DIFFERENTIAL",
         "category": "D",
         "focus": "raw/decoded receipts and authenticated root binding",
-        "status": "TESTED_WIRE_DECODING_4_TYPES_PASS__NETWORK_ATTACK_NOT_REPRODUCED",
+        "status": "TESTED_WIRE_ROOT_EQUIVALENCE_PASS",
         "ciRun": 41747025272,
-        "lastEvidence": "Certified Go eth66 newRawTypedList/DecodeReceipts commitment root agreement types 0,1,2,64; reordering mutates root; unsupported type and short malformed RLP rejected."
+        "lastEvidence": "Run 41747025272 certified eth66 wire vs decoded roots equal for four receipt types, reordering changes root, invalid type/short RLP rejected."
       },
       {
         "id": "C-002",
         "category": "C",
         "focus": "malformed encrypted keystore Import boundary, panic propagation, actual caller reachability",
-        "status": "ACTIVE"
+        "status": "VERIFIED_EXPORTED_IMPORT_PANIC__REMOTE_REACHABILITY_OPEN",
+        "ciRun": 41747296488,
+        "lastEvidence": "Run 41747296488 actual exported KeyStore.Import 3 malformed JSON panics, valid+2 error controls; strict original oracle exit1 named marker and scratch salt guard exit0; default remote encrypted JSON import path not proven."
       },
       {
         "id": "C-001",
         "category": "C",
         "focus": "private RPC hardware wallet initialize mnemonic, card permission and default refusal",
-        "status": "QUEUED"
+        "status": "ACTIVE"
       },
       {
         "id": "B-ROUND-STATE-ALIAS",
@@ -145,16 +147,22 @@
     "workflow": ".github/workflows/electroneum-reverse-independent-ci.yml",
     "runId": 41747296488,
     "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41747296488",
-    "status": "COMPLETED",
+    "status": "COMPLETED_SUCCESS",
+    "jobId": 126303401377,
     "triggerSha": "17963335de458bbf45842e2c830dd50b0ed0bd8e",
     "firstCase": "C-002",
-    "concurrentClassRunsMax": 1
+    "concurrentClassRunsMax": 1,
+    "closedAfter": [
+      "REVERSE_C_EXPORTED_IMPORT_PANIC_OBSERVED missing_salt/numeric_salt/invalid_aes_ctr_iv",
+      "REVERSE_C_EXPORT_IMPORT_FAIL_CLOSED_ORACLE_MISMATCH exit=1",
+      "REVERSE_C_EXPORT_IMPORT_FAIL_CLOSED_ORACLE_PASS after scratch guard"
+    ]
   },
   "confirmedFindingGate": "Only reproduce plus attacker-controlled lower-trust production path plus concrete impact; four headings exactly; never insert status/hypothesis material",
   "pausedOtherAutomations": false,
-  "reportedAt": "2026-11-04 Asia/Kathmandu live run",
-  "currentObjective": "C-002 KeyStore.Import malformed encrypted JSON actual exported boundary; no default remote RPC assertion; retain D finalized marker local-only candidate for independent strict oracle.",
-  "nextAction": "Inspect current class R C-002 CI 41747296488 final logs, verify actual keystore Import panic and scratch guard outcomes; do not launch overlap; preserve A–E paths.",
+  "reportedAt": "2026-11-04 live user-triggered R (no hourly task)",
+  "currentObjective": "C-001: independent reverse audit of PrivateAccountAPI.InitializeWallet mnemonic return, local vs remote exposure, smart-card presence/authentication and initialized-device refusal; no hardware or public-chain probes.",
+  "nextAction": "Source-trace actual node RPC namespace exposure and scwallet.Initialize/Session.initialize authorization, create cheapest synthetic negative-control test if feasible. Otherwise document exact hardware-emulator gate and rotate to B; do not claim secrets leaked.",
   "schedule": {
     "chatgptAutomationCreation": "BLOCKED_MAX_5_ACTIVE_TASKS",
     "existingAutomations": "A-E remain enabled and untouched",
