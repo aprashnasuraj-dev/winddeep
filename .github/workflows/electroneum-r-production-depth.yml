@@ -45,6 +45,7 @@ jobs:
             06-peer-downloader-reorg) mode=peer ;;
             07-devp2p-loopback) mode=devp2p ;;
             08-qbft-quorum-gate) mode=qbft ;;
+            09-qbft-devp2p-e2e) mode=qbftnet ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -111,6 +112,13 @@ jobs:
             qbft)
               chmod u+w "$scratch/consensus/istanbul/backend"
               cp reports/electroneum/R/production_depth/qbft_quorum_gate_test.go "$scratch/consensus/istanbul/backend/worker_r_qbft_quorum_gate_test.go"
+              ;;
+            qbftnet)
+              chmod u+w "$scratch/eth"
+              cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
+              cp reports/electroneum/R/production_depth/peer_downloader_reorg_test.go "$scratch/eth/worker_r_peer_downloader_helper_test.go"
+              cp reports/electroneum/R/production_depth/devp2p_loopback_reorg_test.go "$scratch/eth/worker_r_devp2p_helper_test.go"
+              cp reports/electroneum/R/production_depth/qbft_devp2p_reorg_test.go "$scratch/eth/worker_r_qbft_devp2p_test.go"
               ;;
           esac
           echo "R_PROD_SCRATCH=$scratch" >> "$GITHUB_ENV"
@@ -198,6 +206,27 @@ jobs:
             echo "G6_consensus_precondition=QBFT_VALID_COMPETING_FORK_REQUIRES_CEIL_2N_OVER_3_UNIQUE_VALIDATOR_SEALS"
             echo "ordinary_external_peer_without_validator_keys=REJECTED_BY_CONSENSUS_GATE"
             echo "validator_quorum_adversary_or_legitimate_competing_finality=NOT_ESTABLISHED"
+            echo "G7_concrete_downstream_impact=OPEN"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P1e quorum-authorized QBFT branch over real devp2p
+        if: env.R_PROD_MODE == 'qbftnet'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_PROD_SCRATCH"
+          go test -count=1 -timeout=15m -run '^TestRQBFTDevP2PQuorumReorgRace$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/qbft_devp2p.log"
+          grep -Fq 'R_QBFT_DEVP2P_QUORUM_BRANCH_BUILT validators=4 quorum=3' "$RUNNER_TEMP/r-prod-evidence/qbft_devp2p.log"
+          grep -Fq 'R_QBFT_DEVP2P_TCP_RLPX_CONNECTED' "$RUNNER_TEMP/r-prod-evidence/qbft_devp2p.log"
+          grep -Fq 'R_QBFT_DEVP2P_QUORUM_REORG_CONTROL_PASS' "$RUNNER_TEMP/r-prod-evidence/qbft_devp2p.log"
+          {
+            echo "G2_positive_control=PASS_quorum_authorized_QBFT_branch"
+            echo "G6_conditional_reachability=QUORUM_AUTHORIZED_BRANCH_OVER_REAL_TCP_RLPx_DEVP2P"
+            echo "actor_requirement=CEIL_2N_OVER_3_VALIDATOR_KEYS_IN_FIXTURE"
+            echo "ordinary_external_peer=NOT_THIS_ACTOR_MODEL"
             echo "G7_concrete_downstream_impact=OPEN"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
