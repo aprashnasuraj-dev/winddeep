@@ -1,0 +1,190 @@
+name: Electroneum R - Coverage Guided Stateful Cross Component Audit
+
+on:
+  push:
+    branches:
+      - 'audit/r-stateful-fuzz-*'
+      - '!audit/r-stateful-fuzz-seed'
+    paths:
+      - '.github/workflows/electroneum-r-stateful-fuzz.yml'
+      - 'reports/electroneum/R/stateful/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: r-stateful-fuzz-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bounded-stateful-fuzz:
+    name: R fuzz / ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Pin checkout to event SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Select exactly one cross-component attack surface
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          selector="$(tr -d '\n' < reports/electroneum/R/stateful/selection.txt)"
+          test "$GITHUB_REF_NAME" = "audit/r-stateful-fuzz-$selector"
+          case "$selector" in
+            01-rpc-wallet)
+              pkg=./internal/ethapi
+              baseline=TestRWalletRPCStatefulControls
+              fuzz=FuzzRWalletRPCSequence
+              ;;
+            02-reorg-transactions)
+              pkg=./internal/ethapi
+              baseline=TestRReorgCompletedTransitions
+              fuzz=FuzzRReorgStateMachine
+              ;;
+            03-downloader-cancel)
+              pkg=./eth/downloader
+              baseline=TestRDownloaderStatefulControls
+              fuzz=FuzzRDownloaderCancelRace
+              ;;
+            04-parser-exhaustion)
+              pkg=./accounts/abi
+              baseline=TestRParserBaselineControls
+              fuzz=FuzzRParserResourceBudget
+              ;;
+            *)
+              echo "R_STATEFUL_INVALID_ASPECT=$selector"
+              exit 64
+              ;;
+          esac
+          {
+            echo "R_FUZZ_SELECTOR=$selector"
+            echo "R_FUZZ_PACKAGE=$pkg"
+            echo "R_FUZZ_BASELINE=$baseline"
+            echo "R_FUZZ_NAME=$fuzz"
+          } >> "$GITHUB_ENV"
+          echo "R_STATEFUL_PINNED_TRIGGER=$GITHUB_SHA"
+
+      - name: Validate certified Electroneum source and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = 7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = de7f3c75a2db7e87a89918f1257820703d5b731e
+          echo "R_STATEFUL_CERTIFIED_SOURCE=$WINDEEP_ETN_SOURCE_TREE_SHA"
+
+      - name: Set up Go toolchain
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.24.0'
+          cache: false
+
+      - name: Isolate source and mount test harness only in scratch package
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/r-stateful-scratch-$R_FUZZ_SELECTOR"
+          mkdir -p "$scratch"
+          cp -a "$WINDEEP_ETN_SOURCE"/. "$scratch"/
+          case "$R_FUZZ_SELECTOR" in
+            01-rpc-wallet)
+              chmod u+w "$scratch/internal/ethapi"
+              cp reports/electroneum/C/reports/fixtures/reverse_c_personal_rpc_test.go "$scratch/internal/ethapi/worker_r_wallet_base_test.go"
+              cp reports/electroneum/R/stateful/rpc_wallet_test.go "$scratch/internal/ethapi/worker_r_stateful_wallet_test.go"
+              ;;
+            02-reorg-transactions)
+              chmod u+w "$scratch/internal/ethapi"
+              cp reports/electroneum/C/reverse/reverse_e_rawdb_reorg_test.go "$scratch/internal/ethapi/worker_r_reorg_base_test.go"
+              cp reports/electroneum/R/stateful/reorg_test.go "$scratch/internal/ethapi/worker_r_stateful_reorg_test.go"
+              ;;
+            03-downloader-cancel)
+              chmod u+w "$scratch/eth/downloader"
+              cp reports/electroneum/C/reverse/reverse_d_receipt_peer_revoke_test.go "$scratch/eth/downloader/worker_r_receipt_base_test.go"
+              cp reports/electroneum/R/stateful/downloader_test.go "$scratch/eth/downloader/worker_r_stateful_downloader_test.go"
+              ;;
+            04-parser-exhaustion)
+              chmod u+w "$scratch/accounts/abi"
+              cp reports/electroneum/R/stateful/parser_test.go "$scratch/accounts/abi/worker_r_stateful_parser_test.go"
+              ;;
+          esac
+          echo "R_FUZZ_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/r-fuzz-evidence"
+          cp reports/electroneum/R/stateful/selection.txt "$RUNNER_TEMP/r-fuzz-evidence/selection.txt"
+          printf 'trigger=%s\ncertified_source_commit=%s\ncertified_tree=%s\nselector=%s\n' \
+            "$GITHUB_SHA" "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" "$WINDEEP_ETN_SOURCE_TREE_SHA" "$R_FUZZ_SELECTOR" \
+            > "$RUNNER_TEMP/r-fuzz-evidence/provenance.txt"
+
+      - name: Run deterministic stateful controls before fuzzing
+        shell: bash
+        env:
+          GOMAXPROCS: "2"
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_FUZZ_SCRATCH"
+          go test -count=1 -timeout=4m -run "^${R_FUZZ_BASELINE}$" -v "$R_FUZZ_PACKAGE" \
+            2>&1 | tee "$RUNNER_TEMP/r-fuzz-evidence/baseline.log"
+          grep -Fq -- "--- PASS: $R_FUZZ_BASELINE" "$RUNNER_TEMP/r-fuzz-evidence/baseline.log" || {
+            echo R_STATEFUL_BASELINE_NOT_RUN
+            exit 65
+          }
+          if [ "$R_FUZZ_SELECTOR" = "03-downloader-cancel" ]; then
+            go test -race -count=1 -timeout=5m -run "^${R_FUZZ_BASELINE}$" "$R_FUZZ_PACKAGE" \
+              2>&1 | tee "$RUNNER_TEMP/r-fuzz-evidence/race.log"
+          fi
+          echo R_STATEFUL_CONTROLS_PASS
+
+      - name: Coverage-guided mutations with bounded memory, concurrency, runtime
+        shell: bash
+        env:
+          GOMAXPROCS: "2"
+          GOMEMLIMIT: 768MiB
+          GOGC: "60"
+        run: |
+          set -euo pipefail
+          cd "$R_FUZZ_SCRATCH"
+          set +e
+          go test -run '^$' -fuzz "^${R_FUZZ_NAME}$" -fuzztime=40s \
+            -parallel=2 -timeout=6m -v "$R_FUZZ_PACKAGE" \
+            2>&1 | tee "$RUNNER_TEMP/r-fuzz-evidence/fuzz.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "R_STATEFUL_FUZZ_EXIT=$rc selector=$R_FUZZ_SELECTOR"
+          while IFS= read -r -d '' file; do
+            mkdir -p "$RUNNER_TEMP/r-fuzz-evidence/reproducers"
+            cp "$file" "$RUNNER_TEMP/r-fuzz-evidence/reproducers/$(basename "$file")"
+          done < <(find "$R_FUZZ_SCRATCH" -path '*/testdata/fuzz/*' -type f -print0)
+          {
+            echo "### Worker R stateful coverage fuzz — $R_FUZZ_SELECTOR"
+            echo "Workflow trigger SHA: $GITHUB_SHA"
+            echo "Immutable target tree: $WINDEEP_ETN_SOURCE_TREE_SHA"
+            echo "Baseline: $R_FUZZ_BASELINE"
+            echo "Coverage-guided target: $R_FUZZ_NAME"
+            echo "Fuzzer exit code: $rc"
+            echo "A nonzero exit is an untriaged security/test-harness candidate, not automatically an exploit."
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$rc" -eq 0
+
+      - name: Verify target was never changed
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code -- vendor/electroneum-sc
+          echo R_STATEFUL_CERTIFIED_SOURCE_UNCHANGED_PASS
+
+      - name: Preserve logs, coverage evidence and minimized reproducers
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r-stateful-${{ github.ref_name }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/r-fuzz-evidence/
+          if-no-files-found: warn
+          retention-days: 14
