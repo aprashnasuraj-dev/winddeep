@@ -80,6 +80,9 @@ jobs:
           git diff --exit-code -- vendor/electroneum-sc
           cp reports/electroneum/healthy_peer_storage/healthy_peer_two_height_test.go "$RUNNER_TEMP/healthy-storage-logs/"
           cp reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go "$RUNNER_TEMP/healthy-storage-logs/"
+          for file in full_backend_reorg peer_downloader_reorg devp2p_loopback_reorg qbft_devp2p_reorg lower_authority_peer qbft_storage_fault_reachability qbft_eth66_real_disk_limit qbft_real_enospc_peer_threshold; do
+            cp "reports/electroneum/R/production_depth/$file"_test.go "$RUNNER_TEMP/healthy-storage-logs/helper_$file"_test.go
+          done
           sha256sum "$RUNNER_TEMP/healthy-storage-logs/"*.go > "$RUNNER_TEMP/healthy-storage-logs/SOURCE_SHA256.txt"
           echo HEALTHY_PEER_IMMUTABLE_SOURCE_PASS
       - uses: actions/upload-artifact@v4
