@@ -17,6 +17,7 @@ import (
     "os/signal"
     "path/filepath"
     "sort"
+    "strconv"
     "strings"
     "syscall"
     "testing"
@@ -24,9 +25,27 @@ import (
     "github.com/electroneum/electroneum-sc/consensus/ethash"
     "github.com/electroneum/electroneum-sc/core/rawdb"
     "github.com/electroneum/electroneum-sc/core/types"
+    "github.com/electroneum/electroneum-sc/ethdb"
     "github.com/electroneum/electroneum-sc/core/vm"
 )
 
+// Passive observation of the *underlying* actual LevelDB.Batch.Write error.
+// Unlike P2d, this wrapper NEVER changes an error or reports a fake failure.
+type rOSObservedDB struct{ethdb.Database}
+type rOSObservedBatch struct{ethdb.Batch}
+func (d *rOSObservedDB) NewBatch() ethdb.Batch {
+    return &rOSObservedBatch{Batch:d.Database.NewBatch()}
+}
+func (d *rOSObservedDB) NewBatchWithSize(n int) ethdb.Batch {
+    return &rOSObservedBatch{Batch:d.Database.NewBatchWithSize(n)}
+}
+func (b *rOSObservedBatch) Write() error {
+    err:=b.Batch.Write()
+    if err!=nil {
+        fmt.Fprintf(os.Stderr,"R_OS_UNMODIFIED_LEVELDB_WRITE_ERROR err=%q\n",err.Error())
+    }
+    return err
+}
 func rOSActiveWAL(t *testing.T,dir string) (string,int64) {
     t.Helper()
     entries,err:=os.ReadDir(dir)
@@ -50,19 +69,14 @@ func TestRLevelDBRealOSFileSizeChild(t *testing.T){
     if os.Getenv("R_OS_LIMIT_CHILD")!="1"{return}
     stage:=os.Getenv("R_OS_LIMIT_STAGE")
     path:=os.Getenv("R_OS_LIMIT_DB")
-    delta:=int64(0)
-    switch stage{
-    case "wal_plus_0":delta=0
-    case "wal_plus_64":delta=64
-    case "wal_plus_512":delta=512
-    case "wal_plus_1024":delta=1024
-    default:t.Fatalf("R_OS_LIMIT_UNKNOWN_STAGE %s",stage)
-    }
+    if !strings.HasPrefix(stage,"wal_plus_"){t.Fatalf("R_OS_LIMIT_UNKNOWN_STAGE %s",stage)}
+    delta,err:=strconv.ParseInt(strings.TrimPrefix(stage,"wal_plus_"),10,64)
+    if err!=nil || delta<0 || delta>1600 {t.Fatalf("R_OS_LIMIT_UNKNOWN_STAGE %s err=%v",stage,err)}
     _,blocks,_:=rBatchFixture(t)
     db:=rOpenPersist(t,path)
     cfg:=rawdb.ReadChainConfig(db,rawdb.ReadCanonicalHash(db,0))
     if cfg==nil{t.Fatal("R_OS_LIMIT_MISSING_GENESIS_CONFIG")}
-    chain,err:=NewBlockChain(db,nil,cfg,ethash.NewFaker(),vm.Config{},nil,nil)
+    chain,err:=NewBlockChain(&rOSObservedDB{Database:db},nil,cfg,ethash.NewFaker(),vm.Config{},nil,nil)
     if err!=nil{t.Fatal(err)}
     if chain.CurrentBlock().NumberU64()!=0{t.Fatal("R_OS_LIMIT_BAD_INITIAL_HEAD")}
     wal,initial:=rOSActiveWAL(t,path)
@@ -96,7 +110,12 @@ func TestRLevelDBRealOSFileSizeRecovery(t *testing.T){
         t.Fatal("R_OS_GENESIS_ONLY_CONTROL_FAIL")
     }
     if err:=db.Close();err!=nil{t.Fatal(err)}
-    for _,stage:=range []string{"wal_plus_0","wal_plus_64","wal_plus_512","wal_plus_1024"}{
+    stages:=[]string{"wal_plus_0","wal_plus_64","wal_plus_512","wal_plus_1024"}
+    // Deliberately focus on the payload (~835 B) / marker (~199 B)
+    // WAL boundary rather than mutate arbitrary bytes post-exit.
+    for n:=768;n<=1408;n+=32{stages=append(stages,fmt.Sprintf("wal_plus_%d",n))}
+    var postcommitObserved int
+    for _,stage:=range stages{
         t.Run(stage,func(t *testing.T){
             path:=filepath.Join(t.TempDir(),"chaindata")
             rWALCopyDirectory(t,baseline,path)
@@ -107,6 +126,7 @@ func TestRLevelDBRealOSFileSizeRecovery(t *testing.T){
             if !ok||exit.ExitCode()!=1||
                 !bytes.Contains(output,[]byte("R_OS_RLIMIT_REAL_EFBIG_PROBE_PASS stage="+stage))||
                 !bytes.Contains(output,[]byte("R_OS_CHAIN_INSERT_START stage="+stage))||
+                !bytes.Contains(output,[]byte("R_OS_UNMODIFIED_LEVELDB_WRITE_ERROR"))||
                 bytes.Contains(output,[]byte("R_OS_EXPECTED_CRIT_EXIT_MISSING")){
                 t.Fatalf("R_OS_LIMIT_CHILD_DID_NOT_FATAL_AT_WRITE stage=%s err=%v output=%s",stage,err,output)
             }
@@ -119,13 +139,17 @@ func TestRLevelDBRealOSFileSizeRecovery(t *testing.T){
             canon:=rawdb.ReadCanonicalHash(reopened,1)==blocks[0].Hash()
             indexed:=rawdb.ReadTxLookupEntry(reopened,tx.Hash())!=nil
             head:=rawdb.ReadHeadBlockHash(reopened)==blocks[0].Hash()
-            if head&&(!canon||!payload||!rawReceipts||!indexed){
+            if (canon!=head)||(indexed!=head)||(head&&(!payload||!rawReceipts)){
                 reopened.Close()
                 t.Fatalf("R_OS_WRONG_HEAD_WITHOUT_COMPLETE_BLOCK stage=%s head=%t body=%t receipts=%t canonical=%t indexed=%t",
                     stage,head,payload,rawReceipts,canon,indexed)
             }
             t.Logf("R_OS_RECOVERED_WAL_STATE stage=%s payload=%t receipts=%t canonical=%t indexed=%t head=%t",
                 stage,payload,rawReceipts,canon,indexed,head)
+            if head {
+                postcommitObserved++
+                t.Logf("R_OS_REAL_WRITE_ERROR_POSTCOMMIT_VISIBILITY_CANDIDATE stage=%s",stage)
+            }
             rBatchVerifyReimport(t,reopened,blocks,tx,stage,1)
             if err:=reopened.Close();err!=nil{t.Fatal(err)}
             again:=rOpenPersist(t,path)
@@ -134,5 +158,6 @@ func TestRLevelDBRealOSFileSizeRecovery(t *testing.T){
             t.Logf("R_OS_REAL_WRITE_ERROR_REPLAY_PASS stage=%s full=2",stage)
         })
     }
+    t.Logf("R_OS_REAL_WAL_LIMIT_SWEEP_DONE cases=%d head_committed_on_error=%d",len(stages),postcommitObserved)
     t.Log("R_OS_REAL_WAL_WRITE_EFBIG_MATRIX_PASS linux_rlimit_file_growth_not_powerloss")
 }
