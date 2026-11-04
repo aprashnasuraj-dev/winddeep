@@ -61,9 +61,11 @@
         "id": "E-RPC-004",
         "category": "E",
         "focus": "receipt hash vs lookup canonicality under reorg and N confirmations",
-        "status": "VERIFIED_SOFTWARE_DEFECT__CANONICAL_REORG_REACHABILITY_OPEN",
-        "ciRun": 41744841662,
-        "lastEvidence": "Certified rawdb-backed ethapi Go runtime: 4 defensive stable/missing controls passed; forced canonical flip during GetReceipts returned stale successful orphan receipt; strict original oracle exit 1 named marker; scratch post-read canonical check passed. No QBFT production attacker reachability."
+        "status": "CONFIRMED_SOURCE_DEFECT__REPRODUCTION_CLOSED__REMEDIATION_OPEN__PRODUCTION_EXPLOITABILITY_OPEN",
+        "ciRun": 41754226567,
+        "lastEvidence": "Certified rawdb-backed GetTransactionReceipt mid-query A->B reorg returned stale successful orphan receipt; reverse strict oracle and scratch guard sensitivity run 41744841662; native coverage-guided minimized repro run 41754226567; full-chain counterexample run 41754322942. Formal report: reports/electroneum/C/reports/CONCRETE_FINDING_E004_RECEIPT_TOCTOU.md. Shipped remote attack/finality impact unproven.",
+        "verificationClosed": "2026-11-04",
+        "report": "reports/electroneum/C/reports/CONCRETE_FINDING_E004_RECEIPT_TOCTOU.md"
       },
       {
         "id": "E-RPC-002",
