@@ -50,6 +50,7 @@ jobs:
             11-guard-residual) mode=guardresidual ;;
             12-lower-authority-peer) mode=lowerauth ;;
             13-consumer-finality) mode=consumerfinality ;;
+            14-leveldb-wal-fault) mode=walfault ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -142,6 +143,11 @@ jobs:
               cp reports/electroneum/R/production_depth/devp2p_loopback_reorg_test.go "$scratch/eth/worker_r_devp2p_helper_test.go"
               cp reports/electroneum/R/production_depth/qbft_devp2p_reorg_test.go "$scratch/eth/worker_r_qbft_devp2p_helper_test.go"
               cp reports/electroneum/R/production_depth/lower_authority_peer_test.go "$scratch/eth/worker_r_lower_authority_peer_test.go"
+              ;;
+            walfault)
+              chmod u+w "$scratch/core"
+              cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
+              cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_fault_test.go"
               ;;
             consumerfinality)
               chmod u+w "$scratch/eth"
@@ -352,6 +358,30 @@ jobs:
             echo "G7_real_third_party_integration=OPEN_NOT_TESTED"
             echo "financial_loss=NOT_CLAIMED"
             echo "G4_reproducer=reports/electroneum/R/production_depth/consumer_finality_test.go"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P2b LevelDB write-ahead log tail fault recovery
+        if: env.R_PROD_MODE == 'walfault'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_PROD_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestRLevelDBWAL(TailFaultMatrix|ResumeSync|CheckpointStageResume)$' -v ./core 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
+          grep -Fq 'R_WAL_FAULT_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
+          grep -Fq 'R_WAL_RESUME_SYNC_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
+          grep -Fq 'R_WAL_CHECKPOINT_STAGE_RESUME_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
+          grep -Fq 'R_WAL_STAGE_RESUME_PASS stage=body_receipt_no_lookup mode=truncate_64' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
+          grep -Fq 'R_WAL_RESUME_INVALID_FORK_REJECTED_PASS mode=truncate_64' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
+          grep -Fq 'R_WAL_RESUME_SECOND_RESTART_PASS mode=truncate_64' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
+          {
+            echo "G2_positive_control=PASS_clean_unclean_exit_recovery"
+            echo "fault_model=SYNTHETIC_LEVELDB_WAL_TAIL_TRUNCATION_OR_BITFLIP_AFTER_PROCESS_EXIT"
+            echo "G4_reproducer=reports/electroneum/R/production_depth/persistent_wal_fault_test.go"
+            echo "G6_remote_reachability=NOT_ESTABLISHED"
+            echo "G7_security_impact=NOT_CLAIMED"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: P2 persistent crash and replay checkpoints
