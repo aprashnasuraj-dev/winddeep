@@ -633,28 +633,7 @@ jobs:
           df -B1 "$mountpoint" | tee "$RUNNER_TEMP/r-prod-evidence/enospc_df_before.txt"
 
           cd "$R_PROD_SCRATCH"
-          R_G6_ENOSPC_MOUNT="$mountpoint" go test -count=1 -timeout=18m -run '^TestRQBFTWireRealENOSPCThresholdSweep
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git diff --exit-code -- vendor/electroneum-sc
-          {
-            echo "certified_source_unchanged=PASS"
-            echo "finding_gate=G1_G7_POLICY_ENFORCED"
-          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
-          cat "$RUNNER_TEMP/r-prod-evidence/triage.txt"
-
-      - name: Preserve evidence and deterministic reproducers
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: r-production-depth-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/r-prod-evidence/
-          if-no-files-found: warn
-          retention-days: 14
- -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/enospc_threshold.log"
+          R_G6_ENOSPC_MOUNT="$mountpoint" go test -count=1 -timeout=18m -run '^TestRQBFTWireRealENOSPCThresholdSweep$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/enospc_threshold.log"
 
           grep -Fq 'R_G6_ENOSPC_THRESHOLD_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/enospc_threshold.log"
           grep -Fq 'result=SUCCESS' "$RUNNER_TEMP/r-prod-evidence/enospc_threshold.log"
