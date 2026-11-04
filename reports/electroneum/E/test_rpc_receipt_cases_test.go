@@ -18,10 +18,11 @@ type workerEReceiptBackend struct {
  block common.Hash
  receipt *types.Receipt
  header *types.Header
+ index uint64
 }
 
 func (b *workerEReceiptBackend) GetTransaction(_ context.Context, _ common.Hash) (*types.Transaction, common.Hash, uint64, uint64, error) {
- return b.tx, b.block, 1, 0, nil
+ return b.tx, b.block, 1, b.index, nil
 }
 func (b *workerEReceiptBackend) GetReceipts(_ context.Context, _ common.Hash) (types.Receipts, error) {
  return types.Receipts{b.receipt}, nil
@@ -86,5 +87,26 @@ func TestWorkerEReceiptIdentityAndNilHeader(t *testing.T) {
   }
   if err!=nil {t.Logf("E_RPC_NIL_HEADER_ERROR=%v",err);return}
   t.Fatal("missing header with nonzero-fee London transaction returned success; expected error or panic")
+ })
+}
+
+// Additional deterministic RPC boundary controls; they do not establish
+// that an attacker can corrupt the shipped full-node backend.
+func TestWorkerEReceiptStatusAndIndexControls(t *testing.T) {
+ t.Run("failed_transaction_must_not_look_successful",func(t *testing.T) {
+  api,b,hash:=workerEFixture()
+  b.receipt.Status=types.ReceiptStatusFailed
+  got,err:=api.GetTransactionReceipt(context.Background(),hash)
+  if err!=nil || got==nil {t.Fatalf("failed receipt query: %v, %v",err,got)}
+  if got["status"]==nil {t.Fatal("failed transaction omitted status")}
+  if got["transactionHash"]!=hash {t.Fatal("failed transaction misidentified")}
+  t.Log("E_RPC_FAILED_STATUS_CONTROL",got["status"])
+ })
+ t.Run("out_of_range_index_returns_null",func(t *testing.T) {
+  api,b,hash:=workerEFixture()
+  b.index=2 // One receipt exists; no receipt is valid at index two.
+  got,err:=api.GetTransactionReceipt(context.Background(),hash)
+  if err!=nil || got!=nil {t.Fatalf("out-of-range receipt should be null: result=%v error=%v",got,err)}
+  t.Log("E_RPC_OUT_OF_RANGE_INDEX_REJECTED")
  })
 }
