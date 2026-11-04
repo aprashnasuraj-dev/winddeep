@@ -196,6 +196,7 @@ jobs:
                 cp reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go "$scratch/eth/worker_r_qbft_disk_growth_test.go"
               fi
               if [ "$R_PROD_MODE" = multifork ]; then
+                cp reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go "$scratch/eth/worker_r_qbft_disk_growth_helper_test.go"
                 cp reports/electroneum/R/production_depth/qbft_multiheight_disk_replay_restart_test.go "$scratch/eth/worker_r_qbft_multiheight_disk_test.go"
               fi
               ;;
