@@ -1,0 +1,131 @@
+name: Electroneum Worker R - Deep Attack-Surface Coverage Fuzz
+on:
+  push:
+    branches:
+      - 'audit/r-deep-20261104-*'
+      - '!audit/r-deep-20261104-seed'
+    paths:
+      - 'reports/electroneum/R/deep/**'
+      - '.github/workflows/electroneum-r-deep-fuzz.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: r-deep-20261104-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  deep-fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact trigger SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Lock one aspect to this branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          selector="$(tr -d '\n' < reports/electroneum/R/deep/selection.txt)"
+          test "$GITHUB_REF_NAME" = "audit/r-deep-20261104-$selector"
+          case "$selector" in
+            01-rpc-batch) pkg=./rpc; baseline=TestRDeepRPCBatchBaseline; fuzz=FuzzRDeepRPCBatch; dest=rpc; source=rpc_batch_test.go ;;
+            02-nested-abi) pkg=./accounts/abi; baseline=TestRDeepNestedABIBaseline; fuzz=FuzzRDeepNestedABI; dest=accounts/abi; source=abi_nested_test.go ;;
+            03-tx-envelope) pkg=./core/types; baseline=TestRDeepTxEnvelopeBaseline; fuzz=FuzzRDeepTxEnvelope; dest=core/types; source=tx_envelope_test.go ;;
+            *) echo R_DEEP_BAD_SELECTOR; exit 64 ;;
+          esac
+          {
+            echo "R_DEEP_SELECTOR=$selector"
+            echo "R_DEEP_PKG=$pkg"
+            echo "R_DEEP_BASELINE=$baseline"
+            echo "R_DEEP_FUZZ=$fuzz"
+            echo "R_DEEP_DEST=$dest"
+            echo "R_DEEP_SOURCE=$source"
+          } >> "$GITHUB_ENV"
+          echo "R_DEEP_SHA=$GITHUB_SHA"
+      - name: Certify immutable Electroneum source and provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = 7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = de7f3c75a2db7e87a89918f1257820703d5b731e
+          echo "R_DEEP_CERTIFIED_TREE=$WINDEEP_ETN_SOURCE_TREE_SHA"
+      - name: Set up Go 1.24.0
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Copy test only into disposable certified scratch
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/worker-r-deep-$R_DEEP_SELECTOR"
+          mkdir -p "$scratch"
+          cp -a "$WINDEEP_ETN_SOURCE"/. "$scratch"/
+          chmod u+w "$scratch/$R_DEEP_DEST"
+          cp "reports/electroneum/R/deep/$R_DEEP_SOURCE" "$scratch/$R_DEEP_DEST/worker_r_deep_test.go"
+          echo "R_DEEP_SCRATCH=$scratch" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/r-deep-evidence"
+          printf 'event_sha=%s\ncertified_source=%s\ncertified_tree=%s\naspect=%s\n' "$GITHUB_SHA" "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" "$WINDEEP_ETN_SOURCE_TREE_SHA" "$R_DEEP_SELECTOR" > "$RUNNER_TEMP/r-deep-evidence/provenance.txt"
+      - name: Baseline plus measured package coverage
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_DEEP_SCRATCH"
+          go test -count=1 -timeout=5m -run "^$R_DEEP_BASELINE$" -coverprofile="$RUNNER_TEMP/r-deep-evidence/baseline.cover" -v "$R_DEEP_PKG" 2>&1 | tee "$RUNNER_TEMP/r-deep-evidence/baseline.log"
+          grep -Fq -- "--- PASS: $R_DEEP_BASELINE" "$RUNNER_TEMP/r-deep-evidence/baseline.log" || { echo R_DEEP_BASELINE_MISSING; exit 65; }
+          go tool cover -func="$RUNNER_TEMP/r-deep-evidence/baseline.cover" > "$RUNNER_TEMP/r-deep-evidence/coverage_functions.txt"
+          tail -n 1 "$RUNNER_TEMP/r-deep-evidence/coverage_functions.txt"
+          echo R_DEEP_BASELINE_PASS
+      - name: Coverage-guided bounded mutation
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+          GOGC: '60'
+        run: |
+          set -euo pipefail
+          cd "$R_DEEP_SCRATCH"
+          set +e
+          go test -run '^$' -fuzz "^$R_DEEP_FUZZ$" -fuzztime=35s -parallel=2 -timeout=6m -v "$R_DEEP_PKG" 2>&1 | tee "$RUNNER_TEMP/r-deep-evidence/fuzz.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "R_DEEP_FUZZ_RC=$rc"
+          grep -Fq "=== RUN   $R_DEEP_FUZZ" "$RUNNER_TEMP/r-deep-evidence/fuzz.log" || { echo R_DEEP_ZERO_FUZZ_EXECUTIONS; exit 65; }
+          while IFS= read -r -d '' file; do
+            mkdir -p "$RUNNER_TEMP/r-deep-evidence/reproducers"
+            cp "$file" "$RUNNER_TEMP/r-deep-evidence/reproducers/$(basename "$file")"
+          done < <(find "$R_DEEP_SCRATCH" -path '*/testdata/fuzz/*' -type f -print0)
+          {
+            echo "### Worker R deep fuzz — $R_DEEP_SELECTOR"
+            echo "Triggered SHA: $GITHUB_SHA"
+            echo "Certified tree: $WINDEEP_ETN_SOURCE_TREE_SHA"
+            echo "Baseline: $R_DEEP_BASELINE"
+            echo "Fuzz: $R_DEEP_FUZZ"
+            echo "Fuzz exit: $rc"
+            echo "Coverage: see artifact baseline.cover; package percentage does not imply whole-node coverage"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$rc" -eq 0
+      - name: Confirm checkout and certified vendor tree remain unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code -- vendor/electroneum-sc
+          echo R_DEEP_CERTIFIED_SOURCE_UNMODIFIED
+      - name: Archive coverage, logs, and fuzz reproducers even when failed
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r-deep-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/r-deep-evidence/
+          if-no-files-found: warn
+          retention-days: 14
