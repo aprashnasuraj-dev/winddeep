@@ -69,9 +69,16 @@ func TestWorkerEReceiptIdentityAndNilHeader(t *testing.T) {
   result,err:=api.GetTransactionReceipt(context.Background(),hash)
   if err!=nil {t.Fatalf("unexpected adapter error: %v",err)}
   if result==nil {t.Log("E_RPC_MISMATCH_REJECTED");return}
-  if result["transactionHash"]==hash {
-   t.Log("E_RPC_MISMATCH_ACCEPTED_BY_SYNTHETIC_BACKEND: result transactionHash is request hash despite receipt.TxHash mismatch")
-  } else {t.Log("E_RPC_MISMATCH_RESULT_HASH_DIFFERENT")}
+  // Strict characterization: the adapter currently masks an inconsistent
+  // synthetic backend. This is NOT proof that the production backend can
+  // return such a pair. Fail if the oracle or observation silently changes.
+  if result["transactionHash"]!=hash {
+   t.Fatalf("expected adapter to echo requested hash; got %v",result["transactionHash"])
+  }
+  if b.receipt.TxHash==result["transactionHash"] {
+   t.Fatal("identity oracle failed to detect the deliberately mismatched receipt")
+  }
+  t.Log("E_RPC_SYNTHETIC_IDENTITY_MISMATCH_DETECTED_BY_INDEPENDENT_ORACLE")
  })
  t.Run("nil_header_no_backend_error",func(t *testing.T) {
   api,b,hash:=workerEFixture()
@@ -110,4 +117,30 @@ func TestWorkerEReceiptStatusAndIndexControls(t *testing.T) {
   if err!=nil || got!=nil {t.Fatalf("out-of-range receipt should be null: result=%v error=%v",got,err)}
   t.Log("E_RPC_OUT_OF_RANGE_INDEX_REJECTED")
  })
+}
+
+// TestWorkerEReceiptOracleMutationSensitivity proves that the independent
+// identity oracle detects two distinct synthetic backend inconsistencies.
+// It does not claim either is reachable through an honest chain backend.
+func TestWorkerEReceiptOracleMutationSensitivity(t *testing.T) {
+ cases:=[]struct{name string; mutate func(*workerEReceiptBackend)}{
+  {"wrong_receipt_hash",func(b *workerEReceiptBackend){b.receipt.TxHash=common.HexToHash("0xbeef")}},
+  {"wrong_lookup_transaction",func(b *workerEReceiptBackend){to:=common.HexToAddress("0x0000000000000000000000000000000000000002");b.tx=types.NewTransaction(0,to,big.NewInt(2),21000,big.NewInt(10),nil)}},
+ }
+ for _,tc:=range cases {
+  t.Run(tc.name,func(t *testing.T){
+   api,b,requested:=workerEFixture()
+   tc.mutate(b)
+   // Independent expected identity comes from fixture construction, not
+   // from RPC fields, and both backend identities must bind to request.
+   oracleOK:=b.tx.Hash()==requested && b.receipt.TxHash==requested
+   if oracleOK {t.Fatal("adversarial mutation escaped independent identity oracle")}
+   got,err:=api.GetTransactionReceipt(context.Background(),requested)
+   if err!=nil || got==nil {t.Fatalf("unexpected synthetic adapter response: %v %v",err,got)}
+   rpcOK:=got["transactionHash"]==requested
+   if !rpcOK {t.Fatalf("expected request-hash echo; got %v",got["transactionHash"])}
+   if rpcOK==oracleOK {t.Fatal("oracle sensitivity lost: mismatch not distinguished")}
+   t.Log("E_RPC_ORACLE_KILLED_SYNTHETIC_IDENTITY_MUTATION")
+  })
+ }
 }
