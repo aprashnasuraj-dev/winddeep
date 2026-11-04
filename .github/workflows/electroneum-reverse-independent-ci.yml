@@ -180,3 +180,11 @@ jobs:
           cd "$REVERSE_R_SCRATCH"
           go test -count=1 -timeout=15m -run '^TestReverseDReceiptPeerRevocationAndReplay$' -v ./eth/downloader
           echo REVERSE_R_D_RECEIPT_PEER_REVOCATION_MATRIX_PASS
+      - name: Reverse downloader cancelled-session reset and timeout recovery
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp reports/electroneum/C/reports/fixtures/reverse_d_restart_expire_test.go "$REVERSE_R_SCRATCH/eth/downloader/worker_r_restart_expire_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=15m -run '^TestReverseDReceiptRestartAndExpiry$' -v ./eth/downloader
+          echo REVERSE_R_D_RESTART_EXPIRY_REGRESSION_PASS
