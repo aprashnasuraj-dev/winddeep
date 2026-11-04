@@ -16,6 +16,7 @@ import (
 	"github.com/electroneum/electroneum-sc/crypto"
 	"github.com/electroneum/electroneum-sc/eth/downloader"
 	ethproto "github.com/electroneum/electroneum-sc/eth/protocols/eth"
+	"github.com/electroneum/electroneum-sc/internal/ethapi"
 	"github.com/electroneum/electroneum-sc/p2p"
 	qbftengine "github.com/electroneum/electroneum-sc/consensus/istanbul/engine"
 )
