@@ -28,6 +28,11 @@ func (w *auditRWallet) Open(passphrase string) error {
  w.opens++
  return nil
 }
+// The production backend must set ExtRPCEnabled for externally served RPC.
+// The fake refuses real signing and never contains a private key.
+type auditRExternalBackend struct { *reverseCEthBackend }
+func (b *auditRExternalBackend) ExtRPCEnabled() bool { return true }
+
 type auditRRPCReply struct {
  JSONRPC string          `json:"jsonrpc"`
  ID      json.RawMessage `json:"id"`
@@ -60,7 +65,7 @@ func auditRWalletScenario(t *testing.T, script []byte) {
  wallet:=&auditRWallet{reverseCWallet:reverseCWallet{url:u}}
  am:=accounts.NewManager(&accounts.Config{},&reverseCWalletBackend{wallets:[]accounts.Wallet{wallet}})
  defer am.Close()
- api:=NewPrivateAccountAPI(&reverseCEthBackend{am:am},new(AddrLocker))
+ api:=NewPrivateAccountAPI(&auditRExternalBackend{reverseCEthBackend:&reverseCEthBackend{am:am}},new(AddrLocker))
  server:=rpc.NewServer();defer server.Stop()
  if err:=server.RegisterName("personal",api);err!=nil{t.Fatalf("real PrivateAccountAPI RPC registration failed: %v",err)}
  actions:=script
@@ -68,7 +73,7 @@ func auditRWalletScenario(t *testing.T, script []byte) {
  if len(actions)>24{actions=actions[:24]}
  expectedOpenCount:=0
  for i,raw:=range actions {
-  action:=raw%5
+  action:=raw%6
   var method string
   var args []interface{}
   expectError:=false
@@ -83,10 +88,17 @@ func auditRWalletScenario(t *testing.T, script []byte) {
    method="personal_openWallet";args=[]interface{}{"reverse://missing",auditRSyntheticPassword};expectError=true
   case 4:
    method="personal_listWallets";args=[]interface{}{}
+  case 5:
+   // Even when 'personal' is explicitly registered, external RPC must not unlock an account.
+   // This is a real PrivateAccountAPI.UnlockAccount check, not a synthetic echo handler.
+   method="personal_unlockAccount";args=[]interface{}{"0x0000000000000000000000000000000000000001",auditRSyntheticPassword};expectError=true
   }
   response:=auditRCallRPC(t,server,i+1,method,args)
   if expectError {
    if response.Error==nil{t.Fatalf("R_WALLET_FAIL_CLOSED_FAIL: action=%d expected error, got result=%s",action,response.Result)}
+   if action==5 && !strings.Contains(response.Error.Message,"account unlock with HTTP access is forbidden") {
+    t.Fatalf("R_WALLET_REMOTE_UNLOCK_GUARD_NOT_REACHED: got=%q",response.Error.Message)
+   }
    if len(response.Result)>0&&string(response.Result)!="null"{t.Fatalf("R_WALLET_ERROR_RESULT_LEAK: action=%d returned result=%s",action,response.Result)}
   }else if response.Error!=nil {
    t.Fatalf("valid action=%d unexpectedly failed: %s",action,response.Error.Message)
@@ -97,12 +109,13 @@ func auditRWalletScenario(t *testing.T, script []byte) {
  t.Logf("R_WALLET_RPC_STATEFUL_BOUNDARY_PASS actions=%d real_wallet_opens=%d",len(actions),wallet.opens)
 }
 func TestRWalletRPCStatefulControls(t *testing.T){
- for _,seq:=range [][]byte{{0,1,2,3,4},{2,2,3,1,4},{4,3,0,2,1,3,4}}{auditRWalletScenario(t,seq)}
+ for _,seq:=range [][]byte{{0,1,2,3,4,5},{2,2,5,3,1,4},{4,3,0,2,1,3,4,5}}{auditRWalletScenario(t,seq)}
 }
 func FuzzRWalletRPCSequence(f *testing.F){
  f.Add([]byte{0,1,2,3,4})
  f.Add([]byte{2,2,2,0,1,3,4})
  f.Add([]byte{4,4,1,3,2,0})
+ f.Add([]byte{5,5,2,0,5,4})
  f.Fuzz(func(t *testing.T, script []byte){
   if len(script)>96{return}
   auditRWalletScenario(t,script)
