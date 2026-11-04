@@ -57,6 +57,11 @@ jobs:
               baseline=TestRParserBaselineControls
               fuzz=FuzzRParserResourceBudget
               ;;
+            05-mempool-reorg)
+              pkg=./core
+              baseline=TestRPoolReorgTransitions
+              fuzz=FuzzRPoolReorgSequences
+              ;;
             *)
               echo "R_STATEFUL_INVALID_ASPECT=$selector"
               exit 64
@@ -111,6 +116,10 @@ jobs:
             04-parser-exhaustion)
               chmod u+w "$scratch/accounts/abi"
               cp reports/electroneum/R/stateful/parser_test.go "$scratch/accounts/abi/worker_r_stateful_parser_test.go"
+              ;;
+            05-mempool-reorg)
+              chmod u+w "$scratch/core"
+              cp reports/electroneum/R/stateful/mempool_reorg_test.go "$scratch/core/worker_r_stateful_mempool_reorg_test.go"
               ;;
           esac
           echo "R_FUZZ_SCRATCH=$scratch" >> "$GITHUB_ENV"
