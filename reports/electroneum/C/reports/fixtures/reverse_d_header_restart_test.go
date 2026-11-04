@@ -83,4 +83,49 @@ func TestReverseDHeaderRollbackRestart(t *testing.T) {
   }
   t.Log("REVERSE_D_NONCONTIGUOUS_HISTORY_REJECTED_PASS")
  })
+
+ t.Run("finalized_pointer_after_explicit_admin_rewind",func(t *testing.T){
+  db,bc,err:=newCanonical(ethash.NewFaker(),8,true)
+  if err!=nil {t.Fatal(err)}
+  finalized:=bc.GetBlockByNumber(7)
+  if finalized==nil {bc.Stop();t.Fatal("missing synthetic finalized block")}
+  bc.SetFinalized(finalized)
+  if bc.CurrentFinalizedBlock()==nil || bc.CurrentFinalizedBlock().Hash()!=finalized.Hash() {bc.Stop();t.Fatal("finalized baseline invalid")}
+  if rawdb.ReadFinalizedBlockHash(db)!=finalized.Hash() {bc.Stop();t.Fatal("finalized marker baseline invalid")}
+  if err:=bc.SetHead(4);err!=nil {bc.Stop();t.Fatalf("admin rewind failed: %v",err)}
+  if bc.CurrentBlock().NumberU64()!=4 {bc.Stop();t.Fatal("rewound chain head wrong")}
+  ptr:=bc.CurrentFinalizedBlock()
+  if ptr!=nil&&ptr.NumberU64()>bc.CurrentBlock().NumberU64() {
+   t.Logf("REVERSE_D_STALE_FINALIZED_POINTER_OBSERVED finalized=%d current=%d",ptr.NumberU64(),bc.CurrentBlock().NumberU64())
+  } else {t.Log("REVERSE_D_NO_STALE_FINALIZED_POINTER")}
+  if rawdb.ReadFinalizedBlockHash(db)==finalized.Hash() {t.Log("REVERSE_D_FINALIZED_DB_MARKER_SURVIVED_REWIND_OBSERVED")}
+  bc.Stop()
+  reopened,err:=NewBlockChain(db,nil,params.AllEthashProtocolChanges,ethash.NewFaker(),vm.Config{},nil,nil)
+  if err!=nil {t.Fatalf("reopen after finalized rewind: %v",err)}
+  defer reopened.Stop()
+  ptr=reopened.CurrentFinalizedBlock()
+  if ptr!=nil && ptr.NumberU64()>reopened.CurrentBlock().NumberU64() {
+   t.Logf("REVERSE_D_REOPENED_FINALIZED_POINTER_ABOVE_HEAD_OBSERVED finalized=%d current=%d",ptr.NumberU64(),reopened.CurrentBlock().NumberU64())
+  } else {t.Log("REVERSE_D_REOPENED_NO_STALE_POINTER")}
+  if rawdb.ReadFinalizedBlockHash(db)==finalized.Hash() {t.Log("REVERSE_D_REOPENED_DB_FINALIZED_MARKER_STALE_OBSERVED")}
+ })
+
+}
+
+
+// This intentionally strict local-state oracle may find an administrative
+// rewind inconsistency. That condition alone does NOT prove an outsider can
+// rewrite finalized QBFT history or exploit a production node.
+func TestReverseDFinalityRewindFailClosedOracle(t *testing.T){
+ _,bc,err:=newCanonical(ethash.NewFaker(),8,true)
+ if err!=nil {t.Fatal(err)}
+ defer bc.Stop()
+ b:=bc.GetBlockByNumber(7)
+ if b==nil {t.Fatal("missing synthetic finalized block")}
+ bc.SetFinalized(b)
+ if err:=bc.SetHead(4);err!=nil {t.Fatal(err)}
+ f:=bc.CurrentFinalizedBlock()
+ if f!=nil && f.NumberU64()>bc.CurrentBlock().NumberU64() {
+  t.Errorf("REVERSE_D_FINALIZED_REWIND_ORACLE_MISMATCH finalized=%d current=%d",f.NumberU64(),bc.CurrentBlock().NumberU64())
+ }
 }
