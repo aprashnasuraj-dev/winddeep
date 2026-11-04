@@ -30,5 +30,17 @@ func TestFinalizedHeaderAbsentAfterValidQBFTImport(t *testing.T){
  if recovered==nil{t.Fatal("header path did not panic; code may have been corrected")}
  if !strings.Contains(strings.ToLower(fmt.Sprint(recovered)),"nil pointer"){t.Fatalf("unexpected panic: %v",recovered)}
  t.Logf("FINALIZED_GETHEADER_NIL_DEREFERENCE_CONFIRMED panic=%v",recovered)
- t.Log("FINALIZED_SCOPE_NOTE request_panic_not_proven_node_shutdown")
+ rpcServer:=rpc.NewServer()
+ if err:=rpcServer.RegisterName("eth",chainAPI);err!=nil{t.Fatalf("register eth RPC: %v",err)}
+ client:=rpc.DialInProc(rpcServer)
+ defer client.Close()
+ defer rpcServer.Stop()
+ var finalHeader map[string]interface{}
+ err=client.CallContext(context.Background(),&finalHeader,"eth_getHeaderByNumber","finalized")
+ if err==nil||!strings.Contains(err.Error(),"method handler crashed"){t.Fatalf("RPC callback should return method handler crashed: %v",err)}
+ t.Log("FINALIZED_RPC_METHOD_HANDLER_CRASHED_ERROR_CONFIRMED")
+ var latest map[string]interface{}
+ if err:=client.CallContext(context.Background(),&latest,"eth_getBlockByNumber","latest",false);err!=nil||latest==nil{t.Fatalf("RPC server not alive: %v latest=%v",err,latest)}
+ t.Log("FINALIZED_RPC_SERVER_CONTINUES_AFTER_ERROR_PASS")
+ t.Log("FINALIZED_SCOPE_NOTE one_request_error_not_node_shutdown")
 }
