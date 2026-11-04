@@ -286,6 +286,15 @@ jobs:
           go test -count=1 -timeout=10m -run '^TestReverseCRPCErrorSuppressesSensitiveResult$' -v ./rpc
           echo REVERSE_R_C_RPC_ERROR_RESULT_SUPPRESSION_PASS
 
+      - name: Reverse C-001 real RPC handler mnemonic-shaped error confidentiality
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp reports/electroneum/C/reports/fixtures/reverse_c_mnemonic_rpc_test.go "$REVERSE_R_SCRATCH/rpc/worker_r_mnemonic_rpc_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestReverseCMnemonicRPCErrorAndRecovery$' -v ./rpc
+          echo REVERSE_R_C_MNEMONIC_RPC_CONFIDENTIALITY_PASS
+
       - name: Reverse C-001 default HTTP and WS module exposure
         shell: bash
         run: |
