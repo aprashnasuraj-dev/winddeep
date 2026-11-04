@@ -19,7 +19,8 @@ import (
  "github.com/electroneum/electroneum-sc/core/types"
  "github.com/electroneum/electroneum-sc/core/vm"
  "github.com/electroneum/electroneum-sc/crypto"
- "github.com/electroneum/electroneum-sc/internal/ethapi"\n "github.com/electroneum/electroneum-sc/params"
+ "github.com/electroneum/electroneum-sc/internal/ethapi"
+ "github.com/electroneum/electroneum-sc/params"
 )
 
 type rFullFixture struct {
