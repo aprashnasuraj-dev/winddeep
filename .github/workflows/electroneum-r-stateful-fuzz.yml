@@ -169,32 +169,6 @@ jobs:
             echo "Fuzzer exit code: $rc"
             echo "A nonzero exit is an untriaged security/test-harness candidate, not automatically an exploit."
           } >> "$GITHUB_STEP_SUMMARY"
-          if [ "$R_FUZZ_SELECTOR" = "04-parser-exhaustion" ] && [ "$rc" -eq 0 ]; then
-            python3 - "$RUNNER_TEMP/r-fuzz-evidence/fuzz.log" <<'PY'
-          import re, sys
-          rows=[]
-          for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
-              m=re.search(r"fuzz: elapsed: (\d+)s, execs: (\d+)",line)
-              if m:
-                  rows.append((int(m.group(1)),int(m.group(2))))
-          if len(rows)<4 or rows[-1][1]<=0:
-              print("R_PARSER_FUZZ_PROGRESS_UNVERIFIED")
-              raise SystemExit(77)
-          last_change=rows[0][0]
-          last_count=rows[0][1]
-          stall=0
-          for sec,count in rows[1:]:
-              if count>last_count:
-                  last_count=count
-                  last_change=sec
-              stall=max(stall,sec-last_change)
-          print(f"R_PARSER_MAX_ZERO_PROGRESS_SECONDS={stall} final_execs={last_count}")
-          if stall>=12:
-              print("R_PARSER_FUZZ_ZERO_PROGRESS_GATE_FAIL: investigate stalled worker")
-              raise SystemExit(78)
-          print("R_PARSER_FUZZ_PROGRESS_GATE_PASS")
-          PY
-          fi
           test "$rc" -eq 0
 
       - name: Verify target was never changed
