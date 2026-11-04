@@ -38,7 +38,7 @@
       "A"
     ],
     "withinWorker": "most recently discovered active unresolved candidate first; skip disproven or resolved exact claims",
-    "cursor": 11,
+    "cursor": 12,
     "advanceOnlyAfter": "falsification with accepted runtime controls or documented proof of unreproducibility, otherwise leave WAITING_CI and rotate independent new evidence",
     "queue": [
       {
@@ -133,13 +133,15 @@
         "id": "B-ROUND-32",
         "category": "B",
         "focus": "signed-seal 2^32 encoding alias vs valid consensus reachability",
-        "status": "ACTIVE"
+        "status": "VERIFIED_SIGNING_DOMAIN_ALIAS__IMMEDIATE_FPLUS1_ADMISSION_BLOCKED",
+        "ciRun": 41749737953,
+        "lastEvidence": "Certified engine: round0 signatures verify after CommitHeader(big.Int 2^32) because encoded round truncates to uint32 0; round1 negative signatures rejected. Core: F+1=2 distinct validator-source ROUND-CHANGE messages at 2^32 from round0 dropped by +15 full-width guard."
       },
       {
         "id": "A-FEE-07",
         "category": "A",
         "focus": "fee/registry state parity across builder/import and failed EVM/core error",
-        "status": "QUEUED"
+        "status": "ACTIVE"
       },
       {
         "id": "A-FEE-04-05",
@@ -151,18 +153,18 @@
   },
   "liveCampaign": {
     "workflow": ".github/workflows/electroneum-reverse-independent-ci.yml",
-    "runId": 41749154241,
-    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41749154241",
+    "runId": 41749737953,
+    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41749737953",
     "status": "COMPLETED_SUCCESS",
-    "firstCase": "B-ROUND-STATE-ALIAS+B-ROUND-63",
-    "jobId": 126310141202,
+    "firstCase": "B-ROUND-32",
+    "jobId": 126311669910,
     "concurrentClassRunsMax": 1
   },
   "confirmedFindingGate": "Only reproduce plus attacker-controlled lower-trust production path plus concrete impact; four headings exactly; never insert status/hypothesis material",
   "pausedOtherAutomations": false,
   "reportedAt": "2026-11-04 Asia/Kathmandu",
-  "currentObjective": "B-ROUND-32: independently reproduce committed-seal signing-domain alias at round 0 vs 2^32, then challenge actual consensus reachability and wrong-round signature controls.",
-  "nextAction": "Run certified engine fixture with 4 deterministic validators: sign round0, commit header using big.Int 2^32, verify seals; require round1 negative control. In core, submit F+1 2^32 ROUND-CHANGE messages from current round0 and confirm +15 guard drops them. Quantify sequential reachability under 10s/60s timeout.",
+  "currentObjective": "A-FEE-07: reverse-test fee/priority registry parity across real imported block processing versus miner/build path, especially EVM revert versus core rejection and cache refresh timing.",
+  "nextAction": "Trace priority-registry cache update source in StateProcessor and miner worker; create certified synthetic two-transaction fixture that mutates registry state then tests follow-on priority transaction through Process and builder-equivalent execution, with success/EVM-revert/core-error controls.",
   "schedule": {
     "chatgptAutomationCreation": "BLOCKED_MAX_5_ACTIVE_TASKS",
     "existingAutomations": "A-E remain enabled and untouched",
