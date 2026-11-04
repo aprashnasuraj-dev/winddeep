@@ -211,7 +211,7 @@ func TestRQBFTWireRealENOSPCChild(t *testing.T) {
         t.Fatalf("R_G6_ENOSPC_PEER_HANDSHAKE_MISSING handshakes=%d got=%s want=%s",
             wire.handshakes.Load(), peerHash, block.Hash())
     }
-    fmt.Fprintf(os.Stderr, "R_G6_ENOSPC_ETH66_VALID_PEER_CONNECTED handshakes=%d block=%s body_bytes=%d role=serve_already_valid_quorum_block\n",
+    fmt.Fprintf(os.Stderr, "R_G6_ENOSPC_ETH66_VALID_PEER_CONNECTED handshakes=%d block=%s body_bytes=%v role=serve_already_valid_quorum_block\n",
         wire.handshakes.Load(), block.Hash(), block.Size())
 
     before, actual := rG6FillFilesystemToMargin(t, root, margin)
