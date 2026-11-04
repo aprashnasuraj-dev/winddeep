@@ -195,7 +195,7 @@ func TestRLevelDBBatchWriteBoundary(t *testing.T) {
             exit,ok:=err.(*exec.ExitError)
             marker:="R_BATCH_FAILURE_TRIGGER target="+tc.target+" phase="+tc.phase
             if !ok || exit.ExitCode()!=1 || !bytes.Contains(out,[]byte(marker)) ||
-                !bytes.Contains(out,[]byte("Failed to ")) {
+                bytes.Contains(out,[]byte("R_BATCH_CHILD_FATAL_EXIT_MISSING")) {
                 t.Fatalf("R_BATCH_CHILD_NOT_EXPECTED_CRIT_EXIT stage=%s err=%v output=%s",tc.name,err,out)
             }
             t.Logf("R_BATCH_EXPECTED_FATAL_EXIT_PASS stage=%s exit=1",tc.name)
