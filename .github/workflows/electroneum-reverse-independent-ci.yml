@@ -215,3 +215,36 @@ jobs:
           cd "$REVERSE_R_SCRATCH"
           go test -count=1 -timeout=12m -run '^TestReverseDReceiptWireCommitmentDifferential$' -v ./eth/protocols/eth
           echo REVERSE_R_D_RECEIPT_WIRE_CANONICALITY_PASS
+      - name: Reverse exported malformed keystore import actual boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod u+w "$REVERSE_R_SCRATCH/accounts/keystore" "$REVERSE_R_SCRATCH/accounts/keystore/passphrase.go"
+          cp reports/electroneum/C/reports/fixtures/reverse_c_import_boundary_test.go "$REVERSE_R_SCRATCH/accounts/keystore/worker_r_import_boundary_test.go"
+          sha256sum "$WINDEEP_ETN_SOURCE/accounts/keystore/passphrase.go" > "$RUNNER_TEMP/reverse-r-keystore-immutable.sha256"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestReverseCExportedKeyStoreImportMatrix$' -v ./accounts/keystore
+          echo REVERSE_R_C_KEYSTORE_IMPORT_CHARACTERIZATION_PASS
+      - name: Reverse strict keystore import malformed-salt oracle rejects original
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$REVERSE_R_SCRATCH"
+          set +e
+          go test -count=1 -timeout=10m -run '^TestReverseCExportedImportFailClosedOracle$' -v ./accounts/keystore > "$RUNNER_TEMP/reverse-r-import-original.log" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/reverse-r-import-original.log"
+          if [ "$rc" -eq 0 ]; then echo REVERSE_R_C_IMPORT_ORACLE_UNEXPECTED_PASS; exit 65; fi
+          grep -Fq 'REVERSE_C_EXPORT_IMPORT_FAIL_CLOSED_ORACLE_MISMATCH' "$RUNNER_TEMP/reverse-r-import-original.log" || { echo REVERSE_R_C_IMPORT_ORACLE_NONSECURITY_FAILURE; exit 66; }
+          echo "REVERSE_R_C_EXPORT_IMPORT_ORIGINAL_REJECTED exit=$rc"
+      - name: Reverse scratch-only keystore salt guard sensitivity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/C/reports/fixtures/reverse_c_import_salt_guard.py "$REVERSE_R_SCRATCH/accounts/keystore/passphrase.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestReverseCExportedImportFailClosedOracle$' -v ./accounts/keystore
+          cd "$GITHUB_WORKSPACE"
+          sha256sum --check "$RUNNER_TEMP/reverse-r-keystore-immutable.sha256"
+          echo REVERSE_R_C_KEYSTORE_GUARD_SENSITIVITY_PASS
