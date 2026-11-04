@@ -25,7 +25,6 @@ import (
 	"github.com/electroneum/electroneum-sc/crypto"
 	"github.com/electroneum/electroneum-sc/ethdb"
 	"github.com/electroneum/electroneum-sc/internal/ethapi"
-	"github.com/electroneum/electroneum-sc/params"
 	"github.com/electroneum/electroneum-sc/rlp"
 )
 
@@ -185,7 +184,11 @@ func rNewQBFTNetFixture(t *testing.T, oldLen int) *rQBFTNetFixture {
 	for i := 0; i < oldLen; i++ {
 		var tx *types.Transaction
 		if i == 0 {
-			nonce := localChain.State().GetNonce(sender)
+			st, stateErr := localChain.State()
+			if stateErr != nil {
+				t.Fatalf("R_QBFT_NET_STATE_FAIL: %v", stateErr)
+			}
+			nonce := st.GetNonce(sender)
 			gasPrice := new(big.Int)
 			if localChain.CurrentBlock().BaseFee() != nil {
 				gasPrice.Set(localChain.CurrentBlock().BaseFee())
