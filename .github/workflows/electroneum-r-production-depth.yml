@@ -56,6 +56,7 @@ jobs:
             17-enospc-peer-threshold) mode=enospc ;;
             18-disk-growth-oracle) mode=growth ;;
             19-multiheight-oracle) mode=multifork ;;
+            20-untrusted-eth66-replay) mode=untrustedreplay ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -177,7 +178,7 @@ jobs:
               cp reports/electroneum/R/production_depth/qbft_storage_fault_reachability_test.go "$scratch/eth/worker_r_qbft_storage_fault_test.go"
               cp reports/electroneum/R/production_depth/qbft_eth66_real_disk_limit_test.go "$scratch/eth/worker_r_qbft_eth66_disk_limit_test.go"
               ;;
-            enospc|growth|multifork)
+            enospc|growth|multifork|untrustedreplay)
               chmod u+w "$scratch/core"
               cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
               cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_helper_test.go"
@@ -198,6 +199,11 @@ jobs:
               if [ "$R_PROD_MODE" = multifork ]; then
                 cp reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go "$scratch/eth/worker_r_qbft_disk_growth_helper_test.go"
                 cp reports/electroneum/R/production_depth/qbft_multiheight_disk_replay_restart_test.go "$scratch/eth/worker_r_qbft_multiheight_disk_test.go"
+              fi
+              if [ "$R_PROD_MODE" = untrustedreplay ]; then
+                cp reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go "$scratch/eth/worker_r_qbft_disk_growth_helper_test.go"
+                cp reports/electroneum/R/production_depth/qbft_multiheight_disk_replay_restart_test.go "$scratch/eth/worker_r_qbft_multiheight_helper_test.go"
+                cp reports/electroneum/R/production_depth/qbft_eth66_unprivileged_replay_longchain_test.go "$scratch/eth/worker_r_qbft_unprivileged_replay_test.go"
               fi
               ;;
             consumerfinality)
@@ -737,6 +743,48 @@ jobs:
             echo "G6_unprivileged_peer_fork_authority=NOT_ESTABLISHED_prior_subquorum_rejected"
             echo "G7_security_impact=NOT_AUTOMATIC_from_storage_growth"
             echo "classification=MEASUREMENT_ONLY_not_remotely_exploitable_until_positive_actor_path_proved"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P2k untrusted ETH66 replay and long-chain persistence
+        if: env.R_PROD_MODE == 'untrustedreplay'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/r-p2k-untrustedreplay.ext4"
+          mountpoint="$RUNNER_TEMP/r-p2k-untrustedreplay-mnt"
+          truncate -s 256M "$image"
+          mkfs.ext4 -q -F -m 0 "$image"
+          mkdir -p "$mountpoint"
+          sudo mount -o loop "$image" "$mountpoint"
+          sudo chown "$(id -u):$(id -g)" "$mountpoint"
+          cleanup() {
+            sync || true
+            sudo umount "$mountpoint" || true
+          }
+          trap cleanup EXIT
+          test "$(findmnt -n -o FSTYPE --target "$mountpoint")" = ext4
+          df -B1 "$mountpoint" > "$RUNNER_TEMP/r-prod-evidence/p2k_df_initial.txt"
+          cd "$R_PROD_SCRATCH"
+          R_P2K_DISK_ROOT="$mountpoint" go test -count=1 -timeout=17m -run '^TestRQBFTUnprivilegedETH66ReplayAndLongChainDisk$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/p2k_untrusted_replay.log"
+          grep -Fq 'R_P2K_VALID_QUORUM_FIXTURE_PASS' "$RUNNER_TEMP/r-prod-evidence/p2k_untrusted_replay.log"
+          grep -Fq 'R_P2K_LONGCHAIN_BASELINE' "$RUNNER_TEMP/r-prod-evidence/p2k_untrusted_replay.log"
+          grep -Fq 'R_P2K_STALE_ID_REPLAY_RESULT' "$RUNNER_TEMP/r-prod-evidence/p2k_untrusted_replay.log"
+          grep -Fq 'R_P2K_UNKNOWN_ID_REPLAY_RESULT' "$RUNNER_TEMP/r-prod-evidence/p2k_untrusted_replay.log"
+          grep -Fq 'R_P2K_COMPACTION_CONTROL' "$RUNNER_TEMP/r-prod-evidence/p2k_untrusted_replay.log"
+          grep -Fq 'R_P2K_RESTART_DISK_ORACLE_PASS' "$RUNNER_TEMP/r-prod-evidence/p2k_untrusted_replay.log"
+          grep -Fq 'R_P2K_P2K_VALIDATED' "$RUNNER_TEMP/r-prod-evidence/p2k_untrusted_replay.log"
+          {
+            echo "G1_certified_source=PASS"
+            echo "G2_real_ETH66_8block_chain=PASS"
+            echo "G3_attacker_authority=ONLY_p2p_transport_request_IDs_NOT_validator_sealing"
+            echo "G4_test=reports/electroneum/R/production_depth/qbft_eth66_unprivileged_replay_longchain_test.go"
+            echo "G5_replay=SEPARATE_stale_and_unsolicited_request_ids_and_reconnect"
+            echo "G6_storage_oracle=COMPARE_canonical_direct_import_and_restart_after_compaction"
+            echo "G7_impact=NO_EXHAUSTION_CLAIM_without_peer_only_storage_amplification"
+            echo "classification=REPLAY_REJECTION_CONTROL_NO_BOUNTY_CLAIM_WITHOUT_POSITIVE_EVIDENCE"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: Verify source untouched and complete triage
