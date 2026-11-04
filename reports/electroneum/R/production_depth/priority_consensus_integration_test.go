@@ -62,8 +62,8 @@ func rNewPriorityFixture(t *testing.T)*rPriorityFixture{
  db:=rawdb.NewMemoryDatabase()
  genesis:=(&Genesis{Config:cfg,GasLimit:8_000_000,BaseFee:big.NewInt(params.InitialBaseFee),Alloc:GenesisAlloc{
   sender:{Balance:new(big.Int).Mul(big.NewInt(1000),big.NewInt(1e18))},
-  oldRegistry:{Code:rPriorityRuntime(t,oldPK)},
-  newRegistry:{Code:rPriorityRuntime(t,newPK)},
+  oldRegistry:{Balance:big.NewInt(0),Code:rPriorityRuntime(t,oldPK)},
+  newRegistry:{Balance:big.NewInt(0),Code:rPriorityRuntime(t,newPK)},
  }}).MustCommit(db)
  return &rPriorityFixture{cfg:cfg,genesis:genesis,db:db,senderKey:senderKey,oldPriorityKey:oldKey,newPriorityKey:newKey,sender:sender,oldRegistry:oldRegistry,newRegistry:newRegistry,newPK:newPK,target:target}
 }
@@ -116,7 +116,7 @@ func TestRPriorityExecutionPoolCharacterization(t *testing.T){
  db2:=rawdb.NewMemoryDatabase();defer db2.Close()
  genesis2:=(&Genesis{Config:f.cfg,GasLimit:8_000_000,BaseFee:big.NewInt(params.InitialBaseFee),Alloc:GenesisAlloc{
   f.sender:{Balance:new(big.Int).Mul(big.NewInt(1000),big.NewInt(1e18))},
-  f.oldRegistry:{Code:rPriorityRuntime(t,oldPK)},f.newRegistry:{Code:rPriorityRuntime(t,f.newPK)},
+  f.oldRegistry:{Balance:big.NewInt(0),Code:rPriorityRuntime(t,oldPK)},f.newRegistry:{Balance:big.NewInt(0),Code:rPriorityRuntime(t,f.newPK)},
  }}).MustCommit(db2)
  chain2,err:=NewBlockChain(db2,nil,f.cfg,ethash.NewFaker(),vm.Config{},nil,nil);if err!=nil{t.Fatal(err)};defer chain2.Stop()
  _=genesis2
