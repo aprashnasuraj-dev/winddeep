@@ -44,6 +44,7 @@ jobs:
             05-persist-abrupt-exit) mode=persist ;;
             06-peer-downloader-reorg) mode=peer ;;
             07-devp2p-loopback) mode=devp2p ;;
+            08-qbft-quorum-gate) mode=qbft ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -106,6 +107,10 @@ jobs:
               cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
               cp reports/electroneum/R/production_depth/peer_downloader_reorg_test.go "$scratch/eth/worker_r_peer_downloader_helper_test.go"
               cp reports/electroneum/R/production_depth/devp2p_loopback_reorg_test.go "$scratch/eth/worker_r_devp2p_loopback_test.go"
+              ;;
+            qbft)
+              chmod u+w "$scratch/consensus/istanbul/backend"
+              cp reports/electroneum/R/production_depth/qbft_quorum_gate_test.go "$scratch/consensus/istanbul/backend/worker_r_qbft_quorum_gate_test.go"
               ;;
           esac
           echo "R_PROD_SCRATCH=$scratch" >> "$GITHUB_ENV"
@@ -170,6 +175,29 @@ jobs:
             echo "G6_transport_reachability=PARTIAL_REAL_LOOPBACK_TCP_RLPx_DEVP2P_TO_DOWNLOADER"
             echo "external_public_network=NOT_USED"
             echo "QBFT_valid_competing_fork_adversary=NOT_ESTABLISHED"
+            echo "G7_concrete_downstream_impact=OPEN"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P1d QBFT validator-quorum import gate
+        if: env.R_PROD_MODE == 'qbft'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_PROD_SCRATCH"
+          go test -count=1 -timeout=12m -run '^TestRQBFTQuorumGate$' -v ./consensus/istanbul/backend 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/qbft_quorum.log"
+          grep -Fq 'R_QBFT_QUORUM_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/qbft_quorum.log"
+          grep -Fq 'R_QBFT_SUBQUORUM_REJECTED validators=4 seals=2 required=3' "$RUNNER_TEMP/r-prod-evidence/qbft_quorum.log"
+          grep -Fq 'R_QBFT_SUBQUORUM_REJECTED validators=7 seals=4 required=5' "$RUNNER_TEMP/r-prod-evidence/qbft_quorum.log"
+          grep -Fq 'R_QBFT_OUTSIDER_REJECTED' "$RUNNER_TEMP/r-prod-evidence/qbft_quorum.log"
+          {
+            echo "G2_positive_control=PASS_exact_QBFT_quorum_import"
+            echo "G5_counterexample=PASS_subquorum_duplicate_outsider_rejected"
+            echo "G6_consensus_precondition=QBFT_VALID_COMPETING_FORK_REQUIRES_CEIL_2N_OVER_3_UNIQUE_VALIDATOR_SEALS"
+            echo "ordinary_external_peer_without_validator_keys=REJECTED_BY_CONSENSUS_GATE"
+            echo "validator_quorum_adversary_or_legitimate_competing_finality=NOT_ESTABLISHED"
             echo "G7_concrete_downstream_impact=OPEN"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
