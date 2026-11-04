@@ -235,12 +235,13 @@ func TestRQBFTLowerAuthorityNodeDataNoncanonicalChurn(t *testing.T) {
     honest.Stop()
     honestStopped=true
 
-    var totalSessionUs,totalCPUus,totalIngressBytes,totalDelta int64
+    var totalSessionUs,totalCPUus,totalAttackBytes,totalOutboundBytes,totalDelta int64
     var announced,requested,bodyRequested,disconnects int64
-    var positiveNode,deniedNode int
+    var positiveNode,deniedNode,matchedInvalidHeaders,matchedInvalidBodies int
     // Use a fresh devp2p identity on each attempt to measure connection
     // churn. No loop performs more than one active malicious connection.
-    modes:=[]string{"announcement","propagated","matched-node","overlimit-node","wrongtype-node",
+    modes:=[]string{"announcement","propagated","matched-invalid-header","matched-invalid-body",
+        "matched-node","overlimit-node","wrongtype-node",
         "unsolicited-node-1","unsolicited-node-2","unsolicited-node-3"}
     const unsolicitedID=0xE9F0331155779911
     for idx,mode:=range modes{
@@ -289,6 +290,52 @@ func TestRQBFTLowerAuthorityNodeDataNoncanonicalChurn(t *testing.T) {
                 if err!=nil{t.Fatalf("R_P2L_NONCANONICAL_BLOCK_SEND_FAIL: %v",err)}
                 sent+=n
                 time.Sleep(450*time.Millisecond)
+            case "matched-invalid-header":
+                rp:=localHandler.peers.peer(malicious.Self().ID().String())
+                if rp==nil{t.Fatal("R_P2L_HEADER_PEER_LOST_BEFORE_REQUEST")}
+                sink:=make(chan *ethproto.Response,1)
+                req,err:=rp.RequestOneHeader(invalid.Hash(),sink)
+                if err!=nil{t.Fatalf("R_P2L_INVALID_HEADER_REQUEST_FAILED: %v",err)}
+                select{
+                case response:=<-sink:
+                    headers,ok:=response.Res.(*ethproto.BlockHeadersPacket)
+                    if !ok || len(*headers)!=1 || (*headers)[0].Hash()!=invalid.Hash(){
+                        response.Done<-fmt.Errorf("R_P2L_INVALID_HEADER_WRONG_RESPONSE")
+                        t.Fatal("R_P2L_INVALID_HEADER_WIRE_MISMATCH")
+                    }
+                    err:=wireBE.VerifyHeader(wireChain,(*headers)[0],true)
+                    response.Done<-nil
+                    if err==nil {t.Fatal("R_P2L_INVALID_HEADER_VERIFIER_UNEXPECTED_ACCEPT")}
+                    matchedInvalidHeaders++
+                    t.Logf("R_P2L_NONCANONICAL_REQUEST_VERIFIER_REJECTED header_hash=%s committed_seals=2/4 err=%v",invalid.Hash(),err)
+                case <-time.After(4*time.Second):
+                    _=req.Close()
+                    t.Fatal("R_P2L_INVALID_HEADER_RESPONSE_NOT_DELIVERED")
+                }
+            case "matched-invalid-body":
+                rp:=localHandler.peers.peer(malicious.Self().ID().String())
+                if rp==nil{t.Fatal("R_P2L_BODY_PEER_LOST_BEFORE_REQUEST")}
+                sink:=make(chan *ethproto.Response,1)
+                req,err:=rp.RequestBodies([]common.Hash{invalid.Hash()},sink)
+                if err!=nil{t.Fatalf("R_P2L_INVALID_BODY_REQUEST_FAILED: %v",err)}
+                select{
+                case response:=<-sink:
+                    bodies,ok:=response.Res.(*ethproto.RawBlockBodiesPacket)
+                    if !ok || len(*bodies)!=1 {
+                        response.Done<-fmt.Errorf("R_P2L_INVALID_BODY_WRONG_RESPONSE")
+                        t.Fatal("R_P2L_INVALID_BODY_WIRE_MISMATCH")
+                    }
+                    txs,_,err:=(*bodies)[0].Decode()
+                    response.Done<-nil
+                    if err!=nil || len(txs)!=1 || txs[0].Hash()!=futureTx.Hash(){
+                        t.Fatalf("R_P2L_INVALID_BODY_CONTENT_MISMATCH err=%v count=%d",err,len(txs))
+                    }
+                    matchedInvalidBodies++
+                    t.Logf("R_P2L_NONCANONICAL_BODY_WIRE_DELIVERED body_tx_count=%d invalid_header_seals=2/4 direct_import_not_attempted=true",len(txs))
+                case <-time.After(4*time.Second):
+                    _=req.Close()
+                    t.Fatal("R_P2L_INVALID_BODY_RESPONSE_NOT_DELIVERED")
+                }
             case "matched-node","overlimit-node","wrongtype-node":
                 rp:=localHandler.peers.peer(malicious.Self().ID().String())
                 if rp==nil{t.Fatal("R_P2L_NODE_PEER_LOST_BEFORE_REQUEST")}
@@ -340,24 +387,26 @@ func TestRQBFTLowerAuthorityNodeDataNoncanonicalChurn(t *testing.T) {
             delta:=afterBytes-beforeBytes
             totalSessionUs+=elapsedUs
             totalCPUus+=cpuUs
-            totalIngressBytes+=int64(sent)
+            totalAttackBytes+=int64(sent)
+            totalOutboundBytes+=wire.outboundBytes.Load()
             totalDelta+=delta
             requested+=wire.headerRequests.Load()
             bodyRequested+=wire.bodyRequests.Load()
             disconnects++
-            t.Logf("R_P2L_CASE mode=%s p2p_connect_disconnect_us=%d aggregate_process_cpu_us=%d sent_bytes=%d all_remote_outbound_bytes=%d response_count=%d headers_requested=%d node_requests=%d body_requests=%d physical_db_delta=%d heap_alloc_delta=%d peer_detached=true",
+            t.Logf("R_P2L_CASE mode=%s session_wall_including_dwell_us=%d aggregate_process_cpu_us=%d injected_bytes=%d all_remote_outbound_bytes=%d response_count=%d headers_requested=%d node_requests=%d body_requests=%d physical_db_delta=%d heap_alloc_delta=%d peer_detached=true",
                 mode,elapsedUs,cpuUs,sent,wire.outboundBytes.Load(),wire.replies.Load(),
                 wire.headerRequests.Load(),wire.nodeRequests.Load(),wire.bodyRequests.Load(),
                 delta,int64(mem1.HeapAlloc)-int64(mem0.HeapAlloc))
         })
     }
     rP2LNoCanonicalLeak(t,wireChain,canonical,invalid)
-    t.Logf("R_P2L_CHURN_TOTAL sessions=%d total_wall_us=%d aggregate_process_cpu_us=%d direct_attack_bytes=%d persistent_growth_during_sessions=%d protocol_header_requests=%d protocol_body_requests=%d successfully_matched_node=%d rejected_bad_node=%d peer_detachments=%d",
-        len(modes),totalSessionUs,totalCPUus,totalIngressBytes,totalDelta,
-        requested,bodyRequested,positiveNode,deniedNode,disconnects)
-    if positiveNode!=1||deniedNode!=2||disconnects!=int64(len(modes)){
-        t.Fatalf("R_P2L_COVERAGE_GATE_FAILED matched=%d denied=%d detach=%d",
-            positiveNode,deniedNode,disconnects)
+    t.Logf("R_P2L_CHURN_TOTAL sessions=%d total_wall_including_dwell_us=%d aggregate_process_cpu_us=%d injected_attack_bytes=%d total_peer_outbound_bytes=%d persistent_growth_during_sessions=%d protocol_header_requests=%d protocol_body_requests=%d requested_invalid_headers=%d requested_invalid_bodies=%d successfully_matched_node=%d rejected_bad_node=%d peer_detachments=%d",
+        len(modes),totalSessionUs,totalCPUus,totalAttackBytes,totalOutboundBytes,totalDelta,
+        requested,bodyRequested,matchedInvalidHeaders,matchedInvalidBodies,positiveNode,deniedNode,disconnects)
+    if positiveNode!=1||deniedNode!=2||matchedInvalidHeaders!=1||matchedInvalidBodies!=1||
+        requested<1||bodyRequested<1||disconnects!=int64(len(modes)){
+        t.Fatalf("R_P2L_COVERAGE_GATE_FAILED matched_node=%d denied_node=%d invalid_headers=%d invalid_bodies=%d requests_headers=%d requests_bodies=%d detach=%d",
+            positiveNode,deniedNode,matchedInvalidHeaders,matchedInvalidBodies,requested,bodyRequested,disconnects)
     }
     if announced!=1 {t.Fatal("R_P2L_ANNOUNCEMENT_NOT_SENT")}
 
@@ -392,5 +441,5 @@ func TestRQBFTLowerAuthorityNodeDataNoncanonicalChurn(t *testing.T) {
         t.Fatalf("R_P2L_EXCESS_DURABLE_BYTES wire=%d direct=%d",finalW,finalD)
     }
     if free<100<<20 {t.Fatal("R_P2L_HEALTHY_RESERVE_LOST")}
-    t.Log("R_P2L_VALIDATED nonvalidator_peer=true noncanonical_invalid_QBFT_2of4=true matched_node_dispatch=true unsolicited_node_ids_rejected=true oversized_node_count_rejected=true wrong_node_message_type_rejected=true measured_churn=true compaction_restart=true")
+    t.Log("R_P2L_VALIDATED nonvalidator_peer=true noncanonical_invalid_QBFT_2of4=true matched_invalid_header_and_body_wire_delivery=true verified_invalid_seals=true matched_node_dispatch=true unsolicited_node_ids_rejected=true oversized_node_count_rejected=true wrong_node_message_type_rejected=true measured_churn=true compaction_restart=true")
 }
