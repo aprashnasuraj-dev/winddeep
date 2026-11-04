@@ -124,3 +124,54 @@ func TestReverseALondonSupplyAccounting(t *testing.T){
  if total.Cmp(expectedTotal)!=0 {t.Fatalf("base fee not burned as expected total=%s want=%s",total,expectedTotal)}
  t.Logf("REVERSE_A_LONDON_FEE_BURN_TIP_LEDGER_PASS gas=%d burn=%s tip=%s",result.UsedGas,burnWant,minerWant)
 }
+
+
+func TestReverseALondonRevertAndWaiverAccounting(t *testing.T){
+ t.Run("evm_revert_charges_gas_burns_basefee_and_preserves_value_state",func(t *testing.T){
+  evm,st,_,sender,miner,_,_:=reverseAPriorityFixture(t)
+  target:=common.Address{5}
+  st.SetCode(target,[]byte{0x60,0x00,0x60,0x00,0xfd}) // REVERT(0,0)
+  st.SetBalance(sender,big.NewInt(1_000_000_000))
+  before:=new(big.Int).Set(st.GetBalance(sender))
+  msg:=types.NewMessage(sender,&target,0,big.NewInt(0),50000,big.NewInt(10),big.NewInt(10),big.NewInt(2),nil,nil,true,common.PublicKey{})
+  result,err:=ApplyMessage(evm,msg,new(GasPool).AddGas(50000))
+  if err!=nil||result==nil||!result.Failed(){t.Fatalf("expected EVM revert with nil core error result=%v err=%v",result,err)}
+  used:=new(big.Int).SetUint64(result.UsedGas)
+  senderWant:=new(big.Int).Sub(before,new(big.Int).Mul(new(big.Int).Set(used),big.NewInt(10)))
+  tipWant:=new(big.Int).Mul(new(big.Int).Set(used),big.NewInt(2))
+  burnWant:=new(big.Int).Mul(new(big.Int).Set(used),big.NewInt(8))
+  if st.GetBalance(sender).Cmp(senderWant)!=0||st.GetBalance(miner).Cmp(tipWant)!=0||st.GetBalance(target).Sign()!=0 {
+   t.Fatalf("revert ledger mismatch sender=%s/%s miner=%s/%s target=%s",st.GetBalance(sender),senderWant,st.GetBalance(miner),tipWant,st.GetBalance(target))
+  }
+  total:=new(big.Int).Add(st.GetBalance(sender),st.GetBalance(miner));total.Add(total,st.GetBalance(target))
+  if want:=new(big.Int).Sub(before,burnWant);total.Cmp(want)!=0 {t.Fatalf("revert basefee burn mismatch total=%s want=%s",total,want)}
+  t.Logf("REVERSE_A_EVM_REVERT_FEE_BURN_PASS gas=%d burn=%s tip=%s",result.UsedGas,burnWant,tipWant)
+ })
+
+ t.Run("priority_waiver_zero_fee_has_no_sender_or_miner_delta",func(t *testing.T){
+  evm,st,_,sender,miner,_,pk:=reverseAPriorityFixture(t)
+  target:=common.Address{6}
+  st.SetBalance(sender,big.NewInt(1_000_000_000))
+  before:=new(big.Int).Set(st.GetBalance(sender))
+  msg:=types.NewMessage(sender,&target,0,big.NewInt(0),50000,big.NewInt(0),big.NewInt(0),big.NewInt(0),nil,nil,true,pk)
+  result,err:=ApplyMessage(evm,msg,new(GasPool).AddGas(50000))
+  if err!=nil||result==nil||result.Failed(){t.Fatalf("waiver tx failed result=%v err=%v",result,err)}
+  if st.GetBalance(sender).Cmp(before)!=0||st.GetBalance(miner).Sign()!=0 {
+   t.Fatalf("waiver produced fee delta sender=%s/%s miner=%s",st.GetBalance(sender),before,st.GetBalance(miner))
+  }
+  t.Logf("REVERSE_A_PRIORITY_WAIVER_ZERO_FEE_PASS gas=%d",result.UsedGas)
+ })
+
+ t.Run("waiver_with_nonzero_fee_fields_rejected_before_execution",func(t *testing.T){
+  evm,st,_,sender,miner,_,pk:=reverseAPriorityFixture(t)
+  target:=common.Address{7}
+  before:=new(big.Int).Set(st.GetBalance(sender))
+  snap:=st.Snapshot()
+  msg:=types.NewMessage(sender,&target,0,big.NewInt(0),50000,big.NewInt(1),big.NewInt(1),big.NewInt(1),nil,nil,true,pk)
+  result,err:=ApplyMessage(evm,msg,new(GasPool).AddGas(50000))
+  if err==nil||result!=nil {t.Fatalf("malformed waiver fee fields accepted result=%v err=%v",result,err)}
+  st.RevertToSnapshot(snap)
+  if st.GetBalance(sender).Cmp(before)!=0||st.GetBalance(miner).Sign()!=0 {t.Fatal("rejected waiver changed economic state after caller rollback")}
+  t.Log("REVERSE_A_PRIORITY_WAIVER_NONZERO_FEE_REJECTED_PASS")
+ })
+}
