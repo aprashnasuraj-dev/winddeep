@@ -334,6 +334,15 @@ jobs:
           go test -count=1 -timeout=15m -run '^TestReverseB32CommittedSealDomain$' -v ./consensus/istanbul/engine
           echo REVERSE_R_B32_SIGNING_DOMAIN_MATRIX_PASS
 
+      - name: Reverse A same-block priority miner-import differential
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp reports/electroneum/C/reverse/reverse_a_same_block_priority_differential_test.go "$REVERSE_R_SCRATCH/core/worker_r_a_same_block_priority_differential_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=15m -run '^TestReverseASameBlockPriorityMinerImportDifferential$' -v ./core
+          echo REVERSE_R_A_SAME_BLOCK_MINER_IMPORT_DIFFERENTIAL_PASS
+
       - name: Reverse A priority cache and London supply accounting
         shell: bash
         run: |
