@@ -59,6 +59,7 @@ jobs:
             20-untrusted-eth66-replay) mode=untrustedreplay ;;
             21-noncanonical-nodedata-churn) mode=nodedatachurn ;;
             22-snap-state-persistence) mode=snappersist ;;
+            23-live-snap1-qbft-root) mode=livesnap ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -180,7 +181,7 @@ jobs:
               cp reports/electroneum/R/production_depth/qbft_storage_fault_reachability_test.go "$scratch/eth/worker_r_qbft_storage_fault_test.go"
               cp reports/electroneum/R/production_depth/qbft_eth66_real_disk_limit_test.go "$scratch/eth/worker_r_qbft_eth66_disk_limit_test.go"
               ;;
-            enospc|growth|multifork|untrustedreplay|nodedatachurn|snappersist)
+            enospc|growth|multifork|untrustedreplay|nodedatachurn|snappersist|livesnap)
               chmod u+w "$scratch/core"
               cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
               cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_helper_test.go"
@@ -215,6 +216,9 @@ jobs:
               if [ "$R_PROD_MODE" = snappersist ]; then
                 chmod u+w "$scratch/eth/protocols/snap"
                 cp reports/electroneum/R/production_depth/qbft_snap_sync_real_persistence_test.go "$scratch/eth/protocols/snap/worker_r_snap_state_persistence_test.go"
+              fi
+              if [ "$R_PROD_MODE" = livesnap ]; then
+                cp reports/electroneum/R/production_depth/qbft_live_snap1_finalized_state_root_test.go "$scratch/eth/worker_r_p2n_live_snap_test.go"
               fi
               ;;
             consumerfinality)
@@ -871,6 +875,40 @@ jobs:
           echo "G2_production_SnapSyncer_actual_LevelDB=PASS" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
           echo "G3_network=SYNC_PEER_CALLBACK_NOT_TCP" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
           echo "G7_security=NOT_CLAIMED_WITHOUT_NETWORK_REACHABILITY" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P2n live RLPx SNAP1 QBFT-finalized state-sync and healing
+        if: env.R_PROD_MODE == 'livesnap'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/r-p2n.ext4"
+          mountpoint="$RUNNER_TEMP/r-p2n-mnt"
+          truncate -s 256M "$image"
+          mkfs.ext4 -q -F -m 0 "$image"
+          mkdir -p "$mountpoint"
+          sudo mount -o loop "$image" "$mountpoint"
+          sudo chown "$(id -u):$(id -g)" "$mountpoint"
+          cleanup() {
+            sync || true
+            sudo umount "$mountpoint" || true
+          }
+          trap cleanup EXIT
+          test "$(findmnt -n -o FSTYPE --target "$mountpoint")" = ext4
+          df -B1 "$mountpoint" > "$RUNNER_TEMP/r-prod-evidence/p2n_df_initial.txt"
+          cd "$R_PROD_SCRATCH"
+          R_P2N_DISK_ROOT="$mountpoint" go test -count=1 -timeout=15m -run TestRQBFTFinalizedRootLiveSnap1StateIngestion -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/p2n_live_snap1.log"
+          for marker in R_P2N_QBFT_FINALIZED_ROOT_VERIFIED R_P2N_REAL_RLPX_SNAP1_PEER_CONNECTED R_P2N_MODE R_P2N_DURABLE_STATE_ORACLE R_P2N_VALIDATED; do
+            grep -Fq "$marker" "$RUNNER_TEMP/r-prod-evidence/p2n_live_snap1.log"
+          done
+          echo "G2_live_snap1_transport_and_parser=PASS" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          echo "G3_state_root=QBFT_3_OF_4_COMMITTED_SIGNATURES" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          echo "G4_production_state_sync_and_healing=PASS" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          echo "G5_real_disk_write_compact_restart=PASS" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          echo "G6_full_eth_snap_registration=NOT_TESTED_STANDALONE_CAPABILITY" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          echo "G7_remote_validator_disk_exhaustion=NOT_PROVEN" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: Verify source untouched and complete triage
         if: always()
