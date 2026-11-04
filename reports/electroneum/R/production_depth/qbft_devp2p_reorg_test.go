@@ -93,9 +93,10 @@ func rQBFTStartChain(t *testing.T, g *core.Genesis, key *ecdsa.PrivateKey) (ethd
 
 func rQBFTEmptyExtra(t *testing.T, addrs []common.Address) []byte {
 	t.Helper()
+	valset := validator.NewSet(addrs, istanbul.NewRoundRobinProposerPolicy())
 	extra := &types.QBFTExtra{
 		VanityData:    make([]byte, types.IstanbulExtraVanity),
-		Validators:    validator.SortedAddresses(addrs),
+		Validators:    validator.SortedAddresses(valset.List()),
 		Vote:          nil,
 		CommittedSeal: [][]byte{},
 		Round:         0,
