@@ -276,3 +276,34 @@ REVERSE_R_CANONICAL_GUARD_SENSITIVITY_CERTIFIED_SOURCE_INTACT_PASS
 - **Classification:** both A hypotheses are **not reproduced as defects** in the tested certified runtime boundaries. This does not prove every miner/import sequencing case, but it defeats the specific cache-rollback and fee/burn allegations tested by R.
 - **Reverse queue:** **14/14 COMPLETE**. No A–E automation was paused, edited or stopped by R. Retained reproduced candidates remain in `REVERSE_AUDIT_CANDIDATES.md`; disproven/pass items remain in this process ledger and state file rather than being promoted as vulnerabilities.
 - **Infrastructure exclusions:** malformed R workflow/YAML runs and fixture compilation mistakes were excluded from security evidence. They are not Electroneum findings.
+
+
+## 2026-11-04 17:35 NPT — Advanced frontier: D network-rewind reachability falsified; A same-block miner/import parity verified
+
+**Live ad-hoc R advancement; no A–E ownership changes.** Two system-level hypotheses were pushed beyond the completed 14-item reverse queue. Neither result is promoted to the confirmed-vulnerability report.
+
+### D finalized-rewind reachability — positive forced-mode behavior, negative production gate
+
+- R used the real downloader test harness, an actual `*core.BlockChain`, ETH66 request/response handling and the production SnapSync rollback state machine. Starting from local head **1303** with finalized pointer **1264**, a longer divergent peer with a withheld header drove the forced SnapSync session to error and the actual chain head rewound to **0** while the finalized pointer remained **1264**.
+- Certified run: [41823062082](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41823062082), job `126550775586`, step 19 PASS. Marker: `REVERSE_D_PEER_DRIVEN_REWIND_BELOW_FINALIZED_OBSERVED post_head=0 finalized_ptr=1264 delta=1264`.
+- **Counterexample / production reachability gate:** `eth/handler.go:newHandler` switches requested SnapSync to FullSync when `CurrentBlock().NumberU64() > 0`; normal SnapSync is granted on an empty full-block database (or recovery below a stored pivot). The reproducer directly forced `tester.sync(..., SnapSync)` on a fully populated head 1303. Therefore the observed 1303→0 crossing is a real downloader behavior under an artificial mode precondition, **not evidence that an ordinary remote peer can rewind a healthy finalized production validator**.
+- Classification: retain the underlying `SetHead`/finalized-marker consistency defect and this downloader characterization as regression evidence; **production remote finality bypass remains unconfirmed and this exact network thesis is falsified by the shipped mode gate**.
+
+### A priority registry — same-block consensus differential closed
+
+**Hypothesis R-A-X01:** tx[0] mutates the priority registry and tx[1] immediately uses the changed authorization. Miner construction and validator import must make the same decision and reach the same state.
+
+R added a stateful EVM registry runtime whose `getTransactors()` output changes from actual storage. The test exercises the miner's `ApplyTransaction` path (including worker-style cache refresh) versus `StateProcessor.Process` on the same transaction sequence.
+
+| Case | Miner | Validator/import | State result |
+|---|---|---|---|
+| grant → priority use | accepted both txs | accepted both txs | **exact parity**, gas **64,146**, root `0xd457c46a102aaee350477c1717c29b533b7cae33a2e4bb8ab3877aa0e83162d4`, 2 receipts |
+| revoke → attempted priority use | mutation accepted, tx[1] rejected with `errBadPriorityKey` | same rejection | **exact pre-rejection root parity**, gas before rejection **21,261**, root `0xf8fa6422370061c556e9136914abd5fa7741760624c475183f4e5bba7482053b` |
+
+Certified run: [41823924032](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41823924032), job `126553704154`, step 33 PASS; full R regression job SUCCESS. Fixture: `reports/electroneum/C/reverse/reverse_a_same_block_priority_differential_test.go`.
+
+**Conclusion:** no same-block builder/import consensus divergence reproduced. The duplicated miner refresh and validator/internal refresh converge in both privilege-grant and privilege-revoke directions. This closes the specific system hypothesis rather than treating source symmetry as proof.
+
+### Next R frontier
+
+Prefer a **new attacker-to-system transition**, not more local arithmetic: deepen a retained candidate only where a lower-trust production path is still open. Highest-value remaining target is E-RPC-004's external network/reorg boundary (external TCP/RLPx/devp2p plus QBFT-realistic canonical flip), with an explicit counterexample that a single ordinary peer cannot manufacture a valid finalized QBFT fork. Do not promote unless both attacker control and externally observable stale-receipt consequence survive that gate.
