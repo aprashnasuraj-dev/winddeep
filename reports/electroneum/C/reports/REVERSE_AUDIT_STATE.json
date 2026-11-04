@@ -38,7 +38,7 @@
       "A"
     ],
     "withinWorker": "most recently discovered active unresolved candidate first; skip disproven or resolved exact claims",
-    "cursor": 4,
+    "cursor": 5,
     "advanceOnlyAfter": "falsification with accepted runtime controls or documented proof of unreproducibility, otherwise leave WAITING_CI and rotate independent new evidence",
     "queue": [
       {
@@ -77,15 +77,15 @@
         "id": "D-PARTIAL-RECEIPT",
         "category": "D",
         "focus": "receipt partial prefix/cancel/retry, rewind and restart consistency",
-        "status": "TESTED_REVOKE_REPLAY_RETRY_CONTROLS_PASS__RESTART_AND_OFFSET_OPEN",
+        "status": "TESTED_PEER_REVOKE_RETRY_REPLAY_PASS__RESTART_UNTESTED",
         "ciRun": 41746131665,
-        "lastEvidence": "Certified Go downloader queue: 4 independent subtests PASS, revoked stale peer rejected (3 assigned to replacement), accepted 1-prefix + 2-suffix after second peer revoke, replay rejected, malformed RLP rejected and 3 valid retried. No vulnerability in these tested states. Reset/Prepare during pending fetch and full downloader restart remain untested."
+        "lastEvidence": "Certified eth/downloader Go: stale revoked peer rejected, accepted prefix 1 and retried suffix 2, replay rejected, invalid RLP requeued, all 4 adversarial paths PASS; missing crash/restart pivot case retained separate. First run 41745900912 failed Go syntax before tests; fixed in 41746131665."
       },
       {
         "id": "D-HEADER-ROLLBACK",
         "category": "D",
         "focus": "authentic header restart and canonical root rollback",
-        "status": "QUEUED"
+        "status": "ACTIVE"
       },
       {
         "id": "D-RECEIPT-DIFFERENTIAL",
@@ -155,9 +155,9 @@
   },
   "confirmedFindingGate": "Only reproduce plus attacker-controlled lower-trust production path plus concrete impact; four headings exactly; never insert status/hypothesis material",
   "pausedOtherAutomations": false,
-  "reportedAt": "2026-11-04 Asia/Kathmandu",
-  "currentObjective": "D-PARTIAL-RECEIPT continuation: test downloader q.Prepare/Reset versus pending valid receipt delivery, resultStore.GetDeliverySlot stale nil result branch and real production chronology before claiming process DoS.",
-  "nextAction": "Build R-only certified Go fixture for receipt resultCache offset transition while fetch is pending, plus controls Revoke-before-offset and genuine Reset; trace whether downloader.go:592 Prepare can occur after fetchers launch (it appears to occur before). Then continue D-HEADER-ROLLBACK.",
+  "reportedAt": "2026-11-04 Asia/Kathmandu live run",
+  "currentObjective": "D-HEADER-ROLLBACK: test blockchain header/sethead restart consistency and reject invalid injected historical chain with independent rawdb canonical oracle.",
+  "nextAction": "Develop R-only certified Go restart fixture; run via sole R CI, strict rawdb canonicality and mutation oracle; never claim QBFT remote reachability from local SetHead.",
   "schedule": {
     "chatgptAutomationCreation": "BLOCKED_MAX_5_ACTIVE_TASKS",
     "existingAutomations": "A-E remain enabled and untouched",
