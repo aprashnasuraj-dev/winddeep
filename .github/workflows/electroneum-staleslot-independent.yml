@@ -47,7 +47,7 @@ jobs:
           mkdir -p "$scratch" "$RUNNER_TEMP/staleslot-evidence"
           cp -a "$WINDEEP_ETN_SOURCE"/. "$scratch"/
           chmod u+w "$scratch/eth/downloader" "$scratch/eth/downloader/queue.go"
-          cp reports/electroneum/D/test_partial_receipt_runtime_test.go "$scratch/eth/downloader/worker_d_receipt_fixture_test.go"
+          cp reports/electroneum/staleslot/02_base_receipt_fixture_test.go "$scratch/eth/downloader/worker_d_receipt_fixture_test.go"
           cp reports/electroneum/staleslot/01_downloader_stale_slot_test.go "$scratch/eth/downloader/worker_d_staleslot_test.go"
           echo "STALE_SLOT_SCRATCH=$scratch" >> "$GITHUB_ENV"
           sha256sum "$WINDEEP_ETN_SOURCE/eth/downloader/queue.go" > "$RUNNER_TEMP/original-downloader.sha256"
@@ -111,7 +111,7 @@ jobs:
         run: |
           set -euo pipefail
           cp reports/electroneum/staleslot/01_downloader_stale_slot_test.go "$RUNNER_TEMP/staleslot-evidence/01_downloader_stale_slot_test.go"
-          cp reports/electroneum/D/test_partial_receipt_runtime_test.go "$RUNNER_TEMP/staleslot-evidence/02_base_receipt_fixture_test.go"
+          cp reports/electroneum/staleslot/02_base_receipt_fixture_test.go "$RUNNER_TEMP/staleslot-evidence/02_base_receipt_fixture_test.go"
           cp reports/electroneum/staleslot/03_scratch_guard.py "$RUNNER_TEMP/staleslot-evidence/03_scratch_guard.py"
           cp reports/electroneum/staleslot/04_REPRODUCE_EXACT.sh "$RUNNER_TEMP/staleslot-evidence/04_REPRODUCE_EXACT.sh"
           sha256sum "$RUNNER_TEMP/staleslot-evidence/"*.go > "$RUNNER_TEMP/staleslot-evidence/P0C_SHA256.txt"
