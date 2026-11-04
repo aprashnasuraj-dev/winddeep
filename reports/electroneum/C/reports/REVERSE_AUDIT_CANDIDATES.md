@@ -48,3 +48,37 @@ Then run strict independent fail-closed oracle expected to fail on actual source
 5. Before publishing a confirmed security vulnerability, reproduce a realistically attacker-reachable path and concrete availability or asset-impact violation.
 
 **Promotion gate:** SOURCE-LEVEL DEFECT and synthetic runtime divergence are insufficient for confirmed remote security risk; additional production-path reachability, impact and counterexample falsification are mandatory.
+
+
+## R-E-008 — Silent partial-success eth_getLogs result on missing intermediate canonical header
+
+**Classification:** CONDITIONALLY REPRODUCED **TARGET SOFTWARE DEFECT** in certified Go runtime; **attacker-reachable security impact NOT CONFIRMED**. Reverse order #2. All tests were read-only or synthetic and any defensive modification affected only a disposable scratch copy.
+
+### 1. Vulnerability Detail with Proof of /electroneum-sc Git Codes/Sources
+
+- [`eth/filters/api.go:365–396`](https://github.com/aprashnasuraj-dev/winddeep/blob/7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0/vendor/electroneum-sc/eth/filters/api.go#L365-L396), `PublicFilterAPI.GetLogs`, constructs a range filter and returns `returnLogs(logs),err`; if `Filter.Logs` returns partial logs with a nil error, the RPC adapter has no signal of incompleteness.
+- [`eth/filters/filter.go:122–171,224–238`](https://github.com/aprashnasuraj-dev/winddeep/blob/7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0/vendor/electroneum-sc/eth/filters/filter.go#L122-L238) `Filter.Logs` → `unindexedLogs` loops through numbered headers. When `HeaderByNumber` returns `(nil,nil)` for the middle of a range, the code `if header == nil || err != nil { return logs, err }` returns the prefix and **nil error**, silently presenting an incomplete result as success. An equivalent early-return pattern exists at `indexedLogs` lines 206–210; the present tests cover **only unindexed** range scanning.
+- [`eth/api_backend.go:70–82`](https://github.com/aprashnasuraj-dev/winddeep/blob/7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0/vendor/electroneum-sc/eth/api_backend.go#L70-L82) `EthAPIBackend.HeaderByNumber` delegates to `blockchain.GetHeaderByNumber(...),nil`; therefore a missing header is representable by `(nil,nil)`.
+- Certified immutable source ID is Windeep `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, tree `de7f3c75a2db7e87a89918f1257820703d5b731e`.
+
+### 2. Possible Impact
+
+A querying wallet, explorer or exchange could receive an incomplete log range **without a JSON-RPC error** if a needed intermediate header is absent while preceding headers are available. It might mistake missing events for an honest empty or complete range; the harm depends on the caller's independent confirmation/canonicality rules. **No actual exchange miscredit, payment loss, transaction rewriting, or network-wide denial of service demonstrated.**
+
+**Strongest counterexample:** a coherent shipped full node normally has contiguous canonical headers for any admitted range. An adversary selecting `fromBlock` and `toBlock` cannot automatically delete or conceal a middle canonical header. Production race/prune/corruption reachability and indexed path still require testing. The negative control with an explicitly returned backend error correctly propagates a nonnil error, so this is specifically a `nil,nil` omission.
+
+### 3. Proof of Concept
+
+- Independent R fixture: [`C/reports/fixtures/reverse_e_log_range_test.go`](https://github.com/aprashnasuraj-dev/winddeep/blob/electroneum-sc-master-audit/reports/electroneum/C/reports/fixtures/reverse_e_log_range_test.go), installed under `eth/filters` in a certified Go scratch copy. Real `Filter.Logs` executed with range [1,3], synthetic `Backend` returns headers 1/3 and `(nil,nil)` at 2. Source-backed test family: valid 3-log range, missing middle, missing first, explicit error, range cap, and independent strict fail-closed oracle.
+- [GitHub Actions 41743587384](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41743587384), job `126290902950`, **COMPLETED/SUCCESS** after correcting a preceding YAML-only failure [41743525868](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41743525868) that ran no tests.
+- Actual certified test outputs: `REVERSE_E_LOG_COMPLETE_RANGE_PASS count=3`; `REVERSE_E_LOG_MISSING_MIDDLE_SILENT_PARTIAL_OBSERVED count=1 requested=3`; `REVERSE_E_LOG_MISSING_FIRST_SILENT_EMPTY_OBSERVED`; `REVERSE_E_LOG_EXPLICIT_ERROR_CONTROL_PASS`; `REVERSE_E_LOG_RANGE_CAP_CONTROL_PASS`.
+- Independent oracle on unmodified target source: `REVERSE_E_LOG_FAIL_CLOSED_ORACLE_MISMATCH: query [1..3] returned 1 logs with nil error and missing block 2`. Intentional Go test **exit 1**, caught and validated by the R CI; unrelated compile failures would be rejected.
+- A nil-header guard added **only to scratch `eth/filters/filter.go`** yielded `REVERSE_E_LOG_FAIL_CLOSED_ORACLE_PASS err=missing block header 2 while scanning logs returned_prefix=1`. The immutable certified source hash verification passed. No patched source committed into vendor or upstream.
+
+### 4. Recommendation
+
+1. In both `unindexedLogs` and `indexedLogs`, handle `err != nil` independently, then treat `header == nil` as an explicit missing-header/incomplete-range error. Do not silently return logs as a successful full-range response.
+2. At the RPC adapter boundary, surface incomplete-range errors and decline to produce a success response with a truncated event set; ensure consumer retry semantics are documented.
+3. Reproduce the anomaly using a real in-process `EthAPIBackend` and locally fault-injected/pruned header storage; test indexed and unindexed paths, reorg/restart, missing first/middle/last, cancellation and range limits.
+4. Require exchange/deposit monitors to verify block hash/canonicality and confirmations independently; never equate an empty or partial `eth_getLogs` success response with proof of no matching transaction.
+5. Do not promote this to a remotely exploitable vulnerability unless legitimate lower-trust input can create the missing-header precondition and a concrete security/financial consequence is reproducible.
