@@ -149,3 +149,13 @@ Relevant source:
 
 **CI correction provenance:** [41789930116](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41789930116) failed only due an incorrect expectation that the logger must print the critical line; [41790108254](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41790108254) failed only because the second-restart oracle incorrectly demanded a pre-replay head <=1. Both harness defects were corrected; no incorrect source defect or risk finding was inferred.
 
+## P2f/P2g — real OS storage refusal, QBFT, ETH66 and actual RPC consistency (2026-11-04)
+
+**Verified** on R-only branch `audit/r-production-depth-20261104-16-fsize-qbft-reachability`. Full detail: `reports/electroneum/R/production_depth/P2F_P2G_REAL_STORAGE_QBFT_REACHABILITY_2026-11-04.md`.
+
+- Linux `RLIMIT_FSIZE` generated genuine syscall `EFBIG` and a **passively observed, unmodified** LevelDB `Batch.Write` error. In 25 WAL offsets, 25/25 restarted and recovered; 10/25 left indexed canonical block 1 and receipt 1 visible while executed full head rewound to genesis. All resumed and restarted at full 2. [CI 41794543204](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41794543204).
+- With **real QBFT verification**, 3/4 validator seals accepted, 2/4 rejected. Measured block-1 WAL growth **1615 bytes** on an independent disk clone; a real OS limit during block 2 produced **public JSON-RPC receipt block 1 but latest block 0**, with no fabricated error return. Unmodified underlying LevelDB error witness green in [CI 41795447879](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41795447879).
+- A valid quorum-signed block delivered through actual loopback ETH66 caused the *pre-limited local receiver* process to exit 1 on native LevelDB WAL write error. After host write-capacity restoration, reimport of that block restored full head 1 and receipt. Remote peer **did not cause the host capacity condition**. 2/4 lower-authority ETH66 block rejected; no stale receipts in tested concurrent calls.
+- **Confirmed functional impact:** conditional local node availability loss and same-session JSON-RPC head/receipt inconsistency. **NOT proved:** unprivileged fault induction, QBFT finality break, on-chain theft, deployed exchange false credit or financial loss. Full-volume ENOSPC/EIO and power loss remain untested.
+- Keep G6 actor-control and G7 realized third-party harm **OPEN**. Avoid severity or bounty claim without them. All new tests mount into disposable certified-source scratch; no A–E files changed or production fix merged.
+
