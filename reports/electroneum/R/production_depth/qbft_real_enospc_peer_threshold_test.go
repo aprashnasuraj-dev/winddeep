@@ -127,7 +127,7 @@ func rG6LargeSignedTx(t *testing.T, chain *core.BlockChain, key *ecdsa.PrivateKe
     if err != nil {
         t.Fatalf("R_G6_ENOSPC_LARGE_TX_SIGN_FAIL err=%v", err)
     }
-    t.Logf("R_G6_ENOSPC_LARGE_VALID_TX payload_bytes=%d gas=%d tx_rlp_size=%d",
+    t.Logf("R_G6_ENOSPC_LARGE_VALID_TX payload_bytes=%d gas=%d tx_rlp_size=%v",
         payloadBytes, tx.Gas(), tx.Size())
     return tx
 }
