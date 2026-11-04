@@ -99,9 +99,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           JOB_RESULT: ${{ job.status }}
-        run: bash tools/electroneum_ci_status.sh C finish
- -v ./accounts/keystore
-          echo "WORKER_C_KEYSTORE_CHARACTERIZATION_PASS"
+        run: bash tools/electroneum_ci_status.sh C finish -v ./accounts/keystore
+          echo "WORKER_C_KEYSTORE_CHARACTERIZATION_AND_IMPORT_PASS"
 
       - name: Coverage-guided class C security fuzz campaign
         shell: bash
