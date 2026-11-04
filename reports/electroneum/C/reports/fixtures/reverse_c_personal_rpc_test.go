@@ -12,6 +12,7 @@ import (
  "github.com/electroneum/electroneum-sc/accounts"
  "github.com/electroneum/electroneum-sc/core/types"
  "github.com/electroneum/electroneum-sc/event"
+ "github.com/electroneum/electroneum-sc/params"
 )
 
 type reverseCWallet struct{ url accounts.URL }
@@ -37,6 +38,7 @@ func (b *reverseCWalletBackend) Subscribe(chan<- accounts.WalletEvent) event.Sub
 }
 type reverseCEthBackend struct{ Backend; am *accounts.Manager }
 func (b *reverseCEthBackend) AccountManager()*accounts.Manager{return b.am}
+func (b *reverseCEthBackend) ChainConfig()*params.ChainConfig{return &params.ChainConfig{ChainID:big.NewInt(1)}}
 
 func TestReverseCInitializeWalletDefenseMatrix(t *testing.T){
  u:=accounts.URL{Scheme:"reverse",Path:"unsupported"}
