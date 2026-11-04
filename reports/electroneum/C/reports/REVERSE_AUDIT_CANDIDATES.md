@@ -231,3 +231,32 @@ An attacker would need either privileged head-rewind authority or a separate ver
 3. Ensure callers of exported `KeyStore.Import`, `DecryptKey` and `GetKey` handle malformed third-party content. API-level panic recovery can reduce blast radius but must not substitute for validated parsing; restrict encrypted file import to authenticated/local workflows.
 4. Run fail-on-panic regression for the **exported importer**, not only internal decryption; include valid key, missing/wrong-type salt, bad IV, bad MAC, unknown cipher, short derived length and expensive KDF parameters. Add an independent guard-sensitive mutation fixture and keep certified source immutable outside scratch.
 5. Before classifying a remote security vulnerability, identify a shipped, lower-privilege encrypted-keystore ingestion path and observe an actual uncaught application or node availability impact. Do not infer key theft merely from a parsing panic.
+
+## R-B-ROUND-WIDTH — QBFT round-width aliases exist below the authenticated admission boundary
+
+**Classification:** CONFIRMED implementation-width defects in certified runtime; **consensus exploitability not confirmed** because the actual ROUND-CHANGE handler rejects the tested huge rounds before lossy conversion. Covers reverse passes B-ROUND-STATE-ALIAS, B-ROUND-63 and B-ROUND-32.
+
+### 1. Vulnerability Detail with Proof of /electroneum-sc Git Codes/Sources
+
+- `roundChangeSet.NewRound/Add` key maps by `r.Uint64()`; direct rounds 0 and 2^64 alias.
+- `MinRoundAboveWithAtLeast` / `MaxRound` reconstruct map keys using `big.NewInt(int64(k))`; key 2^63 becomes negative.
+- QBFT engine `CommitHeader` writes the round into the header through 32-bit encoding and `PrepareCommittedSeal` takes a `uint32` round, giving round 0 and 2^32 the same signing domain for otherwise identical headers.
+- Counter-control: `handleRoundChange` compares the full-width `big.Int` target against `currentRound + MaxFutureRoundGap` (**15**) before calling the lossy map/storage paths.
+
+### 2. Possible Impact
+
+If consensus could legitimately or adversarially reach the lossy boundaries, different logical rounds could collapse onto identical internal state or signing domains, creating ambiguity in round-change state or committed-seal verification. The present evidence **does not show that path**. F+1 distinct post-signature validator-source attempts at 2^63, 2^64 and 2^32 from round0 were rejected before storage. No invalid block finality, quorum forgery or chain split reproduced.
+
+### 3. Proof of Concept
+
+- [Run 41749154241](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41749154241): direct 2^64 alias confirmed; F+1=2 high-round attempts rejected; +15 accepted/+16 rejected; direct 2^63 reconstructs as -9223372036854775808; actual handler rejects 2^63.
+- [Run 41749737953](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41749737953), job `126311669910`: `REVERSE_B32_SIGNED_SEAL_DOMAIN_ALIAS_CONFIRMED`; three-of-four round0 signatures verify after a 2^32 CommitHeader. Round1 negative control rejected. `REVERSE_B32_FPLUS1_IMMEDIATE_ADMISSION_BLOCKED_PASS threshold=2 maxFutureGap=15`.
+- All tests execute on certified immutable source scratch. No validator network, mainnet traffic or upstream source mutation.
+
+### 4. Recommendation
+
+1. Enforce a single explicit protocol maximum round below every lossy representation boundary (preferably well below 2^32) in message validation, timeout transition, backlog, round-change set and engine commit paths.
+2. Replace signed `int64` reconstruction of unsigned round keys with lossless conversions and reject values outside the supported protocol domain.
+3. If expanding round width in the committed-seal signing domain, treat it as a consensus-breaking protocol change with version/fork coordination; do not patch one node unilaterally.
+4. Keep the full-width future-round admission check and add regression tests at 2^32−1, 2^32, 2^63−1, 2^63, 2^64−1 and 2^64.
+5. Do not report a finality vulnerability without a reachable authenticated state transition to the boundary and an invalid-finality consequence.
