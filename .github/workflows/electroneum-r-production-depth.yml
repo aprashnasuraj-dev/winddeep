@@ -131,7 +131,21 @@ jobs:
         run: |
           set -euo pipefail
           cd "$R_PROD_SCRATCH"
-          go test -count=1 -timeout=12m -run '^TestRPeerDownloaderReorgRace
+          go test -count=1 -timeout=12m -run '^TestRPeerDownloaderReorgRace$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/peer_downloader.log"
+          grep -Fq 'R_PEER_DOWNLOADER_REORG_CONTROL_PASS' "$RUNNER_TEMP/r-prod-evidence/peer_downloader.log"
+          if grep -Fq 'R_PEER_DOWNLOADER_TOCTOU_OBSERVED' "$RUNNER_TEMP/r-prod-evidence/peer_downloader.log"; then
+            echo "G6_peer_downloader_reachability=OBSERVED_IN_SYNTHETIC_PROTOCOL_PEER" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          else
+            echo "G6_peer_downloader_reachability=NOT_OBSERVED_IN_BOUNDED_CAMPAIGN" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          fi
+          {
+            echo "G2_positive_control=PASS_real_downloader_LegacySync"
+            echo "G4_reproducer=reports/electroneum/R/production_depth/peer_downloader_reorg_test.go"
+            echo "external_public_network=NOT_USED"
+            echo "QBFT_validator_adversary=NOT_TESTED"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P2 persistent crash and replay checkpoints
         if: env.R_PROD_MODE == 'persist'
         shell: bash
         env:
