@@ -59,7 +59,7 @@ jobs:
             20-untrusted-eth66-replay) mode=untrustedreplay ;;
             21-noncanonical-nodedata-churn) mode=nodedatachurn ;;
             22-snap-state-persistence) mode=snappersist ;;
-            23-live-snap1-qbft-root) mode=livesnap ;;
+            23-live-etn-snap-qbft-root) mode=livesnap ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
