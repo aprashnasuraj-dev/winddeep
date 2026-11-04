@@ -678,27 +678,7 @@ jobs:
           test "$(findmnt -n -o FSTYPE --target "$mountpoint")" = ext4
           df -B1 "$mountpoint" > "$RUNNER_TEMP/r-prod-evidence/disk_growth_df.txt"
           cd "$R_PROD_SCRATCH"
-          R_G6_DISK_GROWTH_ROOT="$mountpoint" go test -count=1 -timeout=12m -run '^TestRQBFTWireDiskGrowthBaseline        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git diff --exit-code -- vendor/electroneum-sc
-          {
-            echo "certified_source_unchanged=PASS"
-            echo "finding_gate=G1_G7_POLICY_ENFORCED"
-          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
-          cat "$RUNNER_TEMP/r-prod-evidence/triage.txt"
-
-      - name: Preserve evidence and deterministic reproducers
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: r-production-depth-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/r-prod-evidence/
-          if-no-files-found: warn
-          retention-days: 14
- -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/disk_growth.log"
+          R_G6_DISK_GROWTH_ROOT="$mountpoint" go test -count=1 -timeout=12m -run '^TestRQBFTWireDiskGrowthBaseline$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/disk_growth.log"
           grep -Fq 'R_G6_DISK_GROWTH_PROFILE profile=small-valid' "$RUNNER_TEMP/r-prod-evidence/disk_growth.log"
           grep -Fq 'R_G6_DISK_GROWTH_PROFILE profile=large-valid-256k' "$RUNNER_TEMP/r-prod-evidence/disk_growth.log"
           grep -Fq 'R_G6_DISK_GROWTH_BASELINE_PASS' "$RUNNER_TEMP/r-prod-evidence/disk_growth.log"
