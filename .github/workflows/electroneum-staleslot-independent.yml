@@ -95,6 +95,16 @@ jobs:
           sha256sum --check "$RUNNER_TEMP/original-downloader.sha256"
           git diff --exit-code -- vendor/electroneum-sc
           echo "STALE_SLOT_SCRATCH_GUARD_AND_IMMUTABLE_TARGET_PASS"
+      - name: Verify EXACT bundled reproduction script end to end
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash reports/electroneum/staleslot/04_REPRODUCE_EXACT.sh "$WINDEEP_ETN_SOURCE" "$RUNNER_TEMP/staleslot-exact"
+          grep -Fq 'STALE_SLOT_TARGET_PANIC_OBSERVED' "$RUNNER_TEMP/staleslot-exact/02_target_panic.log"
+          grep -Fq 'STALE_SLOT_FAIL_CLOSED_ORACLE_PANIC' "$RUNNER_TEMP/staleslot-exact/03_original_failing_oracle.log"
+          grep -Fq 'STALE_SLOT_FAIL_CLOSED_ORACLE_PASS' "$RUNNER_TEMP/staleslot-exact/04_guard_oracle.log"
+          cp "$RUNNER_TEMP/staleslot-exact/"*.log "$RUNNER_TEMP/staleslot-evidence/"
+          echo STALE_SLOT_EXACT_BUNDLE_SCRIPT_VERIFIED_PASS
       - name: Export exact complete source code and reproduction artifacts
         if: always()
         shell: bash
@@ -103,6 +113,7 @@ jobs:
           cp reports/electroneum/staleslot/01_downloader_stale_slot_test.go "$RUNNER_TEMP/staleslot-evidence/01_downloader_stale_slot_test.go"
           cp reports/electroneum/D/test_partial_receipt_runtime_test.go "$RUNNER_TEMP/staleslot-evidence/02_base_receipt_fixture_test.go"
           cp reports/electroneum/staleslot/03_scratch_guard.py "$RUNNER_TEMP/staleslot-evidence/03_scratch_guard.py"
+          cp reports/electroneum/staleslot/04_REPRODUCE_EXACT.sh "$RUNNER_TEMP/staleslot-evidence/04_REPRODUCE_EXACT.sh"
           sha256sum "$RUNNER_TEMP/staleslot-evidence/"*.go > "$RUNNER_TEMP/staleslot-evidence/P0C_SHA256.txt"
       - name: Publish reproducibility evidence
         if: always()
