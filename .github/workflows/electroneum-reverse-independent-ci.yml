@@ -206,3 +206,12 @@ jobs:
           cd "$REVERSE_R_SCRATCH"
           go test -count=1 -timeout=15m -run '^TestReverseDHeaderSetHeadRestart$' -v ./core
           echo REVERSE_R_D_SETHEAD_REIMPORT_AND_BAD_ROOT_PASS
+      - name: Reverse independent eth66 raw receipt commitments and semantic decoding
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod u+w "$REVERSE_R_SCRATCH/eth/protocols/eth"
+          cp reports/electroneum/C/reports/fixtures/reverse_d_receipt_wire_root_test.go "$REVERSE_R_SCRATCH/eth/protocols/eth/worker_r_receipt_wire_root_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=12m -run '^TestReverseDReceiptWireCommitmentDifferential$' -v ./eth/protocols/eth
+          echo REVERSE_R_D_RECEIPT_WIRE_CANONICALITY_PASS
