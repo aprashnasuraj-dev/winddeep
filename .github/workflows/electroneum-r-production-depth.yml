@@ -46,6 +46,7 @@ jobs:
             07-devp2p-loopback) mode=devp2p ;;
             08-qbft-quorum-gate) mode=qbft ;;
             09-qbft-devp2p-e2e) mode=qbftnet ;;
+            10-waitmined-impact) mode=impact ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -119,6 +120,11 @@ jobs:
               cp reports/electroneum/R/production_depth/peer_downloader_reorg_test.go "$scratch/eth/worker_r_peer_downloader_helper_test.go"
               cp reports/electroneum/R/production_depth/devp2p_loopback_reorg_test.go "$scratch/eth/worker_r_devp2p_helper_test.go"
               cp reports/electroneum/R/production_depth/qbft_devp2p_reorg_test.go "$scratch/eth/worker_r_qbft_devp2p_test.go"
+              ;;
+            impact)
+              chmod u+w "$scratch/eth"
+              cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
+              cp reports/electroneum/R/production_depth/waitmined_impact_test.go "$scratch/eth/worker_r_waitmined_impact_test.go"
               ;;
           esac
           echo "R_PROD_SCRATCH=$scratch" >> "$GITHUB_ENV"
@@ -228,6 +234,27 @@ jobs:
             echo "actor_requirement=CEIL_2N_OVER_3_VALIDATOR_KEYS_IN_FIXTURE"
             echo "ordinary_external_peer=NOT_THIS_ACTOR_MODEL"
             echo "G7_concrete_downstream_impact=OPEN"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P1f shipped bind WaitMined client-integrity impact
+        if: env.R_PROD_MODE == 'impact'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_PROD_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestRWaitMinedStaleReceiptImpact$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/waitmined_impact.log"
+          grep -Fq 'R_WAITMINED_STALE_MINED_SIGNAL' "$RUNNER_TEMP/r-prod-evidence/waitmined_impact.log"
+          grep -Fq 'R_WAITMINED_CANONICAL_RECHECK_REJECTS_PASS' "$RUNNER_TEMP/r-prod-evidence/waitmined_impact.log"
+          grep -Fq 'R_WAITMINED_POST_REORG_NOTFOUND_CONTROL_PASS' "$RUNNER_TEMP/r-prod-evidence/waitmined_impact.log"
+          grep -Fq 'R_WAITMINED_G7_CLIENT_INTEGRITY_IMPACT_PASS' "$RUNNER_TEMP/r-prod-evidence/waitmined_impact.log"
+          {
+            echo "G7_client_integrity=SHIPPED_BIND_WAITMINED_RETURNS_NONCANONICAL_RECEIPT"
+            echo "G7_counterexample=SHIPPED_ETHCLIENT_CANONICAL_HEADER_RECHECK_REJECTS"
+            echo "financial_loss=NOT_CLAIMED"
+            echo "ordinary_external_peer_actor=NOT_ESTABLISHED"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: P2 persistent crash and replay checkpoints
