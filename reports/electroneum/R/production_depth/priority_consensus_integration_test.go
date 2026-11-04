@@ -145,7 +145,7 @@ func TestRPriorityExecutionPoolStrictParity(t *testing.T){
 }
 
 func TestRPriorityReorgPoolState(t *testing.T){
- f,chain,oldBlock,oldTx:=rExecutionAcceptsPriorityTransition(t);defer chain.Stop();defer f.close()
+ f,chain,oldBlock,oldTx:=rExecutionAcceptsPriorityTransition(t);defer f.close();defer chain.Stop()
  pcfg:=DefaultTxPoolConfig;pcfg.Journal=""
  pool:=NewTxPool(pcfg,f.cfg,chain);defer pool.Stop();<-pool.initDoneCh
  pending:=rPriorityTx(t,f,1,types.MakeSigner(f.cfg,big.NewInt(2)),f.newPriorityKey)
