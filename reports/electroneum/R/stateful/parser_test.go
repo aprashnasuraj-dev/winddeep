@@ -8,6 +8,7 @@ import (
  "bytes"
  "encoding/binary"
  "testing"
+ "time"
 
  "github.com/electroneum/electroneum-sc/rlp"
 )
@@ -77,5 +78,12 @@ func FuzzRParserResourceBudget(f *testing.F){
  f.Add([]byte{4,63})
  f.Add([]byte{5,0})
  f.Add([]byte{0x83,'a','b','c'})
- f.Fuzz(func(t *testing.T,control []byte){auditRParserScenario(t,control)})
+ f.Fuzz(func(t *testing.T,control []byte){
+  // A 2 KiB parser call should complete promptly. Do not let a stalled worker
+  // masquerade as a passing 40-second fuzz campaign. A timer crash is only
+  // a resource-stall CANDIDATE; investigate and reproduce before classifying.
+  watchdog:=time.AfterFunc(5*time.Second,func(){panic("R_PARSER_WALLTIME_STALL_CANDIDATE_5S")})
+  defer watchdog.Stop()
+  auditRParserScenario(t,control)
+ })
 }
