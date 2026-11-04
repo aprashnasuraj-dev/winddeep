@@ -51,6 +51,7 @@ jobs:
             12-lower-authority-peer) mode=lowerauth ;;
             13-consumer-finality) mode=consumerfinality ;;
             14-leveldb-wal-fault) mode=walfault ;;
+            15-leveldb-batch-write) mode=batchfault ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -148,6 +149,12 @@ jobs:
               chmod u+w "$scratch/core"
               cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
               cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_fault_test.go"
+              ;;
+            batchfault)
+              chmod u+w "$scratch/core"
+              cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
+              cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_helper_test.go"
+              cp reports/electroneum/R/production_depth/persistent_batch_write_failure_test.go "$scratch/core/worker_r_batch_failure_test.go"
               ;;
             consumerfinality)
               chmod u+w "$scratch/eth"
@@ -380,6 +387,30 @@ jobs:
             echo "G2_positive_control=PASS_clean_unclean_exit_recovery"
             echo "fault_model=SYNTHETIC_LEVELDB_WAL_TAIL_TRUNCATION_OR_BITFLIP_AFTER_PROCESS_EXIT"
             echo "G4_reproducer=reports/electroneum/R/production_depth/persistent_wal_fault_test.go"
+            echo "G6_remote_reachability=NOT_ESTABLISHED"
+            echo "G7_security_impact=NOT_CLAIMED"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P2d real chain batch.Write boundary and fatal-exit recovery
+        if: env.R_PROD_MODE == 'batchfault'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_PROD_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestRLevelDBBatchWriteBoundary$' -v ./core 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/leveldb_batch_write.log"
+          grep -Fq 'R_BATCH_WRITE_BOUNDARY_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/leveldb_batch_write.log"
+          for stage in payload_before payload_after head_before head_after; do
+            grep -Fq "R_BATCH_EXPECTED_FATAL_EXIT_PASS stage=$stage exit=1" "$RUNNER_TEMP/r-prod-evidence/leveldb_batch_write.log"
+            grep -Fq "R_BATCH_WRITE_BOUNDARY_PASS stage=$stage" "$RUNNER_TEMP/r-prod-evidence/leveldb_batch_write.log"
+            grep -Fq "R_BATCH_SECOND_RESTART_PASS stage=$stage head=2" "$RUNNER_TEMP/r-prod-evidence/leveldb_batch_write.log"
+          done
+          {
+            echo "fault_model=SYNTHETIC_REAL_BATCH_WRITE_RETURN_ERROR_BEFORE_OR_AFTER_UNDERLYING_COMMIT"
+            echo "fatal_exit=PRODUCTION_LOG_CRIT_EXIT_CODE_1"
+            echo "G4_reproducer=reports/electroneum/R/production_depth/persistent_batch_write_failure_test.go"
             echo "G6_remote_reachability=NOT_ESTABLISHED"
             echo "G7_security_impact=NOT_CLAIMED"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
