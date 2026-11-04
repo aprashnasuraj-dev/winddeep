@@ -241,9 +241,21 @@ func rP1HMakeSubquorum(t *testing.T, valid *types.Block, keys []*ecdsa.PrivateKe
 	}
 	header.Extra = payload
 	invalid := valid.WithSeal(header)
-	if invalid.Hash() == valid.Hash() {
-		t.Fatal("R_P1H_SUBQUORUM_HASH_DID_NOT_CHANGE")
+	validExtra, err := types.ExtractQBFTExtra(valid.Header())
+	if err != nil {
+		t.Fatalf("R_P1H_VALID_EXTRA_DECODE_FAIL: %v", err)
 	}
+	invalidExtra, err := types.ExtractQBFTExtra(invalid.Header())
+	if err != nil {
+		t.Fatalf("R_P1H_INVALID_EXTRA_DECODE_FAIL: %v", err)
+	}
+	if len(validExtra.CommittedSeal) != 3 || len(invalidExtra.CommittedSeal) != 2 {
+		t.Fatalf("R_P1H_SEAL_COUNT_MUTATION_FAIL valid=%d invalid=%d", len(validExtra.CommittedSeal), len(invalidExtra.CommittedSeal))
+	}
+	if invalid.Hash() != valid.Hash() {
+		t.Fatalf("R_P1H_QBFT_HASH_DOMAIN_UNEXPECTED_CHANGE valid=%s invalid=%s", valid.Hash(), invalid.Hash())
+	}
+	t.Logf("R_P1H_QBFT_COMMITTED_SEALS_HASH_STABLE hash=%s valid_seals=3 invalid_seals=2", invalid.Hash())
 	return invalid
 }
 
