@@ -11,7 +11,6 @@ import (
     "crypto/ecdsa"
     "crypto/sha256"
     "encoding/binary"
-    "fmt"
     "math/big"
     "os"
     "path/filepath"
