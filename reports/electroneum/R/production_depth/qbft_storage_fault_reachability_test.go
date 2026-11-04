@@ -12,7 +12,6 @@ import (
     "encoding/hex"
     "errors"
     "fmt"
-    "math/big"
     "os"
     "os/exec"
     "os/signal"
