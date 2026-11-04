@@ -57,6 +57,7 @@ jobs:
             18-disk-growth-oracle) mode=growth ;;
             19-multiheight-oracle) mode=multifork ;;
             20-untrusted-eth66-replay) mode=untrustedreplay ;;
+            21-noncanonical-nodedata-churn) mode=nodedatachurn ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -178,7 +179,7 @@ jobs:
               cp reports/electroneum/R/production_depth/qbft_storage_fault_reachability_test.go "$scratch/eth/worker_r_qbft_storage_fault_test.go"
               cp reports/electroneum/R/production_depth/qbft_eth66_real_disk_limit_test.go "$scratch/eth/worker_r_qbft_eth66_disk_limit_test.go"
               ;;
-            enospc|growth|multifork|untrustedreplay)
+            enospc|growth|multifork|untrustedreplay|nodedatachurn)
               chmod u+w "$scratch/core"
               cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
               cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_helper_test.go"
@@ -204,6 +205,11 @@ jobs:
                 cp reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go "$scratch/eth/worker_r_qbft_disk_growth_helper_test.go"
                 cp reports/electroneum/R/production_depth/qbft_multiheight_disk_replay_restart_test.go "$scratch/eth/worker_r_qbft_multiheight_helper_test.go"
                 cp reports/electroneum/R/production_depth/qbft_eth66_unprivileged_replay_longchain_test.go "$scratch/eth/worker_r_qbft_unprivileged_replay_test.go"
+              fi
+              if [ "$R_PROD_MODE" = nodedatachurn ]; then
+                cp reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go "$scratch/eth/worker_r_qbft_disk_growth_helper_test.go"
+                cp reports/electroneum/R/production_depth/qbft_multiheight_disk_replay_restart_test.go "$scratch/eth/worker_r_qbft_multiheight_helper_test.go"
+                cp reports/electroneum/R/production_depth/qbft_eth66_nodedata_noncanonical_churn_test.go "$scratch/eth/worker_r_qbft_node_churn_test.go"
               fi
               ;;
             consumerfinality)
@@ -785,6 +791,51 @@ jobs:
             echo "G6_storage_oracle=COMPARE_canonical_direct_import_and_restart_after_compaction"
             echo "G7_impact=NO_EXHAUSTION_CLAIM_without_peer_only_storage_amplification"
             echo "classification=REPLAY_REJECTION_CONTROL_NO_BOUNTY_CLAIM_WITHOUT_POSITIVE_EVIDENCE"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P2l noncanonical QBFT and NodeData churn disk oracle
+        if: env.R_PROD_MODE == 'nodedatachurn'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/r-p2l-nodedata.ext4"
+          mountpoint="$RUNNER_TEMP/r-p2l-nodedata-mnt"
+          truncate -s 256M "$image"
+          mkfs.ext4 -q -F -m 0 "$image"
+          mkdir -p "$mountpoint"
+          sudo mount -o loop "$image" "$mountpoint"
+          sudo chown "$(id -u):$(id -g)" "$mountpoint"
+          cleanup() {
+            sync || true
+            sudo umount "$mountpoint" || true
+          }
+          trap cleanup EXIT
+          test "$(findmnt -n -o FSTYPE --target "$mountpoint")" = ext4
+          df -B1 "$mountpoint" > "$RUNNER_TEMP/r-prod-evidence/p2l_df_initial.txt"
+          cd "$R_PROD_SCRATCH"
+          R_P2L_DISK_ROOT="$mountpoint" go test -count=1 -timeout=15m -run '^TestRQBFTLowerAuthorityNodeDataNoncanonicalChurn$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_CANONICAL_BASELINE' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_SUBQUORUM_DIRECT_VERIFIER_REJECTED' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_CASE mode=announcement' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_CASE mode=propagated' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_CASE mode=matched-node' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_CASE mode=overlimit-node' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_CASE mode=wrongtype-node' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_CHURN_TOTAL' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_COMPACTION_ORACLE' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_RESTART_STORAGE_ORACLE_PASS' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_VALIDATED' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          {
+            echo "G1_certified_source=PASS"
+            echo "G2_real_ETH66_attacker_peer=PASS"
+            echo "G3_noncanonical=PREBUILT_INVALID_2of4_seals_without_attacker_validator_key"
+            echo "G4_nodedata=REQUEST_ID_MISMATCH_OVERLIMIT_AND_WRONGTYPE_CONTROLS"
+            echo "G5_churn=BOUNDED_8_SESSIONS_PROCESS_CPU_WALL_TIME_PHYSICAL_ALLOCATION"
+            echo "G6_independent_storage_control=IDENTICAL_DIRECT_CANONICAL_IMPORT_COMPACTION_RESTART"
+            echo "G7_security_classification=DO_NOT_PROMOTE_WITHOUT_UNTRUSTED_ACTOR_POSITIVE_DISK_AMPLIFICATION"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: Verify source untouched and complete triage
