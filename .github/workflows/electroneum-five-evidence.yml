@@ -104,6 +104,9 @@ jobs:
         run: |
           set -euo pipefail
           cp reports/electroneum/evidence5/*.go "$RUNNER_TEMP/evidence5-logs/"
+          for file in full_backend_reorg peer_downloader_reorg devp2p_loopback_reorg qbft_devp2p_reorg lower_authority_peer; do
+            cp "reports/electroneum/R/production_depth/${file}_test.go" "$RUNNER_TEMP/evidence5-logs/helper_${file}_test.go"
+          done
           cp reports/electroneum/evidence5/*.py "$RUNNER_TEMP/evidence5-logs/"
           sha256sum "$RUNNER_TEMP/evidence5-logs/"*.go > "$RUNNER_TEMP/evidence5-logs/SOURCE_SHA256.txt"
       - uses: actions/upload-artifact@v4
