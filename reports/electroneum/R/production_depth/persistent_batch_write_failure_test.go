@@ -128,15 +128,16 @@ func TestRLevelDBBatchFailureProcessChild(t *testing.T) {
     t.Fatalf("R_BATCH_CHILD_FATAL_EXIT_MISSING stage=%s err=%v",stage,err)
 }
 
-func rBatchVerifyReimport(t *testing.T,db ethdb.Database,blocks types.Blocks,tx *types.Transaction) {
+func rBatchVerifyReimport(t *testing.T,db ethdb.Database,blocks types.Blocks,tx *types.Transaction,maxInitialHead uint64) {
     t.Helper()
     cfg:=rawdb.ReadChainConfig(db,rawdb.ReadCanonicalHash(db,0))
     if cfg==nil { t.Fatal("R_BATCH_MISSING_CONFIG") }
     chain,err:=NewBlockChain(db,nil,cfg,ethash.NewFaker(),vm.Config{},nil,nil)
     if err!=nil { t.Fatalf("R_BATCH_CHAIN_REOPEN_FAIL: %v",err) }
     current:=chain.CurrentBlock()
-    if current==nil || current.NumberU64()>1 ||
-        (current.NumberU64()==1 && current.Hash()!=blocks[0].Hash()) {
+    if current==nil || current.NumberU64()>maxInitialHead ||
+        (current.NumberU64()==1 && current.Hash()!=blocks[0].Hash()) ||
+        (current.NumberU64()==2 && current.Hash()!=blocks[1].Hash()) {
         chain.Stop()
         t.Fatalf("R_BATCH_REOPEN_UNEXPECTED_FULL_HEAD current=%v",current)
     }
@@ -218,10 +219,10 @@ func TestRLevelDBBatchWriteBoundary(t *testing.T) {
             }
             t.Logf("R_BATCH_WRITE_BOUNDARY_PASS stage=%s payload=%t canonical=%t head=%t",
                 tc.name,gotBody,gotCanon,gotHead)
-            rBatchVerifyReimport(t,db,blocks,tx)
+            rBatchVerifyReimport(t,db,blocks,tx,1)
             if err:=db.Close();err!=nil{t.Fatal(err)}
             reopened:=rOpenPersist(t,path)
-            rBatchVerifyReimport(t,reopened,blocks,tx)
+            rBatchVerifyReimport(t,reopened,blocks,tx,2)
             t.Logf("R_BATCH_SECOND_RESTART_PASS stage=%s head=2",tc.name)
             if err:=reopened.Close();err!=nil{t.Fatal(err)}
         })
