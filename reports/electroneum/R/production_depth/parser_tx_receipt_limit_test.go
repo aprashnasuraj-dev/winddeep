@@ -43,7 +43,7 @@ func TestRRealisticRawTransactionAndReceiptDecodeBudgets(t *testing.T){
  runtime.ReadMemStats(&after)
  if err!=nil||len(decodedReceipts)!=1||len(decodedReceipts[0].Logs)!=len(logs){t.Fatalf("R_RECEIPT_LARGE_DECODE_FAIL err=%v logs=%d",err,len(decodedReceipts))}
  if elapsed>6*time.Second{t.Fatalf("R_RECEIPT_LARGE_WALLTIME_BREACH elapsed=%s",elapsed)}
- if DeriveSha(decodedReceipts,trie.NewStackTrie(nil))!=DeriveSha(receipts,trie.NewStackTrie(nil)){t.Fatal("R_RECEIPT_LARGE_ROOT_CHANGED")}
+ reencoded,err:=rlp.EncodeToBytes(decodedReceipts);if err!=nil{t.Fatal(err)}\n if !bytes.Equal(reencoded,receiptRaw){t.Fatal("R_RECEIPT_LARGE_CANONICAL_REENCODE_CHANGED")}
  delta=0;if after.TotalAlloc>before.TotalAlloc{delta=after.TotalAlloc-before.TotalAlloc}
  if delta>uint64(len(receiptRaw))*12{t.Fatalf("R_RECEIPT_LARGE_ALLOCATION_AMPLIFICATION raw=%d alloc=%d",len(receiptRaw),delta)}
  t.Logf("R_RECEIPT_REALISTIC_LOG_DECODE_PASS raw=%d logs=%d elapsed=%s alloc=%d",len(receiptRaw),len(logs),elapsed,delta)
