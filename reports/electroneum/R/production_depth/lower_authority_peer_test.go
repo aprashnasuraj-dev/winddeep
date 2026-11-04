@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/electroneum/electroneum-sc/common"
+	"github.com/electroneum/electroneum-sc/core"
 	"github.com/electroneum/electroneum-sc/core/forkid"
 	"github.com/electroneum/electroneum-sc/core/types"
 	"github.com/electroneum/electroneum-sc/crypto"
@@ -17,7 +18,7 @@ import (
 	ethproto "github.com/electroneum/electroneum-sc/eth/protocols/eth"
 	"github.com/electroneum/electroneum-sc/internal/ethapi"
 	"github.com/electroneum/electroneum-sc/p2p"
-	qbftengine "github.com/electroneum/electroneum-sc/consensus/istanbul/engine"
+	"github.com/electroneum/electroneum-sc/rlp"
 )
 
 type rP1HWireState struct {
@@ -213,25 +214,69 @@ func rP1HWaitRegisteredPeer(t *testing.T, h *handler, remote *p2p.Server) *ethPe
 	return peer
 }
 
-func rP1HMakeSubquorum(t *testing.T, valid *types.Block, builder *rQBFTNetFixture, keys []*ecdsa.PrivateKey) *types.Block {
+func rP1HMakeSubquorum(t *testing.T, valid *types.Block, keys []*ecdsa.PrivateKey) *types.Block {
 	t.Helper()
 	if len(keys) != 4 {
 		t.Fatalf("R_P1H_BAD_VALIDATOR_COUNT got=%d", len(keys))
 	}
 	header := valid.Header()
-	msg := qbftengine.PrepareCommittedSeal(header, 0)
+	msg := types.QBFTFilteredHeaderWithRound(header, 0)
+	if msg == nil {
+		t.Fatal("R_P1H_SUBQUORUM_FILTERED_HEADER_FAIL")
+	}
+	sealHash := crypto.Keccak256Hash(rlpHashForP1H(t, msg))
 	seals := make([][]byte, 0, 2)
 	for _, key := range keys[:2] {
-		sig, err := crypto.Sign(msg, key)
+		sig, err := crypto.Sign(sealHash.Bytes(), key)
 		if err != nil {
 			t.Fatalf("R_P1H_SUBQUORUM_SIGN_FAIL: %v", err)
 		}
 		seals = append(seals, sig)
 	}
-	if err := builder.remoteQBFT.EngineForBlockNumber(header.Number).CommitHeader(header, seals, big.NewInt(0)); err != nil {
-		t.Fatalf("R_P1H_SUBQUORUM_COMMIT_HEADER_FAIL: %v", err)
+	extra, err := types.ExtractQBFTExtra(header)
+	if err != nil {
+		t.Fatalf("R_P1H_SUBQUORUM_EXTRA_DECODE_FAIL: %v", err)
 	}
-	return valid.WithSeal(header)
+	extra.CommittedSeal = seals
+	payload, err := rlp.EncodeToBytes(extra)
+	if err != nil {
+		t.Fatalf("R_P1H_SUBQUORUM_EXTRA_ENCODE_FAIL: %v", err)
+	}
+	header.Extra = payload
+	invalid := valid.WithSeal(header)
+	if invalid.Hash() == valid.Hash() {
+		t.Fatal("R_P1H_SUBQUORUM_HASH_DID_NOT_CHANGE")
+	}
+	return invalid
+}
+
+func rlpHashForP1H(t *testing.T, header *types.Header) []byte {
+	t.Helper()
+	encoded, err := rlp.EncodeToBytes(header)
+	if err != nil {
+		t.Fatalf("R_P1H_FILTERED_HEADER_RLP_FAIL: %v", err)
+	}
+	return encoded
+}
+
+func rP1HSignedTx(t *testing.T, chain *core.BlockChain, key *ecdsa.PrivateKey, marker byte) *types.Transaction {
+	t.Helper()
+	sender := crypto.PubkeyToAddress(key.PublicKey)
+	state, err := chain.State()
+	if err != nil {
+		t.Fatalf("R_P1H_TX_STATE_FAIL: %v", err)
+	}
+	nonce := state.GetNonce(sender)
+	target := common.HexToAddress("0x0000000000000000000000000000000000000043")
+	tx, err := types.SignTx(
+		types.NewTransaction(nonce, target, big.NewInt(1), 100000, big.NewInt(10_000_000_000), []byte{marker}),
+		types.LatestSigner(chain.Config()),
+		key,
+	)
+	if err != nil {
+		t.Fatalf("R_P1H_REMOTE_TX_SIGN_FAIL: %v", err)
+	}
+	return tx
 }
 
 func rP1HBaseFixture(t *testing.T) (*rQBFTNetFixture, *ecdsa.PrivateKey) {
@@ -255,10 +300,11 @@ func rP1HBaseFixture(t *testing.T) (*rQBFTNetFixture, *ecdsa.PrivateKey) {
 }
 
 func TestRP1HQuorumWirePositiveControl(t *testing.T) {
-	f, _ := rP1HBaseFixture(t)
+	f, senderKey := rP1HBaseFixture(t)
 	defer f.close()
 
-	valid := rQBFTBuildAndImport(t, f.remoteChain, f.remoteQBFT, f.remoteDB, f.validatorKeys, f.validators, nil)
+	remoteTx := rP1HSignedTx(t, f.remoteChain, senderKey, 0x91)
+	valid := rQBFTBuildAndImport(t, f.remoteChain, f.remoteQBFT, f.remoteDB, f.validatorKeys, f.validators, remoteTx)
 	remoteTD := f.remoteChain.GetTd(valid.Hash(), valid.NumberU64())
 	if remoteTD == nil {
 		t.Fatal("R_P1H_POSITIVE_REMOTE_TD_MISSING")
@@ -320,11 +366,9 @@ func TestRP1HLowerAuthoritySubquorumRejected(t *testing.T) {
 	// Build the same-height competing block with a valid quorum first, then
 	// replace its committed-seal set with only 2-of-4. The peer will serve this
 	// block directly over ETN/66 without importing the invalid block itself.
-	validCompeting := rQBFTBuildAndImport(t, f.remoteChain, f.remoteQBFT, f.remoteDB, f.validatorKeys, f.validators, nil)
-	invalid := rP1HMakeSubquorum(t, validCompeting, f, f.validatorKeys)
-	if invalid.Hash() == validCompeting.Hash() {
-		t.Fatal("R_P1H_SUBQUORUM_HASH_DID_NOT_CHANGE")
-	}
+	remoteTx := rP1HSignedTx(t, f.remoteChain, senderKey, 0x92)
+	validCompeting := rQBFTBuildAndImport(t, f.remoteChain, f.remoteQBFT, f.remoteDB, f.validatorKeys, f.validators, remoteTx)
+	invalid := rP1HMakeSubquorum(t, validCompeting, f.validatorKeys)
 	verifyErr := f.localQBFT.VerifyHeader(f.localChain, invalid.Header(), false)
 	if verifyErr == nil {
 		t.Fatal("R_P1H_SUBQUORUM_DIRECT_VERIFIER_UNEXPECTED_ACCEPT")
