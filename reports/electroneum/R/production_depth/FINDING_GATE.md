@@ -44,3 +44,23 @@ Every candidate artifact must state production_reachability=ESTABLISHED|OPEN|DIS
 - Consensus reachability is now actor-separated: ordinary unauthenticated peer precondition **DISPROVEN** by the QBFT quorum gate; a validator-quorum actor with `ceil(2N/3)` unique keys is **CONDITIONALLY ESTABLISHED** end-to-end. Do not describe the latter as ordinary remote-peer exploitability.
 - Classification after P1g: `SOURCE/CLIENT_REORG_CONSISTENCY_DEFECT_REPRODUCED` + `SHIPPED_CLIENT_INTEGRITY_IMPACT_CONFIRMED`. Do **not** label this an arbitrary remote security exploit: ordinary unauthenticated peers cannot satisfy the QBFT finalized-fork precondition, and the demonstrated end-to-end actor already possesses validator quorum authority. Security severity beyond that condition, financial loss, and finality compromise remain unproven.
 - A failed/timeout/compile-invalid harness must be corrected and rerun on an eligible branch before evaluating any source oracle. Preserve provenance for individual trials and report counts separately from estimated exploit probability.
+
+## E-RPC-004 semantic / threat-model classification after P1g
+
+Verified facts:
+- Master audit invariant E covers misrepresenting transaction/block reality to exchanges or third parties.
+- The shipped `bind.WaitMined` contract says it waits for a transaction to be **mined**; it does not state that the returned receipt is finalized or reorg-proof.
+- The RPC stack exposes `finalized` as a distinct block-number concept, so “mined” and “finalized” are not interchangeable guarantees.
+- P1f demonstrates an E-style integrity mismatch: `WaitMined` returned a receipt whose `blockHash` was already noncanonical at the instant checked after return.
+- P1d disproves the ordinary-peer consensus precondition in the tested QBFT verifier: below-quorum, duplicate and outsider seals are rejected.
+- P1e establishes the mechanism end-to-end only when the fixture possesses a valid validator quorum and can produce the conflicting finalized branch.
+- P1g proves a one-shot post-read canonical check is not an atomic remediation.
+
+Classification:
+- **Validator-quorum conflicting-branch actor:** `CONFIRMED` mechanism for invariant-E client/reorg consistency, with concrete shipped-client integrity impact.
+- **Ordinary unauthenticated devp2p peer:** `DISPROVEN` for the required finalized-conflicting-branch precondition in the tested model.
+- **Broken finality guarantee:** `NOT CLAIMED`; `WaitMined` documents mining/inclusion, not irreversible finality.
+- **Financial loss / theft / authorization bypass:** `NOT ESTABLISHED`.
+- **Marginal severity:** bounded by the fact that the strongest reproducer already assumes consensus-quorum authority. Do not score it as if the receipt race itself grants that authority.
+
+Remaining hard question is not whether the race exists; it is whether a materially lower-authority, protocol-valid path can create the same canonical replacement, or whether a real third-party integration treats one mined receipt as irreversible despite reorg/finality semantics.
