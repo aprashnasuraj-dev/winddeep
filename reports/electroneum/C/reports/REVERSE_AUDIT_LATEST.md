@@ -256,3 +256,13 @@ REVERSE_R_CANONICAL_GUARD_SENSITIVITY_CERTIFIED_SOURCE_INTACT_PASS
 - **2^63:** direct `MaxRound` reconstructs unsigned map key `2^63` as signed `-9223372036854775808`: `REVERSE_B_2POW63_SIGNED_RECONSTRUCTION_CONFIRMED`. F+1 handler attempts at `2^63` were dropped before storage: `REVERSE_B_2POW63_HANDLER_REJECTS_PASS`.
 - **Classification:** real low-level numeric defects, **no demonstrated consensus-security reachability** through the tested authenticated/post-signature ROUND-CHANGE handler. The full-width `big.Int` comparison against `current+MaxFutureRoundGap` occurs before `Uint64` storage or signed reconstruction.
 - **Next:** B-ROUND-32 committed-seal domain alias. Default QBFT timeout 10s, capped at 60s; sequentially reaching 2^32 rounds without a committed block is roughly 8,000 years at the cap, but runtime signing-domain behavior still requires independent R confirmation.
+
+## 2026-11-04 — Reverse pass 12/14: B 2^32 seal-domain alias reproduced, immediate admission blocked
+
+- **Certified CI:** [41749737953](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41749737953), job `126311669910`, COMPLETED/SUCCESS.
+- **Cryptographic behavior:** `REVERSE_B32_SIGNED_SEAL_DOMAIN_ALIAS_CONFIRMED`: three-of-four synthetic validator signatures created for round 0 verified after `CommitHeader(..., 2^32)`, because the header stores `uint32(round.Uint64()) == 0`.
+- **Negative control:** `REVERSE_B32_NORMAL_ROUND_DOMAIN_DISTINCT_PASS` and `REVERSE_B32_WRONG_ROUND_SIGNATURE_REJECTED_PASS`: ordinary rounds 0/1 have different domains; round-1 signatures do not verify against encoded round 0.
+- **Reachability control:** `REVERSE_B32_FPLUS1_IMMEDIATE_ADMISSION_BLOCKED_PASS threshold=2 maxFutureGap=15`: two distinct validator-source ROUND-CHANGE messages at 2^32 from current round0 never enter the round-change set or advance consensus.
+- **Practical timing counterexample:** default request timeout starts 10s and caps at 60s; sequentially reaching 2^32 rounds without committing a block is roughly eight millennia at the cap. This is not a formal protocol proof, but strongly limits practical reachability.
+- **Classification:** real committed-seal width/domain defect; **no demonstrated validator-reachable finality break**. Fix requires protocol/version coordination if changing signing encoding; alternatively enforce a consensus round maximum below 2^32 at all state and serialization boundaries.
+- **Next:** A-FEE-07, then A-FEE-04-05.
