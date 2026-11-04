@@ -407,6 +407,7 @@ jobs:
           go test -count=1 -timeout=10m -run '^TestRPublicReceiptCrashVisibility$' -v ./internal/ethapi 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/public_rpc_receipt.log"
           grep -Fq 'R_RPC_BATCH_CRASH_VISIBILITY_PASS' "$RUNNER_TEMP/r-prod-evidence/public_rpc_receipt.log"
           grep -Fq 'R_RPC_JSONRPC_RECEIPT_VISIBLE' "$RUNNER_TEMP/r-prod-evidence/public_rpc_receipt.log"
+          grep -Fq 'R_RPC_JSONRPC_LATEST_BLOCK_ZERO_RECEIPT_ONE' "$RUNNER_TEMP/r-prod-evidence/public_rpc_receipt.log"
           for stage in payload_before payload_after head_before head_after; do
             grep -Fq "R_BATCH_EXPECTED_FATAL_EXIT_PASS stage=$stage exit=1" "$RUNNER_TEMP/r-prod-evidence/leveldb_batch_write.log"
             grep -Fq "R_BATCH_WRITE_BOUNDARY_PASS stage=$stage" "$RUNNER_TEMP/r-prod-evidence/leveldb_batch_write.log"
