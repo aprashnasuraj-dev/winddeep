@@ -309,8 +309,8 @@ func TestRP1HLowerAuthoritySubquorumRejected(t *testing.T) {
 	oldBlock := rQBFTBuildAndImport(t, f.localChain, f.localQBFT, f.localDB, f.validatorKeys, f.validators, oldTx)
 	f.oldTx, f.oldBlock, f.oldHead = oldTx, oldBlock, oldBlock
 	svc := &Ethereum{blockchain: f.localChain, chainDb: f.localDB}
-	f.backend = &EthAPIBackend{eth: svc}
-	f.api = ethapi.NewPublicTransactionPoolAPI(f.backend, new(ethapi.AddrLocker))
+	backend := &EthAPIBackend{eth: svc}
+	f.api = ethapi.NewPublicTransactionPoolAPI(backend, new(ethapi.AddrLocker))
 
 	before, err := f.api.GetTransactionReceipt(context.Background(), oldTx.Hash())
 	if err != nil || before == nil || before["blockHash"] != oldBlock.Hash() {
