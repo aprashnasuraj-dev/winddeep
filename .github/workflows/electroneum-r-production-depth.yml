@@ -452,6 +452,7 @@ jobs:
           grep -Fq 'R_QBFT_STORAGE_BOUNDARY_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
           grep -Fq 'R_G6_ETH66_REAL_WAL_EFBIG_RESTART_PASS' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
           grep -Fq 'R_QBFT_SYNTHETIC_POSTCOMMIT_PUBLIC_MISMATCH_CONFIRMED' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
+          grep -Fq 'R_QBFT_REAL_OS_EFBIG_PUBLIC_MISMATCH_CONFIRMED' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
           grep -Fq 'R_QBFT_REAL_OS_EFBIG_NO_RECEIPT_EXPOSURE_PASS' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
           grep -Fq 'R_P1H_LOWER_AUTHORITY' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
           for stage in wal_plus_0 wal_plus_64 wal_plus_512 wal_plus_1024; do
