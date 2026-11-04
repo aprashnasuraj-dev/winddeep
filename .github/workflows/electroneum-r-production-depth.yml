@@ -821,6 +821,8 @@ jobs:
           grep -Fq 'R_P2L_SUBQUORUM_DIRECT_VERIFIER_REJECTED' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
           grep -Fq 'R_P2L_CASE mode=announcement' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
           grep -Fq 'R_P2L_CASE mode=propagated' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_NONCANONICAL_REQUEST_VERIFIER_REJECTED' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
+          grep -Fq 'R_P2L_NONCANONICAL_BODY_WIRE_DELIVERED' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
           grep -Fq 'R_P2L_CASE mode=matched-node' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
           grep -Fq 'R_P2L_CASE mode=overlimit-node' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
           grep -Fq 'R_P2L_CASE mode=wrongtype-node' "$RUNNER_TEMP/r-prod-evidence/p2l_nodedata_churn.log"
