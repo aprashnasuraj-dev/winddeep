@@ -52,6 +52,7 @@ jobs:
             13-consumer-finality) mode=consumerfinality ;;
             14-leveldb-wal-fault) mode=walfault ;;
             15-leveldb-batch-write) mode=batchfault ;;
+            16-fsize-qbft-reachability) mode=realos ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -157,6 +158,21 @@ jobs:
               cp reports/electroneum/R/production_depth/persistent_batch_write_failure_test.go "$scratch/core/worker_r_batch_failure_test.go"
               chmod u+w "$scratch/internal/ethapi"
               cp reports/electroneum/R/production_depth/batch_receipt_public_rpc_test.go "$scratch/internal/ethapi/worker_r_batch_receipt_public_rpc_test.go"
+              ;;
+            realos)
+              chmod u+w "$scratch/core"
+              cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
+              cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_helper_test.go"
+              cp reports/electroneum/R/production_depth/persistent_batch_write_failure_test.go "$scratch/core/worker_r_batch_helper_test.go"
+              cp reports/electroneum/R/production_depth/persistent_real_os_wal_limit_test.go "$scratch/core/worker_r_real_os_limit_test.go"
+              chmod u+w "$scratch/eth"
+              cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
+              cp reports/electroneum/R/production_depth/peer_downloader_reorg_test.go "$scratch/eth/worker_r_peer_downloader_helper_test.go"
+              cp reports/electroneum/R/production_depth/devp2p_loopback_reorg_test.go "$scratch/eth/worker_r_devp2p_helper_test.go"
+              cp reports/electroneum/R/production_depth/qbft_devp2p_reorg_test.go "$scratch/eth/worker_r_qbft_devp2p_helper_test.go"
+              cp reports/electroneum/R/production_depth/lower_authority_peer_test.go "$scratch/eth/worker_r_lower_authority_peer_helper_test.go"
+              cp reports/electroneum/R/production_depth/qbft_storage_fault_reachability_test.go "$scratch/eth/worker_r_qbft_storage_fault_test.go"
+              cp reports/electroneum/R/production_depth/qbft_eth66_real_disk_limit_test.go "$scratch/eth/worker_r_qbft_eth66_disk_limit_test.go"
               ;;
             consumerfinality)
               chmod u+w "$scratch/eth"
@@ -419,6 +435,38 @@ jobs:
             echo "G4_reproducer=reports/electroneum/R/production_depth/persistent_batch_write_failure_test.go"
             echo "G6_remote_reachability=NOT_ESTABLISHED"
             echo "G7_security_impact=NOT_CLAIMED"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P2f Linux kernel RLIMIT_FSIZE WAL syscall failure
+        if: env.R_PROD_MODE == 'realos'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_PROD_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestRLevelDBRealOSFileSizeRecovery$' -v ./core 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/real_os_file_limit.log"
+          grep -Fq 'R_OS_REAL_WAL_WRITE_EFBIG_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/real_os_file_limit.log"
+          go test -count=1 -timeout=12m -run '^TestR(ProductionQBFTStorageCrashMatrix|P1HLowerAuthoritySubquorumRejected|QBFTWireDiskLimitPeerDelivery)$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
+          grep -Fq 'R_QBFT_STORAGE_BOUNDARY_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
+          grep -Fq 'R_G6_ETH66_REAL_WAL_EFBIG_RESTART_PASS' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
+          grep -Fq 'R_QBFT_SYNTHETIC_POSTCOMMIT_PUBLIC_MISMATCH_CONFIRMED' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
+          grep -Fq 'R_QBFT_REAL_OS_EFBIG_PUBLIC_MISMATCH_CONFIRMED' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
+          grep -Fq 'R_QBFT_UNMODIFIED_LEVELDB_ERROR_CAPTURED mode=os_fsize_late' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
+          grep -Fq 'R_G6_NATIVE_LEVELDB_ERROR_CAPTURED' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
+          grep -Fq 'R_QBFT_REAL_OS_EFBIG_NO_RECEIPT_EXPOSURE_PASS' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
+          grep -Fq 'R_P1H_LOWER_AUTHORITY' "$RUNNER_TEMP/r-prod-evidence/qbft_storage_reachability.log"
+          for stage in wal_plus_0 wal_plus_64 wal_plus_512 wal_plus_1024; do
+            grep -Fq "R_OS_REAL_WRITE_ERROR_FATAL_EXIT stage=$stage exit=1" "$RUNNER_TEMP/r-prod-evidence/real_os_file_limit.log"
+            grep -Fq "R_OS_REAL_WRITE_ERROR_REPLAY_PASS stage=$stage full=2" "$RUNNER_TEMP/r-prod-evidence/real_os_file_limit.log"
+          done
+          {
+            echo "fault_mechanism=LINUX_RLIMIT_FSIZE_SIGXFSZ_EFBIG_ON_REAL_WAL_WRITE_SYSCALL"
+            echo "not_equivalent=NO_POWERLOSS_NO_FSYNC_CLAIM_NO_POSTCOMMIT_ACK_ERROR"
+            echo "G4_reproducer=reports/electroneum/R/production_depth/persistent_real_os_wal_limit_test.go"
+            echo "G6_remote_reachability=NOT_ESTABLISHED"
+            echo "G7_security_impact=NOT_ESTABLISHED"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: P2 persistent crash and replay checkpoints
