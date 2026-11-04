@@ -312,7 +312,7 @@ jobs:
           chmod u+w "$REVERSE_R_SCRATCH/consensus/istanbul/core"
           cp reports/electroneum/C/reports/fixtures/reverse_b_round_reachability_test.go "$REVERSE_R_SCRATCH/consensus/istanbul/core/worker_r_round_reachability_test.go"
           cd "$REVERSE_R_SCRATCH"
-          go test -count=1 -timeout=15m -run '^(TestReverseBRoundAliasReachability|TestReverseBRound63ReconstructionReachability|TestReverseB32AdmissionBarrier)
+          go test -count=1 -timeout=15m -run '^(TestReverseBRoundAliasReachability|TestReverseBRound63ReconstructionReachability|TestReverseB32AdmissionBarrier)$' -v ./consensus/istanbul/core
           echo REVERSE_R_B_ROUND_REACHABILITY_MATRIX_PASS
 
       - name: Reverse B 2^32 committed-seal signing domain
@@ -324,5 +324,13 @@ jobs:
           cd "$REVERSE_R_SCRATCH"
           go test -count=1 -timeout=15m -run '^TestReverseB32CommittedSealDomain$' -v ./consensus/istanbul/engine
           echo REVERSE_R_B32_SIGNING_DOMAIN_MATRIX_PASS
- -v ./consensus/istanbul/core
-          echo REVERSE_R_B_ROUND_REACHABILITY_MATRIX_PASS
+
+      - name: Reverse A priority cache and London supply accounting
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod u+w "$REVERSE_R_SCRATCH/core"
+          cp reports/electroneum/C/reports/fixtures/reverse_a_priority_fee_test.go "$REVERSE_R_SCRATCH/core/worker_r_priority_fee_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=20m -run '^(TestReverseAPriorityCacheTransactionBoundaries|TestReverseALondonSupplyAccounting|TestReverseALondonRevertAndWaiverAccounting)$' -v ./core
+          echo REVERSE_R_A_PRIORITY_AND_SUPPLY_MATRIX_PASS
