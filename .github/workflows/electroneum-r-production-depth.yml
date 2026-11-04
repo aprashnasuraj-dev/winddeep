@@ -180,7 +180,7 @@ jobs:
               cp reports/electroneum/R/production_depth/qbft_storage_fault_reachability_test.go "$scratch/eth/worker_r_qbft_storage_fault_test.go"
               cp reports/electroneum/R/production_depth/qbft_eth66_real_disk_limit_test.go "$scratch/eth/worker_r_qbft_eth66_disk_limit_test.go"
               ;;
-            enospc|growth|multifork|untrustedreplay|nodedatachurn)
+            enospc|growth|multifork|untrustedreplay|nodedatachurn|snappersist)
               chmod u+w "$scratch/core"
               cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
               cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_helper_test.go"
