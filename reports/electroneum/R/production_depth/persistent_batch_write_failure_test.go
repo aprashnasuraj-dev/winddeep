@@ -128,7 +128,7 @@ func TestRLevelDBBatchFailureProcessChild(t *testing.T) {
     t.Fatalf("R_BATCH_CHILD_FATAL_EXIT_MISSING stage=%s err=%v",stage,err)
 }
 
-func rBatchVerifyReimport(t *testing.T,db ethdb.Database,blocks types.Blocks,tx *types.Transaction,maxInitialHead uint64) {
+func rBatchVerifyReimport(t *testing.T,db ethdb.Database,blocks types.Blocks,tx *types.Transaction,stage string,maxInitialHead uint64) {
     t.Helper()
     cfg:=rawdb.ReadChainConfig(db,rawdb.ReadCanonicalHash(db,0))
     if cfg==nil { t.Fatal("R_BATCH_MISSING_CONFIG") }
@@ -142,6 +142,22 @@ func rBatchVerifyReimport(t *testing.T,db ethdb.Database,blocks types.Blocks,tx 
         t.Fatalf("R_BATCH_REOPEN_UNEXPECTED_FULL_HEAD current=%v",current)
     }
     before:=current.NumberU64()
+    if maxInitialHead==1 {
+        // Read the actual post-crash lookup surface BEFORE replaying any block.
+        // A header-sync head may legitimately lead the full executed head;
+        // these observations alone are not evidence of an RPC exploit.
+        canonicalOne:=chain.GetCanonicalHash(1)==blocks[0].Hash()
+        indexedNumber:=rawdb.ReadTxLookupEntry(db,tx.Hash())
+        preTx,_,_,_:=rawdb.ReadTransaction(db,tx.Hash())
+        preReceipt,_,_,_:=rawdb.ReadReceipt(db,tx.Hash(),cfg)
+        header:=chain.CurrentHeader()
+        fast:=chain.CurrentFastBlock()
+        headerN,fastN:=uint64(0),uint64(0)
+        if header!=nil { headerN=header.Number.Uint64() }
+        if fast!=nil { fastN=fast.NumberU64() }
+        t.Logf("R_BATCH_PRE_REPLAY_VISIBILITY stage=%s full=%d header=%d fast=%d canonical1=%t indexed=%t tx=%t receipt=%t",
+            stage,before,headerN,fastN,canonicalOne,indexedNumber!=nil,preTx!=nil,preReceipt!=nil)
+    }
     if index,err:=chain.InsertChain(blocks); err!=nil {
         chain.Stop()
         t.Fatalf("R_BATCH_RECOVERED_INSERT_FAIL from=%d index=%d err=%v",before,index,err)
@@ -219,10 +235,10 @@ func TestRLevelDBBatchWriteBoundary(t *testing.T) {
             }
             t.Logf("R_BATCH_WRITE_BOUNDARY_PASS stage=%s payload=%t canonical=%t head=%t",
                 tc.name,gotBody,gotCanon,gotHead)
-            rBatchVerifyReimport(t,db,blocks,tx,1)
+            rBatchVerifyReimport(t,db,blocks,tx,tc.name,1)
             if err:=db.Close();err!=nil{t.Fatal(err)}
             reopened:=rOpenPersist(t,path)
-            rBatchVerifyReimport(t,reopened,blocks,tx,2)
+            rBatchVerifyReimport(t,reopened,blocks,tx,tc.name,2)
             t.Logf("R_BATCH_SECOND_RESTART_PASS stage=%s head=2",tc.name)
             if err:=reopened.Close();err!=nil{t.Fatal(err)}
         })
