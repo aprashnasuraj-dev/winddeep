@@ -1,0 +1,43 @@
+name: Export complete ETN bounty PoC source files
+on:
+  push:
+    branches: [audit/eligibility-20261104]
+    paths:
+      - '.github/workflows/electroneum-export-pocs.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Export eleven complete source-backed test files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p poc_full_sources
+          cp reports/electroneum/eligibility/e004_e008_production_controls_test.go poc_full_sources/02_E004_eligibility_receipt_credit_test.go
+          cp reports/electroneum/eligibility/e002_fee_admission_test.go poc_full_sources/05_E002_fee_admission_controls_test.go
+          cp reports/electroneum/R/production_depth/full_backend_reorg_test.go poc_full_sources/02_E004_full_backend_helper_test.go
+          cp reports/electroneum/R/production_depth/peer_downloader_reorg_test.go poc_full_sources/02_E004_downloader_helper_test.go
+          cp reports/electroneum/C/reverse/reverse_e_fee_width_test.go poc_full_sources/05_E002_receipt_fee_width_test.go
+          cp reports/electroneum/C/reverse/reverse_e_rpc_header_test.go poc_full_sources/03_E010_nil_header_receipt_test.go
+          cp reports/electroneum/C/reports/fixtures/reverse_e_log_range_test.go poc_full_sources/04_E008_log_range_test.go
+          cp reports/electroneum/C/reports/fixtures/reverse_b_round32_seal_test.go poc_full_sources/06_B_round_seal_domain_test.go
+          cp reports/electroneum/C/reports/fixtures/reverse_b_round_reachability_test.go poc_full_sources/06_B_round_core_reachability_test.go
+          cp reports/electroneum/C/reports/fixtures/reverse_c_import_boundary_test.go poc_full_sources/01_C002_keystore_import_test.go
+          cp reports/electroneum/C/reports/fixtures/reverse_d_header_restart_test.go poc_full_sources/07_D_finalized_rewind_test.go
+          test "$(find poc_full_sources -name '*.go' -type f | wc -l)" -eq 11
+          (cd poc_full_sources && sha256sum *.go > SOURCES_SHA256.txt)
+          printf 'Source ref: %s\n' "$GITHUB_SHA" > poc_full_sources/SOURCE_REF.txt
+          echo POC_EXPORT_11_FULL_SOURCE_FILES_PASS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: etn-complete-poc-files
+          path: poc_full_sources/
+          if-no-files-found: error
+          retention-days: 2
