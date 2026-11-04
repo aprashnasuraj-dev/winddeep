@@ -79,3 +79,18 @@ func TestReverseBRound63ReconstructionReachability(t *testing.T){
   t.Logf("REVERSE_B_2POW63_HANDLER_REJECTS_PASS maxInt64=%d",int64(math.MaxInt64))
  })
 }
+
+
+func TestReverseB32AdmissionBarrier(t *testing.T){
+ c:=newRoundChangeTestCore(4,5000,0)
+ target:=new(big.Int).Lsh(big.NewInt(1),32)
+ need:=c.valSet.F()+1
+ for i:=0;i<need;i++ {
+  rc:=makeRoundChange(5000,0,c.valSet.List()[i].Address())
+  rc.Round=new(big.Int).Set(target)
+  if err:=c.handleRoundChange(rc);err!=nil{t.Fatal(err)}
+ }
+ if got:=c.roundChangeSet.getRCMessagesForGivenRound(target);got!=0 {t.Fatalf("2^32 ROUND-CHANGE admitted=%d",got)}
+ if c.current.Round().Sign()!=0 {t.Fatalf("current round changed to %s",c.current.Round())}
+ t.Logf("REVERSE_B32_FPLUS1_IMMEDIATE_ADMISSION_BLOCKED_PASS threshold=%d maxFutureGap=%d",need,MaxFutureRoundGap)
+}
