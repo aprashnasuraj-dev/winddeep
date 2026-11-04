@@ -61,12 +61,12 @@
         "id": "E-RPC-004",
         "category": "E",
         "focus": "receipt hash vs lookup canonicality under reorg and N confirmations",
-        "status": "CONFIRMED_SOURCE_DEFECT__REPRODUCTION_CLOSED__FULL_BACKEND_INSERTCHAIN_REACHABILITY_ESTABLISHED__EXTERNAL_DEVp2p_QBFT_EXPLOITABILITY_OPEN__REMEDIATION_OPEN",
-        "ciRun": 41763336581,
-        "lastEvidence": "Run 41763336581 real core.BlockChain + eth.EthAPIBackend: validated longer fork through InsertChain, 24 trials / 380,464 calls; 44 old-receipt responses were stale by immediate canonical postcheck; 14 request intervals straddled observed canonical flip and returned old receipt; max measured flip-to-return 2,074,585 ns. Deterministic full-backend oracle and downstream canonical recheck control passed. InsertChain is peer-equivalent validated import, not external devp2p/QBFT adversary proof.",
+        "status": "CONFIRMED_SOURCE_DEFECT__REPRODUCTION_CLOSED__FULL_BACKEND_AND_DOWNLOADER_REACHABILITY_ESTABLISHED__EXTERNAL_TCP_RLPX_DEVP2P_QBFT_EXPLOITABILITY_OPEN__REMEDIATION_OPEN",
+        "ciRun": 41764867034,
+        "lastEvidence": "Run 41764867034 real downloader Peer + ETH66 service query handlers + LegacySync into real BlockChain/EthAPIBackend: 32 trials / 814,710 receipt calls; 114 old-receipt responses stale by immediate canonical postcheck; 36 request intervals straddled observed canonical flip and returned old receipt; max measured flip-to-return 6,930,483 ns. Prior full-backend direct InsertChain run 41763336581 also reproduced. External TCP/RLPx/devp2p and QBFT adversary control remain untested.",
         "verificationClosed": "2026-11-04",
         "report": "reports/electroneum/C/reports/CONCRETE_FINDING_E004_RECEIPT_TOCTOU.md",
-        "productionReachability": "PARTIAL: in-process full backend validated InsertChain established; external devp2p/QBFT adversary control open"
+        "productionReachability": "PARTIAL-STRONG: full backend InsertChain and in-process downloader Peer/LegacySync established; external TCP/RLPx/devp2p and QBFT adversary control open"
       },
       {
         "id": "E-RPC-002",
