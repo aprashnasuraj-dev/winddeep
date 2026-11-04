@@ -49,6 +49,7 @@ jobs:
             10-waitmined-impact) mode=impact ;;
             11-guard-residual) mode=guardresidual ;;
             12-lower-authority-peer) mode=lowerauth ;;
+            13-consumer-finality) mode=consumerfinality ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -141,6 +142,13 @@ jobs:
               cp reports/electroneum/R/production_depth/devp2p_loopback_reorg_test.go "$scratch/eth/worker_r_devp2p_helper_test.go"
               cp reports/electroneum/R/production_depth/qbft_devp2p_reorg_test.go "$scratch/eth/worker_r_qbft_devp2p_helper_test.go"
               cp reports/electroneum/R/production_depth/lower_authority_peer_test.go "$scratch/eth/worker_r_lower_authority_peer_test.go"
+              ;;
+            consumerfinality)
+              chmod u+w "$scratch/eth"
+              cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
+              cp reports/electroneum/R/production_depth/qbft_devp2p_reorg_test.go "$scratch/eth/worker_r_qbft_devp2p_helper_test.go"
+              cp reports/electroneum/R/production_depth/lower_authority_peer_test.go "$scratch/eth/worker_r_lower_authority_peer_helper_test.go"
+              cp reports/electroneum/R/production_depth/consumer_finality_test.go "$scratch/eth/worker_r_consumer_finality_test.go"
               ;;
           esac
           echo "R_PROD_SCRATCH=$scratch" >> "$GITHUB_ENV"
@@ -315,6 +323,33 @@ jobs:
             echo "sync_path=REAL_DOWNLOADER_LegacySync"
             echo "remote_invalid_block_preimport=NONE_peer_served_wire_object_directly"
             echo "G4_reproducer=reports/electroneum/R/production_depth/lower_authority_peer_test.go"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P1i synthetic consumer decisions and QBFT finalized-tag visibility
+        if: env.R_PROD_MODE == 'consumerfinality'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_PROD_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestRP1I' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/consumer_finality.log"
+          grep -Fq 'R_P1I_MINED_POLICY_FALSE_CREDIT_REPRODUCED' "$RUNNER_TEMP/r-prod-evidence/consumer_finality.log"
+          grep -Fq 'R_P1I_NAIVE_NCONF_FALSE_CREDIT_REPRODUCED n=4' "$RUNNER_TEMP/r-prod-evidence/consumer_finality.log"
+          grep -Fq 'R_P1I_CANONICAL_NCONF_REJECTS_STALE_PASS' "$RUNNER_TEMP/r-prod-evidence/consumer_finality.log"
+          grep -Fq 'R_P1I_QBFT_COMMITTED_BLOCK_CONTROL_PASS validators=4 seals=3' "$RUNNER_TEMP/r-prod-evidence/consumer_finality.log"
+          grep -Fq 'R_P1I_QBFT_FINALIZED_TAG_UNPUBLISHED_PASS' "$RUNNER_TEMP/r-prod-evidence/consumer_finality.log"
+          grep -Fq 'R_P1I_SYNTHETIC_CONSUMER_ONLY_NO_REAL_EXCHANGE_CLAIM' "$RUNNER_TEMP/r-prod-evidence/consumer_finality.log"
+          {
+            echo "G2_positive_control=PASS_shipped_WaitMined_and_3_of_4_QBFT_committed_block"
+            echo "synthetic_mined_policy=FALSE_CREDIT_REPRODUCED"
+            echo "synthetic_naive_4_confirmation_policy=FALSE_CREDIT_REPRODUCED"
+            echo "G5_counterexample=PASS_canonical_hash_aware_confirmation_policy_rejects"
+            echo "qbft_generic_finalized_tag=UNPUBLISHED_AFTER_VALID_COMMITTED_BLOCK_IMPORT"
+            echo "G7_real_third_party_integration=OPEN_NOT_TESTED"
+            echo "financial_loss=NOT_CLAIMED"
+            echo "G4_reproducer=reports/electroneum/R/production_depth/consumer_finality_test.go"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: P2 persistent crash and replay checkpoints

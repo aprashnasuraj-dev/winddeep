@@ -1,1 +1,1 @@
-12-lower-authority-peer
+13-consumer-finality
