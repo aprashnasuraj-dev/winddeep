@@ -18,7 +18,7 @@ import (
 	ethproto "github.com/electroneum/electroneum-sc/eth/protocols/eth"
 	"github.com/electroneum/electroneum-sc/internal/ethapi"
 	"github.com/electroneum/electroneum-sc/p2p"
-	"github.com/electroneum/electroneum-sc/rlp"
+	qbftengine "github.com/electroneum/electroneum-sc/consensus/istanbul/engine"
 )
 
 type rP1HWireState struct {
@@ -220,14 +220,10 @@ func rP1HMakeSubquorum(t *testing.T, valid *types.Block, keys []*ecdsa.PrivateKe
 		t.Fatalf("R_P1H_BAD_VALIDATOR_COUNT got=%d", len(keys))
 	}
 	header := valid.Header()
-	msg := types.QBFTFilteredHeaderWithRound(header, 0)
-	if msg == nil {
-		t.Fatal("R_P1H_SUBQUORUM_FILTERED_HEADER_FAIL")
-	}
-	sealHash := crypto.Keccak256Hash(rlpHashForP1H(t, msg))
+	msg := qbftengine.PrepareCommittedSeal(header, 0)
 	seals := make([][]byte, 0, 2)
 	for _, key := range keys[:2] {
-		sig, err := crypto.Sign(sealHash.Bytes(), key)
+		sig, err := crypto.Sign(msg, key)
 		if err != nil {
 			t.Fatalf("R_P1H_SUBQUORUM_SIGN_FAIL: %v", err)
 		}
@@ -248,15 +244,6 @@ func rP1HMakeSubquorum(t *testing.T, valid *types.Block, keys []*ecdsa.PrivateKe
 		t.Fatal("R_P1H_SUBQUORUM_HASH_DID_NOT_CHANGE")
 	}
 	return invalid
-}
-
-func rlpHashForP1H(t *testing.T, header *types.Header) []byte {
-	t.Helper()
-	encoded, err := rlp.EncodeToBytes(header)
-	if err != nil {
-		t.Fatalf("R_P1H_FILTERED_HEADER_RLP_FAIL: %v", err)
-	}
-	return encoded
 }
 
 func rP1HSignedTx(t *testing.T, chain *core.BlockChain, key *ecdsa.PrivateKey, marker byte) *types.Transaction {
