@@ -59,8 +59,8 @@ func TestWorkerBFutureSequenceRoundChangeAdmission(t *testing.T) {
     maxSeq := new(big.Int).Add(currentSeq,new(big.Int).SetUint64(MaxFutureSequenceGap))
     hugeRound := new(big.Int).Lsh(big.NewInt(1),128)
     cases := []struct{name string; code uint64; seq,round *big.Int; admitted bool; future bool}{
-      {"same_sequence_normal_rc",qbfttypes.RoundChangeCode,new(big.Int).Set(currentSeq),new(big.Int).Set(maxRound),true,true},
-      {"same_sequence_huge_rc_rejected",qbfttypes.RoundChangeCode,new(big.Int).Set(currentSeq),new(big.Int).Set(hugeRound),false,true},
+      {"same_sequence_normal_rc",qbfttypes.RoundChangeCode,new(big.Int).Set(currentSeq),new(big.Int).Set(maxRound),true,false},
+      {"same_sequence_huge_rc_rejected",qbfttypes.RoundChangeCode,new(big.Int).Set(currentSeq),new(big.Int).Set(hugeRound),false,false},
       {"future_sequence_huge_rc_admitted",qbfttypes.RoundChangeCode,new(big.Int).Add(currentSeq,big.NewInt(1)),new(big.Int).Set(hugeRound),true,true},
       {"future_sequence_max_huge_rc_admitted",qbfttypes.RoundChangeCode,new(big.Int).Set(maxSeq),new(big.Int).Set(hugeRound),true,true},
       {"future_sequence_over_window_rejected",qbfttypes.RoundChangeCode,new(big.Int).Add(maxSeq,big.NewInt(1)),new(big.Int).Set(hugeRound),false,true},
