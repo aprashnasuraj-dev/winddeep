@@ -107,6 +107,7 @@ func auditRDownloaderScenario(t *testing.T, sequence []byte) {
  t.Logf("R_DOWNLOADER_STATEFUL_RECOVERY_PASS steps=%d",len(sequence))
 }
 func TestRDownloaderStatefulControls(t *testing.T){
+ auditRConcurrentPeerRace(t)
  for _,s:=range [][]byte{{0,2,1,2},{1,0,5,2},{3,4,5,2},{2,2,5,1,2}}{auditRDownloaderScenario(t,s)}
 }
 func FuzzRDownloaderCancelRace(f *testing.F){
@@ -117,4 +118,54 @@ func FuzzRDownloaderCancelRace(f *testing.F){
   if len(sequence)>48{return}
   auditRDownloaderScenario(t,sequence)
  })
+}
+
+// Concurrent cancellation-vs-delivery linearizability. Both operations enter
+// from one barrier, so either winning order is allowed, but no lost work or
+// double-acceptance is allowed. Run with -race to detect unsynchronized access.
+func auditRConcurrentPeerRace(t *testing.T) {
+ t.Helper()
+ for round:=0;round<24;round++{
+  f:=reverseDNewReceiptFixture(t)
+  peer:=dummyPeer(fmt.Sprintf("r-concurrent-peer-%d",round))
+  req,_,_:=f.q.ReserveReceipts(peer,3)
+  if req==nil||len(req.Headers)!=3{t.Fatal("race fixture failed to reserve 3 receipt tasks")}
+  raw,hashes:=reverseDReceiptData(t,f,req.Headers)
+  start:=make(chan struct{})
+  done:=make(chan struct{},2)
+  var accepted int
+  var deliverErr error
+  go func(){
+   <-start
+   if round%2==0{f.q.Revoke(peer.id)}else{f.q.ExpireReceipts(peer.id)}
+   done<-struct{}{}
+  }()
+  go func(){
+   <-start
+   accepted,deliverErr=f.q.DeliverReceipts(peer.id,raw,hashes)
+   done<-struct{}{}
+  }()
+  close(start);<-done;<-done
+  pending:=f.q.PendingReceipts()
+  if accepted==3{
+   if deliverErr!=nil||pending!=0{
+    t.Fatalf("R_DOWNLOADER_CONCURRENT_DOUBLE_SPEND: delivered=3 pending=%d err=%v",pending,deliverErr)
+   }
+  }else if accepted==0{
+   if deliverErr==nil||pending!=3{
+    t.Fatalf("R_DOWNLOADER_CONCURRENT_LOST_WORK: rejected delivery pending=%d err=%v",pending,deliverErr)
+   }
+   retry:=dummyPeer(fmt.Sprintf("r-concurrent-retry-%d",round))
+   req2,_,_:=f.q.ReserveReceipts(retry,3)
+   if req2==nil||len(req2.Headers)!=3{t.Fatal("requeued tasks unavailable after concurrent revoke")}
+   raw2,h2:=reverseDReceiptData(t,f,req2.Headers)
+   n,err:=f.q.DeliverReceipts(retry.id,raw2,h2)
+   if n!=3||err!=nil||f.q.PendingReceipts()!=0{
+    t.Fatalf("R_DOWNLOADER_CONCURRENT_RETRY_FAILED: count=%d err=%v",n,err)
+   }
+  }else{
+   t.Fatalf("R_DOWNLOADER_CONCURRENT_PARTIAL_ACCEPT: accepted=%d err=%v pending=%d",accepted,deliverErr,pending)
+  }
+ }
+ t.Log("R_DOWNLOADER_CONCURRENT_REVOKE_EXPIRE_DELIVER_LINEARIZABLE_PASS trials=24")
 }
