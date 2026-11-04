@@ -63,9 +63,12 @@ func rWriteCheckpoint(t *testing.T,db ethdb.Database,genesis,target *types.Block
  if stage.receipts{rawdb.WriteReceipts(db,target.Hash(),target.NumberU64(),receipts)}
  if stage.lookup{rawdb.WriteTxLookupEntriesByBlock(db,target)}
  if stage.head{
+  // Header sync is allowed to lead body/receipt/full-state persistence.
   rawdb.WriteHeadHeaderHash(db,target.Hash())
-  rawdb.WriteHeadFastBlockHash(db,target.Hash())
-  rawdb.WriteHeadBlockHash(db,target.Hash())
+  // Fast head only advances once body+receipts are jointly available.
+  if stage.body&&stage.receipts{rawdb.WriteHeadFastBlockHash(db,target.Hash())}
+  // Full head requires the completed checkpoint in this model.
+  if stage.body&&stage.receipts&&stage.lookup{rawdb.WriteHeadBlockHash(db,target.Hash())}
  }
  if _,_,err:=rawdb.PushUncleanShutdownMarker(db);err!=nil{t.Fatalf("R_PERSIST_CRASH_MARKER_FAIL: %v",err)}
 }
@@ -130,19 +133,23 @@ func TestRPersistentSyncCheckpointRestartMatrix(t *testing.T){
    if err!=nil{db.Close();t.Fatalf("R_PERSIST_BLOCKCHAIN_RESTART_FAIL stage=%s err=%v",stage.name,err)}
    head:=chain.CurrentBlock()
    if head==nil{chain.Stop();db.Close();t.Fatalf("R_PERSIST_RESTART_NIL_HEAD stage=%s",stage.name)}
-   // If the interrupted head had no body, loadLastState must not expose it as
-   // the current full block. With a body and generated state present, the block
-   // may legitimately be current even when receipts/indexing are still pending.
-   if !stage.body&&head.Hash()==target.Hash(){chain.Stop();db.Close();t.Fatalf("R_PERSIST_INCOMPLETE_HEAD_SURVIVED stage=%s",stage.name)}
+   // Canonical/header sync may legitimately be ahead of the full block head.
+   // Only the completed body+receipt+lookup checkpoint advances the full head.
+   if !stage.lookup&&head.Hash()==target.Hash(){chain.Stop();db.Close();t.Fatalf("R_PERSIST_FULL_HEAD_ADVANCED_EARLY stage=%s",stage.name)}
+   if stage.lookup&&head.Hash()!=target.Hash(){chain.Stop();db.Close();t.Fatalf("R_PERSIST_COMPLETE_HEAD_NOT_RESTORED stage=%s head=%s",stage.name,head.Hash())}
+   currentHeader:=chain.CurrentHeader()
+   if currentHeader==nil||currentHeader.Hash()!=target.Hash(){chain.Stop();db.Close();t.Fatalf("R_PERSIST_HEADER_HEAD_LOST stage=%s",stage.name)}
+   fast:=chain.CurrentFastBlock()
+   if stage.body&&stage.receipts {
+    if fast==nil||fast.Hash()!=target.Hash(){chain.Stop();db.Close();t.Fatalf("R_PERSIST_FAST_HEAD_NOT_RESTORED stage=%s",stage.name)}
+   } else if fast!=nil&&fast.Hash()==target.Hash(){chain.Stop();db.Close();t.Fatalf("R_PERSIST_FAST_HEAD_ADVANCED_EARLY stage=%s",stage.name)}
    if head.Hash()==target.Hash(){
     if rawdb.ReadBlock(db,target.Hash(),target.NumberU64())==nil{chain.Stop();db.Close();t.Fatalf("R_PERSIST_HEAD_WITHOUT_BLOCK stage=%s",stage.name)}
     if _,err:=chain.StateAt(target.Root());err!=nil{chain.Stop();db.Close();t.Fatalf("R_PERSIST_HEAD_STATE_MISSING stage=%s err=%v",stage.name,err)}
    }
    canonical:=chain.GetCanonicalHash(target.NumberU64())
-   if head.NumberU64()<target.NumberU64()&&canonical==target.Hash(){
-    chain.Stop();db.Close();t.Fatalf("R_PERSIST_CANONICAL_AHEAD_OF_RECOVERED_HEAD stage=%s",stage.name)
-   }
-   t.Logf("R_PERSIST_RESTART_STAGE_PASS stage=%s head=%d body=%t receipts=%t lookup=%t canonical_target=%t",stage.name,head.NumberU64(),stage.body,stage.receipts,stage.lookup,canonical==target.Hash())
+   if canonical!=target.Hash(){chain.Stop();db.Close();t.Fatalf("R_PERSIST_CANONICAL_HEADER_MAPPING_LOST stage=%s",stage.name)}
+   t.Logf("R_PERSIST_RESTART_STAGE_PASS stage=%s full_head=%d fast_head=%d header_head=%d body=%t receipts=%t lookup=%t",stage.name,head.NumberU64(),fast.NumberU64(),currentHeader.Number.Uint64(),stage.body,stage.receipts,stage.lookup)
    chain.Stop()
    if err:=db.Close();err!=nil{t.Fatal(err)}
   })
