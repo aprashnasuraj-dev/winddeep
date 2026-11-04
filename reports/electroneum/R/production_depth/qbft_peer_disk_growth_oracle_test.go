@@ -15,7 +15,6 @@ import (
     "syscall"
     "testing"
 
-    "github.com/electroneum/electroneum-sc/common"
     "github.com/electroneum/electroneum-sc/consensus/istanbul"
     istanbulbackend "github.com/electroneum/electroneum-sc/consensus/istanbul/backend"
     "github.com/electroneum/electroneum-sc/core"
