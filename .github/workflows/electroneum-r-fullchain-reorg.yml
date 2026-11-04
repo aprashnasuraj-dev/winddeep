@@ -1,0 +1,73 @@
+name: Electroneum Worker R Full Chain Transaction Reorganization Verification
+on:
+  push:
+    branches:
+      - 'audit/r-core-reorg-*'
+    paths:
+      - '.github/workflows/electroneum-r-fullchain-reorg.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  canonical-transactions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Pin checkout to triggering immutable SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bootstrap certified unmodified Electroneum source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = 7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = de7f3c75a2db7e87a89918f1257820703d5b731e
+      - name: Set up Go 1.24
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Full blockchain reorganization, transaction indexing and EIP155 controls
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 1GiB
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/r-fullchain" "$RUNNER_TEMP/r-fullchain-evidence"
+          cp -a "$WINDEEP_ETN_SOURCE"/. "$RUNNER_TEMP/r-fullchain"/
+          cd "$RUNNER_TEMP/r-fullchain"
+          set +e
+          go test -count=1 -timeout=8m -v -run '^(TestChainTxReorgs|TestReorgLongBlocks|TestReorgShortBlocks|TestEIP155Transition|TestTransactionIndices)$' ./core 2>&1 | tee "$RUNNER_TEMP/r-fullchain-evidence/fullchain.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          test "$(grep -c '^=== RUN   Test' "$RUNNER_TEMP/r-fullchain-evidence/fullchain.log")" -ge 5 || { echo R_FULLCHAIN_EXPECTED_TESTS_MISSING; exit 65; }
+          {
+            echo "## Worker R - full chain transaction reorg controls"
+            echo "Trigger SHA: $GITHUB_SHA"
+            echo "Certified target commit: $WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT"
+            echo "Certified target tree: $WINDEEP_ETN_SOURCE_TREE_SHA"
+            echo "Go test exit: $rc"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "R_FULLCHAIN_REORG_TEST_EXIT=$rc"
+          test "$rc" -eq 0
+      - name: Verify certified repository source remains unchanged
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code -- vendor/electroneum-sc
+      - name: Preserve full-chain test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r-fullchain-${{ github.run_id }}
+          path: ${{ runner.temp }}/r-fullchain-evidence/
+          retention-days: 14
+          if-no-files-found: warn
