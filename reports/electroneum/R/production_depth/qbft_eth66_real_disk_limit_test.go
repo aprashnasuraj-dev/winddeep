@@ -25,12 +25,14 @@ import (
     istanbulbackend "github.com/electroneum/electroneum-sc/consensus/istanbul/backend"
     "github.com/electroneum/electroneum-sc/core"
     "github.com/electroneum/electroneum-sc/core/forkid"
+    "github.com/electroneum/electroneum-sc/core/types"
     "github.com/electroneum/electroneum-sc/core/rawdb"
     "github.com/electroneum/electroneum-sc/core/vm"
     "github.com/electroneum/electroneum-sc/crypto"
     "github.com/electroneum/electroneum-sc/eth/downloader"
     ethproto "github.com/electroneum/electroneum-sc/eth/protocols/eth"
     "github.com/electroneum/electroneum-sc/p2p"
+    "github.com/electroneum/electroneum-sc/rlp"
 )
 
 type rG6WireSpy struct{ p2p.MsgReadWriter }
@@ -41,7 +43,7 @@ func (s *rG6WireSpy) WriteMsg(m p2p.Msg) error {
     }
     return err
 }
-type rG6DiskMeta struct { TxHash common.Hash; BlockHash common.Hash; KeyHex string }
+type rG6DiskMeta struct { TxHash common.Hash; BlockHash common.Hash; KeyHex string; BlockRLP string }
 
 func TestRQBFTWireDiskLimitCrashChild(t *testing.T){
     if os.Getenv("R_G6_WIRE_LIMIT_CHILD")!="1"{return}
@@ -65,7 +67,9 @@ func TestRQBFTWireDiskLimitCrashChild(t *testing.T){
         t.Fatalf("R_G6_REMOTE_BLOCK_NOT_QBFT_VALID: %v",err)
     }
     keyHex:=hex.EncodeToString(crypto.FromECDSA(f.validatorKeys[0]))
-    meta:=rG6DiskMeta{TxHash:remoteTx.Hash(),BlockHash:block.Hash(),KeyHex:keyHex}
+    rlpBytes,err:=rlp.EncodeToBytes(block)
+    if err!=nil{t.Fatal(err)}
+    meta:=rG6DiskMeta{TxHash:remoteTx.Hash(),BlockHash:block.Hash(),KeyHex:keyHex,BlockRLP:hex.EncodeToString(rlpBytes)}
     encoded,err:=json.Marshal(meta)
     if err!=nil{t.Fatal(err)}
     if err:=os.WriteFile(os.Getenv("R_G6_META_PATH"),encoded,0600);err!=nil{t.Fatal(err)}
@@ -157,6 +161,28 @@ func TestRQBFTWireDiskLimitPeerDelivery(t *testing.T){
             full,canon,tx,receipt)
     }
     t.Logf("R_G6_PEER_TRIGGERED_LOCAL_AVAILABILITY_FAIL_VALID_QUORUM disk_limit=64B_wal_growth exit=1 latest=0 receipts_visible=0")
+    // Recovery counterexample: restoring disk write capacity alone leaves the
+    // node at genesis. A real QBFT-valid reimport is required to catch up.
+    blockBytes,err:=hex.DecodeString(meta.BlockRLP)
+    if err!=nil{t.Fatal(err)}
+    var recoveredBlock types.Block
+    if err:=rlp.DecodeBytes(blockBytes,&recoveredBlock);err!=nil{t.Fatal(err)}
+    if recoveredBlock.Hash()!=meta.BlockHash {
+        t.Fatalf("R_G6_REMOTE_BLOCK_RLP_DID_NOT_MATCH got=%s want=%s",recoveredBlock.Hash(),meta.BlockHash)
+    }
+    if err:=backend.VerifyHeader(chain,recoveredBlock.Header(),true);err!=nil {
+        t.Fatalf("R_G6_RECOVERY_NOT_QUORUM_VALID err=%v",err)
+    }
+    if n,err:=chain.InsertChain(types.Blocks{&recoveredBlock});err!=nil {
+        t.Fatalf("R_G6_POST_CAPACITY_RESTORE_IMPORT_FAILED index=%d err=%v",n,err)
+    }
+    now:=chain.CurrentBlock()
+    receipt,_,_,_=rawdb.ReadReceipt(db,meta.TxHash,cfg)
+    if now==nil || now.Hash()!=meta.BlockHash || receipt==nil ||
+        receipt.TxHash!=meta.TxHash || receipt.Status!=types.ReceiptStatusSuccessful {
+        t.Fatalf("R_G6_POST_CAPACITY_RESTORE_STATE_BAD head=%v receipt=%v",now,receipt)
+    }
+    t.Log("R_G6_DISK_CAPACITY_RESTORED_QBFT_REIMPORT_PASS full=1 receipt_visible=1 seals=3")
     if err:=backend.Stop();err!=nil{t.Fatal(err)}
     chain.Stop()
     if err:=db.Close();err!=nil{t.Fatal(err)}
