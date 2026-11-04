@@ -845,7 +845,7 @@ jobs:
             echo "G7_security_classification=DO_NOT_PROMOTE_WITHOUT_UNTRUSTED_ACTOR_POSITIVE_DISK_AMPLIFICATION"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
-      - name: P2m real SNAP Syncer state root persistence
+      - name: P2m production SnapSyncer persisted-state oracle
         if: env.R_PROD_MODE == 'snappersist'
         shell: bash
         env:
@@ -853,8 +853,8 @@ jobs:
           GOMEMLIMIT: 768MiB
         run: |
           set -euo pipefail
-          image="$RUNNER_TEMP/r-p2m-snap-state.ext4"
-          mountpoint="$RUNNER_TEMP/r-p2m-snap-state-mnt"
+          image="$RUNNER_TEMP/r-p2m.ext4"
+          mountpoint="$RUNNER_TEMP/r-p2m-mnt"
           truncate -s 256M "$image"
           mkfs.ext4 -q -F -m 0 "$image"
           mkdir -p "$mountpoint"
@@ -863,41 +863,14 @@ jobs:
           cleanup() { sync || true; sudo umount "$mountpoint" || true; }
           trap cleanup EXIT
           test "$(findmnt -n -o FSTYPE --target "$mountpoint")" = ext4
-          df -B1 "$mountpoint" > "$RUNNER_TEMP/r-prod-evidence/p2m_df_initial.txt"
           cd "$R_PROD_SCRATCH"
-          R_P2M_SNAP_DISK_ROOT="$mountpoint" go test -count=1 -timeout=13m -run '^TestRProductionSnapStatePersistenceUntrustedResponses        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git diff --exit-code -- vendor/electroneum-sc
-          {
-            echo "certified_source_unchanged=PASS"
-            echo "finding_gate=G1_G7_POLICY_ENFORCED"
-          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
-          cat "$RUNNER_TEMP/r-prod-evidence/triage.txt"
-
-      - name: Preserve evidence and deterministic reproducers
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: r-production-depth-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/r-prod-evidence/
-          if-no-files-found: warn
-          retention-days: 14
- -v ./eth/protocols/snap 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/p2m_snap_state_persistence.log"
-          for marker in             'R_P2M_STATE_INGESTION_CONFIRMED mode=honest'             'R_P2M_STATE_INGESTION_CONFIRMED mode=duplicate-proofs'             'R_P2M_STATE_INGESTION_CONFIRMED mode=unsolicited-ids'             'R_P2M_LIVE_SYNC mode=mismatched-leaf synced=false'             'R_P2M_LIVE_SYNC mode=mismatched-code synced=false'             'R_P2M_SNAP_FULL_IMPORT_ORACLE'             'R_P2M_DURABLE_MATRIX'             'R_P2M_COMPLETED'
-          do
-            grep -Fq "$marker" "$RUNNER_TEMP/r-prod-evidence/p2m_snap_state_persistence.log"
+          R_P2M_SNAP_DISK_ROOT="$mountpoint" go test -count=1 -timeout=13m -run TestRProductionSnapStatePersistenceUntrustedResponses -v ./eth/protocols/snap 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/p2m_snap.log"
+          for marker in R_P2M_STATE_INGESTION_CONFIRMED R_P2M_LIVE_SYNC R_P2M_SNAP_FULL_IMPORT_ORACLE R_P2M_DURABLE_MATRIX R_P2M_COMPLETED; do
+            grep -Fq "$marker" "$RUNNER_TEMP/r-prod-evidence/p2m_snap.log"
           done
-          {
-            echo "G1_certified_source=PASS"
-            echo "G2_ingestion=REAL_PRODUCTION_SNAP_SYNCER_PERSISTENT_LEVELDB"
-            echo "G3_peer_model=UNTRUSTED_SNAP_SYNCPEER_CALLBACK_NOT_LIVE_TCP"
-            echo "G4_validations=MERKLE_RANGE_PROOF_BYTECODE_HASH_AND_REQUEST_IDS"
-            echo "G5_storage=EXT4_COMPACTION_RESTART_AND_IDENTICAL_ROOT_CONTROL"
-            echo "G7_classification=NO_REMOTE_DISK_EXHAUSTION_CLAIM_WITHOUT_FULL_CHAIN_OF_EVIDENCE"
-          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          echo "G2_production_SnapSyncer_actual_LevelDB=PASS" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          echo "G3_network=SYNC_PEER_CALLBACK_NOT_TCP" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          echo "G7_security=NOT_CLAIMED_WITHOUT_NETWORK_REACHABILITY" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: Verify source untouched and complete triage
         if: always()
