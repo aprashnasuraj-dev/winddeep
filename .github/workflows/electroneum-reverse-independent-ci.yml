@@ -5,6 +5,7 @@ on:
     paths:
       - .github/workflows/electroneum-reverse-independent-ci.yml
       - 'reports/electroneum/C/reverse/**'
+      - 'reports/electroneum/C/reports/fixtures/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -238,6 +239,32 @@ jobs:
           if [ "$rc" -eq 0 ]; then echo REVERSE_R_C_IMPORT_ORACLE_UNEXPECTED_PASS; exit 65; fi
           grep -Fq 'REVERSE_C_EXPORT_IMPORT_FAIL_CLOSED_ORACLE_MISMATCH' "$RUNNER_TEMP/reverse-r-import-original.log" || { echo REVERSE_R_C_IMPORT_ORACLE_NONSECURITY_FAILURE; exit 66; }
           echo "REVERSE_R_C_EXPORT_IMPORT_ORIGINAL_REJECTED exit=$rc"
+      - name: Reverse unrecovered exported keystore import process propagation
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$REVERSE_R_SCRATCH"
+          set +e
+          go test -count=1 -timeout=10m -run '^TestReverseCExportedImportUnrecoveredPanic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/C/reports/fixtures/reverse_c_import_salt_guard.py "$REVERSE_R_SCRATCH/accounts/keystore/passphrase.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestReverseCExportedImportFailClosedOracle$' -v ./accounts/keystore
+          cd "$GITHUB_WORKSPACE"
+          sha256sum --check "$RUNNER_TEMP/reverse-r-keystore-immutable.sha256"
+          echo REVERSE_R_C_KEYSTORE_GUARD_SENSITIVITY_PASS
+ -v ./accounts/keystore > "$RUNNER_TEMP/reverse-r-import-unrecovered.log" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/reverse-r-import-unrecovered.log"
+          if [ "$rc" -eq 0 ]; then echo REVERSE_R_C_UNRECOVERED_IMPORT_UNEXPECTED_PASS; exit 65; fi
+          grep -Fq 'REVERSE_C_UNRECOVERED_IMPORT_BEGIN' "$RUNNER_TEMP/reverse-r-import-unrecovered.log" || { echo REVERSE_R_C_UNRECOVERED_IMPORT_MISSING_BEGIN; exit 66; }
+          grep -Fq 'interface conversion: interface {} is nil, not string' "$RUNNER_TEMP/reverse-r-import-unrecovered.log" || { echo REVERSE_R_C_UNRECOVERED_IMPORT_WRONG_FAILURE; exit 67; }
+          grep -Fq 'accounts/keystore.(*KeyStore).Import' "$RUNNER_TEMP/reverse-r-import-unrecovered.log" || { echo REVERSE_R_C_UNRECOVERED_IMPORT_STACK_MISSING; exit 68; }
+          echo "REVERSE_R_C_UNRECOVERED_IMPORT_PROCESS_FAILURE_CONFIRMED exit=$rc"
+
       - name: Reverse scratch-only keystore salt guard sensitivity
         shell: bash
         run: |
