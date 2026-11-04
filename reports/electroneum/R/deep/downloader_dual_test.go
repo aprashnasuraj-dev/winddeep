@@ -4,7 +4,6 @@ package downloader
 
 import (
  "fmt"
- "sort"
  "sync"
  "testing"
 
