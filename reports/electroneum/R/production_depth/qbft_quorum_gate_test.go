@@ -84,6 +84,7 @@ func rQBFTFixtureNew(t *testing.T, n int) *rQBFTFixture {
 	number := new(big.Int).Add(parent.Number(), common.Big1)
 	header := &types.Header{
 		ParentHash: parent.Hash(),
+		Coinbase:   be.Address(),
 		Number:     number,
 		GasLimit:   core.CalcGasLimit(parent.GasLimit(), parent.GasLimit()),
 		GasUsed:    0,
