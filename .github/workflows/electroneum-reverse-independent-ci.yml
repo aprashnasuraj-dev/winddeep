@@ -188,3 +188,13 @@ jobs:
           cd "$REVERSE_R_SCRATCH"
           go test -count=1 -timeout=15m -run '^TestReverseDReceiptRestartAndExpiry$' -v ./eth/downloader
           echo REVERSE_R_D_RESTART_EXPIRY_REGRESSION_PASS
+
+      - name: Reverse local header rollback and restart integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod u+w "$REVERSE_R_SCRATCH/core"
+          cp reports/electroneum/C/reports/fixtures/reverse_d_header_restart_test.go "$REVERSE_R_SCRATCH/core/worker_r_reverse_d_header_restart_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=15m -run '^TestReverseDHeaderRollbackRestart$' -v ./core
+          echo REVERSE_R_D_RESTART_CANONICALITY_MATRIX_PASS
