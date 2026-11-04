@@ -38,7 +38,7 @@
       "A"
     ],
     "withinWorker": "most recently discovered active unresolved candidate first; skip disproven or resolved exact claims",
-    "cursor": 8,
+    "cursor": 9,
     "advanceOnlyAfter": "falsification with accepted runtime controls or documented proof of unreproducibility, otherwise leave WAITING_CI and rotate independent new evidence",
     "queue": [
       {
@@ -109,13 +109,15 @@
         "id": "C-001",
         "category": "C",
         "focus": "private RPC hardware wallet initialize mnemonic, card permission and default refusal",
-        "status": "ACTIVE"
+        "status": "DISPROVEN_AS_DEFAULT_REMOTE_SECRET_LEAK__EXPLICIT_PERSONAL_EXPOSURE_ADMIN_RISK",
+        "ciRun": 41748823191,
+        "lastEvidence": "Certified Go: unknown/unsupported wallet return empty result+error; personal API Public=false; RPC error/panic responses suppress mnemonic-shaped result; default HTTP/WS modules exclude personal. Successful callback returns mnemonic by documented design. Explicitly allowlisting personal remains dangerous operator configuration; InitializeWallet lacks UnlockAccount's ExtRPCEnabled insecure-unlock guard, but real smartcard unauthorized initialization path unproven."
       },
       {
         "id": "B-ROUND-STATE-ALIAS",
         "category": "B",
         "focus": "2^64 startNewRound reset with F+1 authenticated transition reachability",
-        "status": "QUEUED"
+        "status": "ACTIVE"
       },
       {
         "id": "B-ROUND-63",
@@ -145,25 +147,18 @@
   },
   "liveCampaign": {
     "workflow": ".github/workflows/electroneum-reverse-independent-ci.yml",
-    "runId": 41747899973,
-    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41747899973",
+    "runId": 41748823191,
+    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41748823191",
     "status": "COMPLETED_SUCCESS",
-    "jobId": 126305410395,
-    "triggerSha": "38ea75088822606739b54e1f9551930fde02c137",
-    "firstCase": "C-002 process propagation",
-    "concurrentClassRunsMax": 1,
-    "closedAfter": [
-      "REVERSE_C_EXPORTED_IMPORT_PANIC_OBSERVED missing_salt/numeric_salt/invalid_aes_ctr_iv",
-      "REVERSE_C_EXPORT_IMPORT_FAIL_CLOSED_ORACLE_MISMATCH exit=1",
-      "REVERSE_R_C_UNRECOVERED_IMPORT_PROCESS_FAILURE_CONFIRMED exit=1",
-      "REVERSE_C_EXPORT_IMPORT_FAIL_CLOSED_ORACLE_PASS after scratch salt guard"
-    ]
+    "firstCase": "C-001",
+    "jobId": 126308503168,
+    "concurrentClassRunsMax": 1
   },
   "confirmedFindingGate": "Only reproduce plus attacker-controlled lower-trust production path plus concrete impact; four headings exactly; never insert status/hypothesis material",
   "pausedOtherAutomations": false,
-  "reportedAt": "2026-11-04 Asia/Kathmandu live run",
-  "currentObjective": "C-001: independent reverse audit of PrivateAccountAPI.InitializeWallet mnemonic return, default namespace exposure, smart-card pairing/initialization controls, and whether any lower-trust caller can obtain a newly generated phrase.",
-  "nextAction": "Continue C-001 source/runtime falsification in R-only files; do not touch A-E. If hardware dependency blocks faithful runtime proof, document the exact boundary and rotate to B rather than simulating a false exploit.",
+  "reportedAt": "2026-11-04 Asia/Kathmandu",
+  "currentObjective": "B-ROUND-STATE-ALIAS: reverse-test whether the 2^64 round-state alias can cross authenticated QBFT admission; challenge with F+1 distinct validators, MaxFutureRoundGap boundary, backlog path, and direct low-level alias control.",
+  "nextAction": "Execute independent certified core Go fixture: prove direct Uint64 map alias exists, then test actual handleRoundChange/backlog paths reject 2^64 before truncation; preserve normal +1/+15 controls. If admission blocks it, downgrade exploitability and move to B-ROUND-63.",
   "schedule": {
     "chatgptAutomationCreation": "BLOCKED_MAX_5_ACTIVE_TASKS",
     "existingAutomations": "A-E remain enabled and untouched",
