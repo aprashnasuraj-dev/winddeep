@@ -75,6 +75,21 @@ jobs:
           grep -Fq FINALIZED_QBFT_3_OF_4_CANONICAL_POSITIVE_PASS "$RUNNER_TEMP/evidence5-logs/02_finalized_header.log"
           grep -Fq FINALIZED_GETBLOCK_RETURNS_NULL_CONFIRMED "$RUNNER_TEMP/evidence5-logs/02_finalized_header.log"
           grep -Fq FINALIZED_GETHEADER_NIL_DEREFERENCE_CONFIRMED "$RUNNER_TEMP/evidence5-logs/02_finalized_header.log"
+      - name: Smartcard code-path and concurrency model
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/evidence5/reproduce_smartcard.py "$SOURCE" 2>&1 | tee "$RUNNER_TEMP/evidence5-logs/03_smartcard_source.log"
+          grep -Fq SMARTCARD_SOURCE_STATUS_BEFORE_LOCK_AND_LOADKEY_PASS "$RUNNER_TEMP/evidence5-logs/03_smartcard_source.log"
+          grep -Fq SMARTCARD_TWO_PRECHECKS_CAN_REACH_LOAD_ATTEMPT_IN_MODEL "$RUNNER_TEMP/evidence5-logs/03_smartcard_source.log"
+          grep -Fq SMARTCARD_FIRMWARE_ONE_TIME_INIT_CONTROL_BLOCKS_SECOND_LOAD "$RUNNER_TEMP/evidence5-logs/03_smartcard_source.log"
+      - name: QBFT reward location and fork accounting invariant
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/evidence5/reproduce_rewards.py "$SOURCE" 2>&1 | tee "$RUNNER_TEMP/evidence5-logs/05_reward_source.log"
+          grep -Fq REWARD_REAL_QBFT_CREDIT_LOCATION_PASS "$RUNNER_TEMP/evidence5-logs/05_reward_source.log"
+          grep -Fq REWARD_CANONICAL_BRANCH_ORACLE_PASS "$RUNNER_TEMP/evidence5-logs/05_reward_source.log"
       - name: Source immutable
         if: always()
         shell: bash
@@ -89,6 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           cp reports/electroneum/evidence5/*.go "$RUNNER_TEMP/evidence5-logs/"
+          cp reports/electroneum/evidence5/*.py "$RUNNER_TEMP/evidence5-logs/"
           sha256sum "$RUNNER_TEMP/evidence5-logs/"*.go > "$RUNNER_TEMP/evidence5-logs/SOURCE_SHA256.txt"
       - uses: actions/upload-artifact@v4
         if: always()
