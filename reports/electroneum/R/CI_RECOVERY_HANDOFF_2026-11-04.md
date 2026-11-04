@@ -58,6 +58,22 @@
 - Scope: the consumer is synthetic. **No real exchange integration, financial loss, or arbitrary remote exploit is claimed.**
 - Superseded red runs [41778274857](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41778274857) and [41778309547](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41778309547) are harness-only build failures (wrong QBFT decoder call; then incomplete helper mount set). They are not source findings.
 
+## External integration review after P1i
+
+Public-source review did **not** justify promoting the synthetic consumer model to a real explorer/exchange exploit.
+
+- Electroneum Smart Chain's public project description states that its Istanbul/QBFT-derived consensus provides immediate/1-block finality and that valid blocks are not expected to have ordinary concurrent forks. This reinforces the actor boundary from P1h: the demonstrated competing branch requires quorum authority beyond the normal fault model, rather than an ordinary peer-triggered reorg.
+- The official Smart Chain explorer repository (`electroneum/electroneum-sc-block-explorer`, inspected at commit `0d4d3e2dd62f834e2620bcd3ebc77aaeb963d1c6`) contains explicit reorg handling. Its `Explorer.Chain.confirmations/2` returns confirmations only for `consensus: true` blocks and returns `{:error, :non_consensus}` otherwise. Its import regression tests also require receipt fields to be cleared when a transaction ends up in a non-consensus block after reorganization.
+- The explorer indexer contains block-hash mismatch logic that explicitly identifies a reorg. These are concrete counterexamples to assuming the official explorer simply trusts height-only confirmation arithmetic.
+- Therefore **official explorer display impact remains NOT DEMONSTRATED**. A transient race would need a dedicated explorer-level reproducer that survives its own reorg/indexing safeguards before category-E impact can be claimed.
+- The legacy Electroneum exchange guide's five-confirmation recommendation belongs to the retired legacy chain and must not be used as proof of Smart Chain exchange behavior.
+
+References:
+- https://github.com/electroneum/electroneum-sc
+- https://github.com/electroneum/electroneum-sc-block-explorer/blob/0d4d3e2dd62f834e2620bcd3ebc77aaeb963d1c6/apps/explorer/lib/explorer/chain.ex
+- https://github.com/electroneum/electroneum-sc-block-explorer/blob/0d4d3e2dd62f834e2620bcd3ebc77aaeb963d1c6/apps/explorer/test/explorer/chain/import_test.exs
+- https://github.com/electroneum/electroneum-sc-block-explorer/blob/0d4d3e2dd62f834e2620bcd3ebc77aaeb963d1c6/apps/indexer/lib/indexer/block/fetcher.ex
+
 ## Next nonredundant evidence gates
 1. **Real third-party integration evidence:** only strengthen invariant E beyond the synthetic model if an actual wallet/explorer/exchange integration can be verified to credit on `mined` or height-only confirmations without canonical block identity/reorg handling. Do not infer this from the SDK alone.
 2. **Alternative lower-authority protocol-valid reorg model:** only if a concrete mechanism exists that can create a canonical replacement without validator quorum. P1h already disproves the tested 2-of-4 subquorum path; do not manufacture impossible QBFT states.
