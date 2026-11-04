@@ -47,6 +47,7 @@ func auditRReorgScenario(t *testing.T, script []byte) {
     auditRCheckReceipt(t,f,f.oldTx,oldBlock,false)
    }
   case 1: // completed reorg, old removed, replacement becomes canonical
+   rawdb.WriteTxLookupEntriesByBlock(f.backend.db,f.newBlock)
    reverseSwitchCanonical(f)
    auditRCheckReceipt(t,f,f.oldTx,oldBlock,false)
    auditRCheckReceipt(t,f,f.newTx,newBlock,true)
@@ -55,6 +56,7 @@ func auditRReorgScenario(t *testing.T, script []byte) {
     rawdb.WriteCanonicalHash(f.backend.db,oldBlock,1)
     rawdb.WriteTxLookupEntriesByBlock(f.backend.db,f.oldBlock)
    }
+   rawdb.WriteTxLookupEntriesByBlock(f.backend.db,f.newBlock)
    f.backend.flipOnReceipts=true
    response,err:=f.api.GetTransactionReceipt(context.Background(),f.oldTx.Hash())
    if f.backend.flips<1{t.Fatalf("R_REORG_INJECTION_MISSED: action=%d",i)}
