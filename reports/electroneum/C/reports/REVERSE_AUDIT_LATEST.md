@@ -247,3 +247,12 @@ REVERSE_R_CANONICAL_GUARD_SENSITIVITY_CERTIFIED_SOURCE_INTACT_PASS
 - **Configuration caveat:** explicit `--http.api personal` or `--ws.api personal` allowlisting can expose the private namespace. `RegisterApis` honors explicit module allowlists. `UnlockAccount` has an `ExtRPCEnabled` + insecure-unlock guard whereas `InitializeWallet` does not. That is a hardening asymmetry and dangerous operator configuration, but no unauthorized real-smartcard initialization was reproduced; pairing/open/device state remains a prerequisite.
 - **Infrastructure failures excluded:** earlier C-001 runs failed only due R fixture import alias and incomplete stub backend; neither executed a security assertion and neither is an Electroneum defect.
 - **Reverse cursor:** advance to **B-ROUND-STATE-ALIAS**, then B-ROUND-63, B-ROUND-32, then A. Existing A–E work remains read-only.
+
+## 2026-11-04 — Reverse passes 10–11/14: B 2^64 and 2^63 defects contained by admission window
+
+- **Certified CI:** [41749154241](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41749154241), job `126310141202`, COMPLETED/SUCCESS.
+- **2^64:** direct `roundChangeSet` storage aliases round `0` and `2^64` — `REVERSE_B_LOW_LEVEL_2POW64_ALIAS_CONFIRMED`. But F+1=2 distinct validator-source ROUND-CHANGE attempts at `2^64` from current round 0 were dropped before map insertion: `REVERSE_B_2POW64_FPLUS1_ADMISSION_BLOCKED_PASS threshold=2 maxFutureGap=15`.
+- **Boundary control:** exact current+15 admitted; +16 dropped — `REVERSE_B_FUTURE_ROUND_BOUNDARY_PASS`.
+- **2^63:** direct `MaxRound` reconstructs unsigned map key `2^63` as signed `-9223372036854775808`: `REVERSE_B_2POW63_SIGNED_RECONSTRUCTION_CONFIRMED`. F+1 handler attempts at `2^63` were dropped before storage: `REVERSE_B_2POW63_HANDLER_REJECTS_PASS`.
+- **Classification:** real low-level numeric defects, **no demonstrated consensus-security reachability** through the tested authenticated/post-signature ROUND-CHANGE handler. The full-width `big.Int` comparison against `current+MaxFutureRoundGap` occurs before `Uint64` storage or signed reconstruction.
+- **Next:** B-ROUND-32 committed-seal domain alias. Default QBFT timeout 10s, capped at 60s; sequentially reaching 2^32 rounds without a committed block is roughly 8,000 years at the cap, but runtime signing-domain behavior still requires independent R confirmation.
