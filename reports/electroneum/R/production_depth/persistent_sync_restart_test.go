@@ -5,6 +5,8 @@ package core
 
 import (
  "math/big"
+ "os"
+ "os/exec"
  "path/filepath"
  "testing"
 
@@ -185,4 +187,107 @@ func TestRPersistentCommitmentCorruptionControls(t *testing.T){
   }
  }
  t.Log("R_PERSIST_CORRUPTION_CONTROL_DETECTED_PASS")
+}
+
+
+func rAbruptStage(name string) (rPersistStage, bool) {
+ switch name {
+ case "receipt_before_body":
+  return rPersistStage{name:name,receipts:true,head:true},true
+ case "body_before_receipt":
+  return rPersistStage{name:name,body:true,head:true},true
+ case "body_receipt_no_lookup":
+  return rPersistStage{name:name,body:true,receipts:true,head:true},true
+ case "complete":
+  return rPersistStage{name:name,body:true,receipts:true,lookup:true,head:true},true
+ default:
+  return rPersistStage{},false
+ }
+}
+
+// Child-only helper. The parent invokes the current Go test binary and this
+// function exits the entire process without closing LevelDB, after all writes
+// for one sync checkpoint have returned. This models an unclean process loss
+// between persistence stages (not a torn sector inside an individual Put).
+func TestRPersistentSubprocessAbruptExitChild(t *testing.T) {
+ stageName:=os.Getenv("R_PERSIST_CHILD_STAGE")
+ if stageName=="" { return }
+ stage,ok:=rAbruptStage(stageName);if !ok{t.Fatalf("R_PERSIST_CHILD_BAD_STAGE %q",stageName)}
+ path:=os.Getenv("R_PERSIST_CHILD_PATH");if path==""{t.Fatal("R_PERSIST_CHILD_PATH missing")}
+ db:=rOpenPersist(t,path)
+ _,target,receipts,_:=rPersistFixture(t,db)
+ genesis:=rawdb.ReadBlock(db,rawdb.ReadCanonicalHash(db,0),0)
+ if genesis==nil{t.Fatal("R_PERSIST_CHILD_GENESIS_MISSING")}
+ rWriteCheckpoint(t,db,genesis,target,receipts,stage)
+ // Intentionally do not Stop/Close/flush through application teardown.
+ // Individual LevelDB Put calls have returned; process termination happens
+ // between stage writes, which is the crash boundary being tested.
+ os.Exit(97)
+}
+
+func TestRPersistentSubprocessAbruptExitRecovery(t *testing.T) {
+ for _,stageName:=range []string{"receipt_before_body","body_before_receipt","body_receipt_no_lookup","complete"}{
+  t.Run(stageName,func(t *testing.T){
+   stage,_:=rAbruptStage(stageName)
+   path:=filepath.Join(t.TempDir(),"chaindata")
+   cmd:=exec.Command(os.Args[0],"-test.run=^TestRPersistentSubprocessAbruptExitChild$","-test.v")
+   cmd.Env=append(os.Environ(),"R_PERSIST_CHILD_STAGE="+stageName,"R_PERSIST_CHILD_PATH="+path)
+   output,err:=cmd.CombinedOutput()
+   if err==nil{t.Fatalf("R_PERSIST_CHILD_DID_NOT_EXIT_ABRUPTLY stage=%s output=%s",stageName,output)}
+   exitErr,ok:=err.(*exec.ExitError)
+   if !ok||exitErr.ExitCode()!=97{t.Fatalf("R_PERSIST_CHILD_WRONG_EXIT stage=%s err=%v output=%s",stageName,err,output)}
+
+   db:=rOpenPersist(t,path)
+   targetHash:=rawdb.ReadCanonicalHash(db,1)
+   if targetHash==(common.Hash{}){db.Close();t.Fatalf("R_PERSIST_ABRUPT_CANONICAL_MISSING stage=%s",stageName)}
+   header:=rawdb.ReadHeader(db,targetHash,1)
+   if header==nil{db.Close();t.Fatalf("R_PERSIST_ABRUPT_HEADER_MISSING stage=%s",stageName)}
+   body:=rawdb.ReadBody(db,targetHash,1)
+   rawReceipts:=rawdb.ReadRawReceipts(db,targetHash,1)
+   if stage.body!=(body!=nil){db.Close();t.Fatalf("R_PERSIST_ABRUPT_BODY_STAGE_MISMATCH stage=%s present=%t",stageName,body!=nil)}
+   if stage.receipts!=(rawReceipts!=nil){db.Close();t.Fatalf("R_PERSIST_ABRUPT_RECEIPT_STAGE_MISMATCH stage=%s present=%t",stageName,rawReceipts!=nil)}
+   if body!=nil{
+    if root:=types.DeriveSha(types.Transactions(body.Transactions),trie.NewStackTrie(nil));root!=header.TxHash{
+     db.Close();t.Fatalf("R_PERSIST_ABRUPT_TX_ROOT_MISMATCH stage=%s",stageName)
+    }
+   }
+   if rawReceipts!=nil{
+    if root:=types.DeriveSha(rawReceipts,trie.NewStackTrie(nil));root!=header.ReceiptHash{
+     db.Close();t.Fatalf("R_PERSIST_ABRUPT_RECEIPT_ROOT_MISMATCH stage=%s",stageName)
+    }
+   }
+   if stage.lookup{
+    if body==nil||len(body.Transactions)==0{db.Close();t.Fatal("R_PERSIST_ABRUPT_LOOKUP_FIXTURE_MISSING_TX")}
+    tx:=body.Transactions[0]
+    found,blockHash,number,_:=rawdb.ReadTransaction(db,tx.Hash())
+    if found==nil||found.Hash()!=tx.Hash()||blockHash!=targetHash||number!=1{db.Close();t.Fatalf("R_PERSIST_ABRUPT_LOOKUP_LOST stage=%s",stageName)}
+   } else if body!=nil&&len(body.Transactions)>0{
+    if entry:=rawdb.ReadTxLookupEntry(db,body.Transactions[0].Hash());entry!=nil{db.Close();t.Fatalf("R_PERSIST_ABRUPT_LOOKUP_ADVANCED_EARLY stage=%s",stageName)}
+   }
+   previous,_,err:=rawdb.PushUncleanShutdownMarker(db)
+   if err!=nil||len(previous)==0{db.Close();t.Fatalf("R_PERSIST_ABRUPT_UNCLEAN_MARKER_MISSING stage=%s previous=%v err=%v",stageName,previous,err)}
+
+   // Restart the real blockchain on the uncleanly terminated database.
+   cfg:=rawdb.ReadChainConfig(db,rawdb.ReadCanonicalHash(db,0))
+   if cfg==nil{db.Close();t.Fatalf("R_PERSIST_ABRUPT_CHAIN_CONFIG_MISSING stage=%s",stageName)}
+   chain,err:=NewBlockChain(db,nil,cfg,ethash.NewFaker(),vm.Config{},nil,nil)
+   if err!=nil{db.Close();t.Fatalf("R_PERSIST_ABRUPT_BLOCKCHAIN_RESTART_FAIL stage=%s err=%v",stageName,err)}
+   full:=chain.CurrentBlock();fast:=chain.CurrentFastBlock();head:=chain.CurrentHeader()
+   if head==nil||head.Hash()!=targetHash{chain.Stop();db.Close();t.Fatalf("R_PERSIST_ABRUPT_HEADER_HEAD_LOST stage=%s",stageName)}
+   if stage.body&&stage.receipts{
+    if fast==nil||fast.Hash()!=targetHash{chain.Stop();db.Close();t.Fatalf("R_PERSIST_ABRUPT_FAST_HEAD_LOST stage=%s",stageName)}
+   } else if fast!=nil&&fast.Hash()==targetHash{
+    chain.Stop();db.Close();t.Fatalf("R_PERSIST_ABRUPT_FAST_HEAD_ADVANCED_EARLY stage=%s",stageName)
+   }
+   if stage.lookup{
+    if full==nil||full.Hash()!=targetHash{chain.Stop();db.Close();t.Fatalf("R_PERSIST_ABRUPT_FULL_HEAD_LOST stage=%s",stageName)}
+   } else if full!=nil&&full.Hash()==targetHash{
+    chain.Stop();db.Close();t.Fatalf("R_PERSIST_ABRUPT_FULL_HEAD_ADVANCED_EARLY stage=%s",stageName)
+   }
+   t.Logf("R_PERSIST_ABRUPT_EXIT_RESTART_PASS stage=%s full=%d fast=%d header=%d",stageName,full.NumberU64(),fast.NumberU64(),head.Number.Uint64())
+   chain.Stop()
+   if err:=db.Close();err!=nil{t.Fatal(err)}
+  })
+ }
+ t.Log("R_PERSIST_ABRUPT_EXIT_MATRIX_PASS")
 }
