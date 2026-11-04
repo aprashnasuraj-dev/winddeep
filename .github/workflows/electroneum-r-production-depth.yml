@@ -54,6 +54,7 @@ jobs:
             15-leveldb-batch-write) mode=batchfault ;;
             16-fsize-qbft-reachability) mode=realos ;;
             17-enospc-peer-threshold) mode=enospc ;;
+            18-disk-growth-oracle) mode=growth ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -175,7 +176,7 @@ jobs:
               cp reports/electroneum/R/production_depth/qbft_storage_fault_reachability_test.go "$scratch/eth/worker_r_qbft_storage_fault_test.go"
               cp reports/electroneum/R/production_depth/qbft_eth66_real_disk_limit_test.go "$scratch/eth/worker_r_qbft_eth66_disk_limit_test.go"
               ;;
-            enospc)
+            enospc|growth)
               chmod u+w "$scratch/core"
               cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
               cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_helper_test.go"
@@ -190,6 +191,9 @@ jobs:
               cp reports/electroneum/R/production_depth/qbft_storage_fault_reachability_test.go "$scratch/eth/worker_r_qbft_storage_fault_helper_test.go"
               cp reports/electroneum/R/production_depth/qbft_eth66_real_disk_limit_test.go "$scratch/eth/worker_r_qbft_eth66_disk_limit_helper_test.go"
               cp reports/electroneum/R/production_depth/qbft_real_enospc_peer_threshold_test.go "$scratch/eth/worker_r_qbft_real_enospc_threshold_test.go"
+              if [ "$R_PROD_MODE" = growth ]; then
+                cp reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go "$scratch/eth/worker_r_qbft_disk_growth_test.go"
+              fi
               ;;
             consumerfinality)
               chmod u+w "$scratch/eth"
@@ -649,6 +653,63 @@ jobs:
             echo "validator_bypass=DISPROVEN_NOT_ATTEMPTED_peer_serves_existing_valid_quorum_block"
             echo "G7_concrete_impact=LOCAL_NODE_FATAL_EXIT_ONLY_no_third_party_financial_loss"
             echo "filesystem=REAL_EXT4_LOOPBACK_ENOSPC"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P2i ETH66 peer disk-growth versus direct canonical baseline
+        if: env.R_PROD_MODE == 'growth'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/r-g6-disk-growth.ext4"
+          mountpoint="$RUNNER_TEMP/r-g6-disk-growth-mnt"
+          truncate -s 128M "$image"
+          mkfs.ext4 -q -F -m 0 "$image"
+          mkdir -p "$mountpoint"
+          sudo mount -o loop "$image" "$mountpoint"
+          sudo chown "$(id -u):$(id -g)" "$mountpoint"
+          cleanup() {
+            sync || true
+            sudo umount "$mountpoint" || true
+          }
+          trap cleanup EXIT
+          test "$(findmnt -n -o FSTYPE --target "$mountpoint")" = ext4
+          df -B1 "$mountpoint" > "$RUNNER_TEMP/r-prod-evidence/disk_growth_df.txt"
+          cd "$R_PROD_SCRATCH"
+          R_G6_DISK_GROWTH_ROOT="$mountpoint" go test -count=1 -timeout=12m -run '^TestRQBFTWireDiskGrowthBaseline        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code -- vendor/electroneum-sc
+          {
+            echo "certified_source_unchanged=PASS"
+            echo "finding_gate=G1_G7_POLICY_ENFORCED"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          cat "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: Preserve evidence and deterministic reproducers
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r-production-depth-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/r-prod-evidence/
+          if-no-files-found: warn
+          retention-days: 14
+ -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/disk_growth.log"
+          grep -Fq 'R_G6_DISK_GROWTH_PROFILE profile=small-valid' "$RUNNER_TEMP/r-prod-evidence/disk_growth.log"
+          grep -Fq 'R_G6_DISK_GROWTH_PROFILE profile=large-valid-256k' "$RUNNER_TEMP/r-prod-evidence/disk_growth.log"
+          grep -Fq 'R_G6_DISK_GROWTH_BASELINE_PASS' "$RUNNER_TEMP/r-prod-evidence/disk_growth.log"
+          {
+            echo "G2_positive_control=PASS_real_ETH66_block_and_canonical_receipt"
+            echo "G3_named_oracle=MEASURE_physical_LevelDB_allocation_vs_identical_direct_ImportChain"
+            echo "G4_reproducer=reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go"
+            echo "G5_counterexample=PASS_small_vs_large_valid_blocks_and_direct_canonical_import"
+            echo "G6_attacker_driven_disk_exhaustion=NOT_ESTABLISHED_repeat_body_traffic_must_be_measured_separately"
+            echo "G7_impact=NONE_CLAIMED_from_disk_growth_measurement"
+            echo "classification=BASELINE_ONLY_review_log_ratios_before_security_promotion"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: Verify source untouched and complete triage
