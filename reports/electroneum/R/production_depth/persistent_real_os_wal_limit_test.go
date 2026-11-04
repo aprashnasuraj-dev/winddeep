@@ -21,7 +21,6 @@ import (
     "syscall"
     "testing"
 
-    "github.com/electroneum/electroneum-sc/common"
     "github.com/electroneum/electroneum-sc/consensus/ethash"
     "github.com/electroneum/electroneum-sc/core/rawdb"
     "github.com/electroneum/electroneum-sc/core/types"
