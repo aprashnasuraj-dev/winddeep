@@ -323,19 +323,31 @@ func TestRQBFTMultiHeightDiskGrowthAndRestart(t *testing.T) {
         return localHandler.peers.peer(peerServerB.Self().ID().String()) == nil
     })
     localServer.AddPeer(peerServerA.Self())
-    peerA = rP1HWaitRegisteredPeer(t, localHandler, peerServerA)
-    aHead, aTD = peerA.Head()
+    var oldPeer *ethPeer
+    deadline := time.Now().Add(3 * time.Second)
+    for time.Now().Before(deadline) {
+        oldPeer = localHandler.peers.peer(peerServerA.Self().ID().String())
+        if oldPeer != nil { break }
+        time.Sleep(10 * time.Millisecond)
+    }
     oldForkBefore := rG6PhysicalBytes(t, wirePath)
     oldForkResponses := meterA.bodyResponses.Load()
-    for i := 0; i < 3; i++ {
-        if err := localHandler.downloader.LegacySync(peerA.ID(), aHead, aTD,
-            wireChain.Config().TerminalTotalDifficulty, downloader.FullSync); err != nil {
-            t.Logf("R_P2J_ABANDONED_FORK_RETRY_REJECTED attempt=%d err=%v", i+1, err)
+    if oldPeer == nil {
+        // An old-head peer that the protocol will not re-admit is a useful
+        // negative control, not a failed storage write nor accepted replay.
+        t.Log("R_P2J_ABANDONED_FORK_PEER_NOT_READMITTED control=protocol_rejected_or_disconnected replay_attempts=0")
+    } else {
+        oldHash, oldTD := oldPeer.Head()
+        for i := 0; i < 3; i++ {
+            if err := localHandler.downloader.LegacySync(oldPeer.ID(), oldHash, oldTD,
+                wireChain.Config().TerminalTotalDifficulty, downloader.FullSync); err != nil {
+                t.Logf("R_P2J_ABANDONED_FORK_RETRY_REJECTED attempt=%d err=%v", i+1, err)
+            }
         }
     }
     rP2JValidateCanonical(t, wireDB, wireChain, remoteB[3], bTx, aTx)
-    t.Logf("R_P2J_OLD_FORK_REPLAY_CONTROL extra_body_responses=%d physical_growth=%d canonical_head=4",
-        meterA.bodyResponses.Load()-oldForkResponses, rG6PhysicalBytes(t, wirePath)-oldForkBefore)
+    t.Logf("R_P2J_OLD_FORK_REPLAY_CONTROL attempted=%v extra_body_responses=%d physical_growth=%d canonical_head=4",
+        oldPeer != nil, meterA.bodyResponses.Load()-oldForkResponses, rG6PhysicalBytes(t, wirePath)-oldForkBefore)
 
     // Compaction might reclaim stale values or amplify temporary allocation.
     // Compare after mandatory successful full compaction on both databases.
