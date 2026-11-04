@@ -7,19 +7,15 @@ package eth
 
 import (
     "bytes"
-    "crypto/ecdsa"
     "fmt"
     "io"
     "math"
-    "math/big"
     "os"
     "path/filepath"
     "sync"
     "testing"
     "time"
 
-    "github.com/electroneum/electroneum-sc/consensus/istanbul"
-    "github.com/electroneum/electroneum-sc/core"
     "github.com/electroneum/electroneum-sc/core/rawdb"
     "github.com/electroneum/electroneum-sc/core/types"
     "github.com/electroneum/electroneum-sc/crypto"
