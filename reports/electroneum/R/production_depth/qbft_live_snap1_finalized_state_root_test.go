@@ -117,9 +117,9 @@ type rP2NStateSource struct {
     accountRLP map[common.Hash][]byte
     storage map[common.Hash]*trie.Trie
 }
-func rP2NSource(t *testing.T,db ethdb.Database,root common.Hash)*rP2NStateSource {
+func rP2NSource(t *testing.T,db ethdb.Database,root common.Hash,triedb *trie.Database)*rP2NStateSource {
     t.Helper()
-    tr,err:=trie.New(root,trie.NewDatabase(db))
+    tr,err:=trie.New(root,triedb)
     if err!=nil{t.Fatal(err)}
     s:=&rP2NStateSource{db:db,root:root,account:tr,accountRLP:make(map[common.Hash][]byte),
         storage:make(map[common.Hash]*trie.Trie)}
@@ -132,7 +132,7 @@ func rP2NSource(t *testing.T,db ethdb.Database,root common.Hash)*rP2NStateSource
         s.accounts=append(s.accounts,&snap.AccountData{Hash:h,Body:slim})
         s.accountRLP[h]=append([]byte(nil),it.Value...)
         if a.Root!=types.EmptyRootHash {
-            storageTrie,err:=trie.New(a.Root,trie.NewDatabase(db))
+            storageTrie,err:=trie.New(a.Root,triedb)
             if err!=nil{t.Fatalf("R_P2N_STORAGE_TRIE_ROOT_LOOKUP_FAIL root=%s err=%v",a.Root,err)}
             s.storage[h]=storageTrie
         }
@@ -437,7 +437,7 @@ func TestRQBFTFinalizedRootLiveSnap1StateIngestion(t *testing.T) {
     extra,err:=types.ExtractQBFTExtra(finalized.Header());if err!=nil{t.Fatal(err)}
     if len(extra.CommittedSeal)!=3{t.Fatalf("R_P2N_BAD_QBFT_QUORUM %d",len(extra.CommittedSeal))}
     stateRoot:=finalized.Root()
-    source:=rP2NSource(t,db,stateRoot)
+    source:=rP2NSource(t,db,stateRoot,chain.StateCache().TrieDB())
     if len(source.storage)==0||len(source.accounts)<96 {t.Fatal("R_P2N_FIXTURE_MISSING_STORAGE_OR_ACCOUNTS")}
     t.Logf("R_P2N_QBFT_FINALIZED_ROOT_VERIFIED block_number=%d block_hash=%s state_root=%s committed_seals=%d validator_count=4 state_accounts=%d contract_tries=%d attacker_validator_keys=0",
         finalized.NumberU64(),finalized.Hash(),stateRoot,len(extra.CommittedSeal),len(source.accounts),len(source.storage))
