@@ -8,7 +8,7 @@ import (
  "math/big"
  "testing"
 
- "github.com/electroneum/electroneum-sc"
+ electroneum "github.com/electroneum/electroneum-sc"
  "github.com/electroneum/electroneum-sc/accounts"
  "github.com/electroneum/electroneum-sc/core/types"
  "github.com/electroneum/electroneum-sc/event"
