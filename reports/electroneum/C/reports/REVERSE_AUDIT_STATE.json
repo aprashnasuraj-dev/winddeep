@@ -77,7 +77,9 @@
         "id": "D-PARTIAL-RECEIPT",
         "category": "D",
         "focus": "receipt partial prefix/cancel/retry, rewind and restart consistency",
-        "status": "ACTIVE"
+        "status": "TESTED_REVOKE_REPLAY_RETRY_CONTROLS_PASS__RESTART_AND_OFFSET_OPEN",
+        "ciRun": 41746131665,
+        "lastEvidence": "Certified Go downloader queue: 4 independent subtests PASS, revoked stale peer rejected (3 assigned to replacement), accepted 1-prefix + 2-suffix after second peer revoke, replay rejected, malformed RLP rejected and 3 valid retried. No vulnerability in these tested states. Reset/Prepare during pending fetch and full downloader restart remain untested."
       },
       {
         "id": "D-HEADER-ROLLBACK",
@@ -137,26 +139,25 @@
   },
   "liveCampaign": {
     "workflow": ".github/workflows/electroneum-reverse-independent-ci.yml",
-    "runId": 41745455574,
-    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41745455574",
+    "runId": 41746131665,
+    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41746131665",
     "status": "COMPLETED_SUCCESS",
-    "jobId": 126297338355,
-    "triggerSha": "8c2a28cd75792baf2b3b4bc69a0c1812f364ffe8",
-    "firstCase": "E-RPC-002",
+    "jobId": 126299468491,
+    "triggerSha": "ed9d1bda1e100d31cdf70118626f25aa1df7e106",
+    "firstCase": "D-PARTIAL-RECEIPT",
     "concurrentClassRunsMax": 1,
     "closedAfter": [
-      "REVERSE_E_FEE_HIGH_TRUNCATION_OBSERVED london=true",
-      "REVERSE_E_FEE_HIGH_TRUNCATION_OBSERVED london=false",
-      "REVERSE_E_FEE_FULLWIDTH_ORACLE_MISMATCH",
-      "REVERSE_R_E_FEE_ORACLE_REJECTED_ORIGINAL exit=1"
-    ],
-    "mutationSensitivity": "UNTESTED: scratch correction file creation tool rejected"
+      "REVERSE_D_RECEIPT_REVOKED_STALE_PEER_REJECTED_PASS reassigned=3",
+      "REVERSE_D_RECEIPT_PREFIX_REVOKE_RETRY_PASS accepted=1+2",
+      "REVERSE_D_RECEIPT_DUPLICATE_REPLAY_REJECTED_PASS",
+      "REVERSE_D_RECEIPT_INVALID_RLP_NO_LOSS_PASS"
+    ]
   },
   "confirmedFindingGate": "Only reproduce plus attacker-controlled lower-trust production path plus concrete impact; four headings exactly; never insert status/hypothesis material",
   "pausedOtherAutomations": false,
   "reportedAt": "2026-11-04 Asia/Kathmandu",
-  "currentObjective": "D-PARTIAL-RECEIPT: independently falsify downloader receipt queue valid-prefix/invalid-suffix, reordering, Revoke and cancel/restart recoverability; compare queue state to trie-root independent oracle.",
-  "nextAction": "Read certified eth/downloader/queue.go plus prior worker D fixture, build R-only independent batch retry and Revoke adversarial Go fixture, run certified Actions with no E-RPC-002 overlap.",
+  "currentObjective": "D-PARTIAL-RECEIPT continuation: test downloader q.Prepare/Reset versus pending valid receipt delivery, resultStore.GetDeliverySlot stale nil result branch and real production chronology before claiming process DoS.",
+  "nextAction": "Build R-only certified Go fixture for receipt resultCache offset transition while fetch is pending, plus controls Revoke-before-offset and genuine Reset; trace whether downloader.go:592 Prepare can occur after fetchers launch (it appears to occur before). Then continue D-HEADER-ROLLBACK.",
   "schedule": {
     "chatgptAutomationCreation": "BLOCKED_MAX_5_ACTIVE_TASKS",
     "existingAutomations": "A-E remain enabled and untouched",
