@@ -64,8 +64,9 @@ func TestRDeepRPCBatchBaseline(t *testing.T){
  // The result should not be a successful rpc_modules response when the
  // actual body is larger than 5 MiB, regardless of declared length.
  server:=NewServer();defer server.Stop()
- oversize:="{"jsonrpc":"2.0","id":1,"method":"rpc_modules","params":[],"extra":""+strings.Repeat("a",5*1024*1024)+""}"
- req:=httptest.NewRequest(http.MethodPost,"http://example.invalid/rpc",strings.NewReader(oversize))
+ payload,err:=json.Marshal(map[string]interface{}{"jsonrpc":"2.0","id":1,"method":"rpc_modules","params":[]interface{}{},"extra":strings.Repeat("a",5*1024*1024)})
+ if err!=nil{t.Fatal(err)}
+ req:=httptest.NewRequest(http.MethodPost,"http://example.invalid/rpc",bytes.NewReader(payload))
  req.Header.Set("Content-Type","application/json")
  req.ContentLength=-1
  rec:=httptest.NewRecorder();server.ServeHTTP(rec,req)
