@@ -288,6 +288,13 @@ func TestRQBFTMultiHeightDiskGrowthAndRestart(t *testing.T) {
     directAfterB := rG6PhysicalBytes(t, directPath)
     rP2JValidateCanonical(t, directDB, directChain, remoteB[3], bTx, aTx)
 
+    // The existing fixture's p2p.Server limits active peers. Explicitly
+    // detach A before dialing B, so a connection-capacity failure cannot be
+    // mistaken for QBFT/downloader behavior.
+    localServer.RemovePeer(peerServerA.Self())
+    rWaitFor(t, 5*time.Second, "R_P2J_A_PEER_NOT_REMOVED", func() bool {
+        return localHandler.peers.peer(peerServerA.Self().ID().String()) == nil
+    })
     wireBeforeB := rG6PhysicalBytes(t, wirePath)
     localServer.AddPeer(peerServerB.Self())
     peerB := rP1HWaitRegisteredPeer(t, localHandler, peerServerB)
@@ -311,6 +318,13 @@ func TestRQBFTMultiHeightDiskGrowthAndRestart(t *testing.T) {
     // A well-behaved full-node peer serving the old, shorter chain cannot
     // simply roll canonical state back. If the downloaded old body is replayed
     // despite a smaller TD, this stage measures its disk side-effects.
+    localServer.RemovePeer(peerServerB.Self())
+    rWaitFor(t, 5*time.Second, "R_P2J_B_PEER_NOT_REMOVED", func() bool {
+        return localHandler.peers.peer(peerServerB.Self().ID().String()) == nil
+    })
+    localServer.AddPeer(peerServerA.Self())
+    peerA = rP1HWaitRegisteredPeer(t, localHandler, peerServerA)
+    aHead, aTD = peerA.Head()
     oldForkBefore := rG6PhysicalBytes(t, wirePath)
     oldForkResponses := meterA.bodyResponses.Load()
     for i := 0; i < 3; i++ {
