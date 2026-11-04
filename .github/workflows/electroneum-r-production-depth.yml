@@ -55,6 +55,7 @@ jobs:
             16-fsize-qbft-reachability) mode=realos ;;
             17-enospc-peer-threshold) mode=enospc ;;
             18-disk-growth-oracle) mode=growth ;;
+            19-multiheight-oracle) mode=multifork ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -176,7 +177,7 @@ jobs:
               cp reports/electroneum/R/production_depth/qbft_storage_fault_reachability_test.go "$scratch/eth/worker_r_qbft_storage_fault_test.go"
               cp reports/electroneum/R/production_depth/qbft_eth66_real_disk_limit_test.go "$scratch/eth/worker_r_qbft_eth66_disk_limit_test.go"
               ;;
-            enospc|growth)
+            enospc|growth|multifork)
               chmod u+w "$scratch/core"
               cp reports/electroneum/R/production_depth/persistent_sync_restart_test.go "$scratch/core/worker_r_persist_helper_test.go"
               cp reports/electroneum/R/production_depth/persistent_wal_fault_test.go "$scratch/core/worker_r_wal_helper_test.go"
@@ -193,6 +194,9 @@ jobs:
               cp reports/electroneum/R/production_depth/qbft_real_enospc_peer_threshold_test.go "$scratch/eth/worker_r_qbft_real_enospc_threshold_test.go"
               if [ "$R_PROD_MODE" = growth ]; then
                 cp reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go "$scratch/eth/worker_r_qbft_disk_growth_test.go"
+              fi
+              if [ "$R_PROD_MODE" = multifork ]; then
+                cp reports/electroneum/R/production_depth/qbft_multiheight_disk_replay_restart_test.go "$scratch/eth/worker_r_qbft_multiheight_disk_test.go"
               fi
               ;;
             consumerfinality)
@@ -690,6 +694,48 @@ jobs:
             echo "G6_attacker_driven_disk_exhaustion=NOT_ESTABLISHED_repeat_body_traffic_must_be_measured_separately"
             echo "G7_impact=NONE_CLAIMED_from_disk_growth_measurement"
             echo "classification=BASELINE_ONLY_review_log_ratios_before_security_promotion"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P2j multi-height ETH66 fork replay compaction restart
+        if: env.R_PROD_MODE == 'multifork'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/r-p2j-multifork.ext4"
+          mountpoint="$RUNNER_TEMP/r-p2j-multifork-mnt"
+          truncate -s 128M "$image"
+          mkfs.ext4 -q -F -m 0 "$image"
+          mkdir -p "$mountpoint"
+          sudo mount -o loop "$image" "$mountpoint"
+          sudo chown "$(id -u):$(id -g)" "$mountpoint"
+          cleanup() {
+            sync || true
+            sudo umount "$mountpoint" || true
+          }
+          trap cleanup EXIT
+          test "$(findmnt -n -o FSTYPE --target "$mountpoint")" = ext4
+          df -B1 "$mountpoint" > "$RUNNER_TEMP/r-prod-evidence/p2j_df_initial.txt"
+          cd "$R_PROD_SCRATCH"
+          R_P2J_DISK_ROOT="$mountpoint" go test -count=1 -timeout=16m -run '^TestRQBFTMultiHeightDiskGrowthAndRestart$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/p2j_multifork.log"
+          grep -Fq 'R_P2J_MULTIHEIGHT_A_BASELINE' "$RUNNER_TEMP/r-prod-evidence/p2j_multifork.log"
+          grep -Fq 'R_P2J_DUPLICATE_REPLAY_OBSERVATION' "$RUNNER_TEMP/r-prod-evidence/p2j_multifork.log"
+          grep -Fq 'R_P2J_ABANDONED_FORK_BASELINE' "$RUNNER_TEMP/r-prod-evidence/p2j_multifork.log"
+          grep -Fq 'R_P2J_OLD_FORK_REPLAY_CONTROL' "$RUNNER_TEMP/r-prod-evidence/p2j_multifork.log"
+          grep -Fq 'R_P2J_COMPACTION_MATRIX' "$RUNNER_TEMP/r-prod-evidence/p2j_multifork.log"
+          grep -Fq 'R_P2J_RESTART_PERSISTENCE_PASS' "$RUNNER_TEMP/r-prod-evidence/p2j_multifork.log"
+          grep -Fq 'R_P2J_P2J_VALIDATED' "$RUNNER_TEMP/r-prod-evidence/p2j_multifork.log"
+          {
+            echo "G1_certified_source=PASS"
+            echo "G2_real_ETH66_multiheight=PASS_quorum_signed_3_and_4_block_chains"
+            echo "G3_storage_oracle=MEASURE_physical_allocation_vs_identical_direct_import_for_canonical_and_abandoned_forks"
+            echo "G4_reproducer=reports/electroneum/R/production_depth/qbft_multiheight_disk_replay_restart_test.go"
+            echo "G5_replay_and_compaction_controls=CAPTURED_see_p2j_multifork.log"
+            echo "G6_unprivileged_peer_fork_authority=NOT_ESTABLISHED_prior_subquorum_rejected"
+            echo "G7_security_impact=NOT_AUTOMATIC_from_storage_growth"
+            echo "classification=MEASUREMENT_ONLY_not_remotely_exploitable_until_positive_actor_path_proved"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: Verify source untouched and complete triage
