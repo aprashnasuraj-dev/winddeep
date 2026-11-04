@@ -41,6 +41,7 @@ jobs:
             02-persist-restart) mode=persist ;;
             03-parser-budgets) mode=parser ;;
             04-priority-consensus) mode=priority ;;
+            05-persist-abrupt-exit) mode=persist ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -127,6 +128,10 @@ jobs:
           go test -count=1 -timeout=10m -run '^TestRPersistent' -v ./core 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/persist.log"
           grep -Fq 'R_PERSIST_RESTART_STAGE_PASS stage=complete' "$RUNNER_TEMP/r-prod-evidence/persist.log"
           grep -Fq 'R_PERSIST_CORRUPTION_CONTROL_DETECTED_PASS' "$RUNNER_TEMP/r-prod-evidence/persist.log"
+          if [ "$R_PROD_SELECTOR" = "05-persist-abrupt-exit" ]; then
+            grep -Fq 'R_PERSIST_ABRUPT_EXIT_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/persist.log"
+            echo "abrupt_process_exit_without_db_close=PASS" >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+          fi
           {
             echo "G2_positive_control=PASS"
             echo "G3_named_oracle=PASS_commitment_and_restart_matrix"
