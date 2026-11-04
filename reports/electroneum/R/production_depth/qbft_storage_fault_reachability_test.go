@@ -17,6 +17,7 @@ import (
     "os/signal"
     "path/filepath"
     "sort"
+    "strconv"
     "strings"
     "syscall"
     "testing"
@@ -96,24 +97,41 @@ func rQBFTEngine(t *testing.T,db ethdb.Database,signer *ecdsa.PrivateKey)(*core.
     }
     return chain,be
 }
-func rQBFTReadFixture(t *testing.T)(*types.Block,*ecdsa.PrivateKey) {
+func rQBFTReadFixture(t *testing.T)(types.Blocks,*ecdsa.PrivateKey) {
     t.Helper()
     data,err:=os.ReadFile(os.Getenv("R_QBFT_FAULT_BLOCK_RLP"))
     if err!=nil{t.Fatal(err)}
-    var block types.Block
-    if err:=rlp.DecodeBytes(data,&block);err!=nil{t.Fatal(err)}
+    var blocks types.Blocks
+    if err:=rlp.DecodeBytes(data,&blocks);err!=nil{t.Fatal(err)}
+    if len(blocks)!=2 || blocks[0]==nil || blocks[1]==nil ||
+        blocks[1].ParentHash()!=blocks[0].Hash() {
+        t.Fatal("R_QBFT_COMMITTED_CHAIN_FIXTURE_NOT_LINKED")
+    }
     keyBytes,err:=hex.DecodeString(os.Getenv("R_QBFT_FAULT_KEY_HEX"))
     if err!=nil{t.Fatal(err)}
     key,err:=crypto.ToECDSA(keyBytes)
     if err!=nil{t.Fatal(err)}
-    return &block,key
+    return blocks,key
+}
+func rQBFTCopyGenesisDisk(t *testing.T,src,dst string) {
+    t.Helper()
+    if err:=os.MkdirAll(dst,0700);err!=nil{t.Fatal(err)}
+    entries,err:=os.ReadDir(src)
+    if err!=nil{t.Fatal(err)}
+    for _,e:=range entries{
+        if e.IsDir(){t.Fatalf("R_QBFT_DB_UNEXPECTED_SUBDIR %s",e.Name())}
+        data,err:=os.ReadFile(filepath.Join(src,e.Name()))
+        if err!=nil{t.Fatal(err)}
+        if err:=os.WriteFile(filepath.Join(dst,e.Name()),data,0600);err!=nil{t.Fatal(err)}
+    }
 }
 
 func TestRQBFTStorageCrashChild(t *testing.T) {
     if os.Getenv("R_QBFT_STORAGE_CHILD")!="1"{return}
     mode:=os.Getenv("R_QBFT_STORAGE_MODE")
     path:=os.Getenv("R_QBFT_STORAGE_DB")
-    block,key:=rQBFTReadFixture(t)
+    blocks,key:=rQBFTReadFixture(t)
+    block:=blocks[0]
     disk:=rQBFTOpenDisk(t,path)
     var db ethdb.Database=disk
     if mode=="head_after" {db=&rQBFTCrashDB{Database:disk}}
@@ -127,9 +145,15 @@ func TestRQBFTStorageCrashChild(t *testing.T) {
         t.Fatalf("R_QBFT_SIGNER_QUORUM_FAILED: count=%d err=%v",len(signers),err)
     }
     fmt.Fprintf(os.Stderr,"R_QBFT_DEFAULT_VERIFIER_ACCEPTED mode=%s signatures=%d validators=4\n",mode,len(signers))
-    if mode=="os_fsize"{
+    if mode=="os_fsize" || mode=="os_fsize_late"{
         wal,n:=rQBFTActiveWAL(t,path)
-        limit:=uint64(n+64)
+        extra:=int64(64)
+        if mode=="os_fsize_late"{
+            firstGrowth,parseErr:=strconv.ParseInt(os.Getenv("R_QBFT_FAULT_FIRST_BLOCK_GROWTH"),10,64)
+            if parseErr!=nil||firstGrowth<=0 {t.Fatalf("R_QBFT_BAD_CALIBRATION %v growth=%d",parseErr,firstGrowth)}
+            extra=firstGrowth+32
+        }
+        limit:=uint64(n+extra)
         signal.Ignore(syscall.SIGXFSZ)
         if err:=syscall.Setrlimit(syscall.RLIMIT_FSIZE,&syscall.Rlimit{Cur:limit,Max:limit});err!=nil{t.Fatal(err)}
         err:=os.WriteFile(filepath.Join(t.TempDir(),"os-ebig-proof"),make([]byte,int(limit)+4096),0600)
@@ -139,7 +163,9 @@ func TestRQBFTStorageCrashChild(t *testing.T) {
         t.Fatalf("R_QBFT_BAD_CHILD_MODE %s",mode)
     }
     fmt.Fprintf(os.Stderr,"R_QBFT_VALID_BLOCK_IMPORT_START mode=%s\n",mode)
-    _,err=chain.InsertChain(types.Blocks{block})
+    pending:=types.Blocks{block}
+    if mode=="os_fsize_late"{pending=blocks}
+    _,err=chain.InsertChain(pending)
     t.Fatalf("R_QBFT_FATAL_EXIT_MISSING mode=%s err=%v",mode,err)
 }
 
@@ -150,6 +176,10 @@ func TestRProductionQBFTStorageCrashMatrix(t *testing.T){
     defer f.close()
     tx:=rP1HSignedTx(t,f.remoteChain,senderKey,0xA7)
     block:=rQBFTBuildAndImport(t,f.remoteChain,f.remoteQBFT,f.remoteDB,f.validatorKeys,f.validators,tx)
+    next:=rQBFTBuildAndImport(t,f.remoteChain,f.remoteQBFT,f.remoteDB,f.validatorKeys,f.validators,nil)
+    if next==nil || next.NumberU64()!=2 || next.ParentHash()!=block.Hash(){
+        t.Fatal("R_QBFT_SECOND_QUORUM_BLOCK_NOT_CONTIGUOUS")
+    }
     if block==nil||block.NumberU64()!=1{
         t.Fatal("R_QBFT_VALID_BLOCK_NOT_CREATED")
     }
@@ -176,25 +206,39 @@ func TestRProductionQBFTStorageCrashMatrix(t *testing.T){
         t.Fatalf("R_QBFT_GENESIS_ONLY_FAILED got=%s want=%s",g.Hash(),block.ParentHash())
     }
     if err:=db.Close();err!=nil{t.Fatal(err)}
-    encoded,err:=rlp.EncodeToBytes(block)
+    encoded,err:=rlp.EncodeToBytes(types.Blocks{block,next})
     if err!=nil{t.Fatal(err)}
     blockFile:=filepath.Join(dir,"committed_block.rlp")
     if err:=os.WriteFile(blockFile,encoded,0600);err!=nil{t.Fatal(err)}
     keyHex:=hex.EncodeToString(crypto.FromECDSA(f.validatorKeys[0]))
-    for _,mode:=range []string{"head_after","os_fsize"}{
+    // Calibrate the real WAL byte growth of a successfully committed first
+    // QBFT block using an independent disk clone and the same shipped engine.
+    // This targets the *second* block write with a real kernel EFBIG fault.
+    calibDir:=filepath.Join(dir,"qbft-calibration")
+    rQBFTCopyGenesisDisk(t,path,calibDir)
+    calibDB:=rQBFTOpenDisk(t,calibDir)
+    calibChain,calibEngine:=rQBFTEngine(t,calibDB,f.validatorKeys[0])
+    _,beforeBytes:=rQBFTActiveWAL(t,calibDir)
+    if i,err:=calibChain.InsertChain(types.Blocks{block});err!=nil{
+        t.Fatalf("R_QBFT_CALIBRATION_FIRST_BLOCK_IMPORT_FAIL index=%d err=%v",i,err)
+    }
+    _,afterBytes:=rQBFTActiveWAL(t,calibDir)
+    firstBlockGrowth:=afterBytes-beforeBytes
+    if firstBlockGrowth<=0{
+        t.Fatalf("R_QBFT_CALIBRATION_NO_WAL_ADVANCE before=%d after=%d",beforeBytes,afterBytes)
+    }
+    t.Logf("R_QBFT_REAL_WAL_BLOCK_ONE_CALIBRATED growth_bytes=%d",firstBlockGrowth)
+    if err:=calibEngine.Stop();err!=nil{t.Fatal(err)}
+    calibChain.Stop()
+    if err:=calibDB.Close();err!=nil{t.Fatal(err)}
+
+    for _,mode:=range []string{"head_after","os_fsize","os_fsize_late"}{
         t.Run(mode,func(t *testing.T){
             runDir:=filepath.Join(t.TempDir(),"chaindata")
             if err:=os.MkdirAll(runDir,0700);err!=nil{t.Fatal(err)}
             // Copy completed Genesis LevelDB only, not the in-memory validator
             // chain that generated the block (which is a distinct database).
-            entries,err:=os.ReadDir(path)
-            if err!=nil{t.Fatal(err)}
-            for _,e:=range entries{
-                if e.IsDir(){t.Fatal("R_QBFT_DB_UNEXPECTED_SUBDIR")}
-                data,err:=os.ReadFile(filepath.Join(path,e.Name()))
-                if err!=nil{t.Fatal(err)}
-                if err:=os.WriteFile(filepath.Join(runDir,e.Name()),data,0600);err!=nil{t.Fatal(err)}
-            }
+            rQBFTCopyGenesisDisk(t,path,runDir)
             child:=exec.Command(os.Args[0],"-test.run=^TestRQBFTStorageCrashChild$","-test.v")
             child.Env=append(os.Environ(),
                 "R_QBFT_STORAGE_CHILD=1",
@@ -202,6 +246,7 @@ func TestRProductionQBFTStorageCrashMatrix(t *testing.T){
                 "R_QBFT_STORAGE_DB="+runDir,
                 "R_QBFT_FAULT_BLOCK_RLP="+blockFile,
                 "R_QBFT_FAULT_KEY_HEX="+keyHex,
+                fmt.Sprintf("R_QBFT_FAULT_FIRST_BLOCK_GROWTH=%d",firstBlockGrowth),
             )
             output,err:=child.CombinedOutput()
             exit,ok:=err.(*exec.ExitError)
@@ -249,12 +294,18 @@ func TestRProductionQBFTStorageCrashMatrix(t *testing.T){
                 t.Fatalf("R_QBFT_JSONRPC_LATEST_QUERY_WRONG mode=%s latest=%v err=%v",mode,latestBlock,err)
             }
             visible:=receipt!=nil&&receipt["blockHash"]==block.Hash().Hex()&&receipt["blockNumber"]=="0x1"
-            if mode=="head_after"{
+            switch mode{
+            case "head_after":
                 if !canon||!visible{
                     t.Fatalf("R_QBFT_EXPECTED_SYNTHETIC_PUBLIC_INCONSISTENCY_MISSING canon=%t receipt=%v",canon,receipt)
                 }
                 t.Log("R_QBFT_SYNTHETIC_POSTCOMMIT_PUBLIC_MISMATCH_CONFIRMED latest=0x0 receipt=0x1 seals=3")
-            }else{
+            case "os_fsize_late":
+                if !canon||!visible{
+                    t.Fatalf("R_QBFT_REAL_OS_POST_FIRST_BLOCK_INCONSISTENCY_MISSING canon=%t receipt=%v",canon,receipt)
+                }
+                t.Log("R_QBFT_REAL_OS_EFBIG_PUBLIC_MISMATCH_CONFIRMED latest=0x0 receipt=0x1 seals=3 linux_EFBIG")
+            default:
                 if canon||visible{
                     t.Fatalf("R_QBFT_REAL_OS_LIMIT_UNEXPECTED_EXPOSURE canon=%t receipt=%v",canon,receipt)
                 }
