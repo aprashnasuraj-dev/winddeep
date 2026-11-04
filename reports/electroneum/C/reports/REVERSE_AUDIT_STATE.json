@@ -38,7 +38,7 @@
       "A"
     ],
     "withinWorker": "most recently discovered active unresolved candidate first; skip disproven or resolved exact claims",
-    "cursor": 1,
+    "cursor": 2,
     "advanceOnlyAfter": "falsification with accepted runtime controls or documented proof of unreproducibility, otherwise leave WAITING_CI and rotate independent new evidence",
     "queue": [
       {
@@ -53,13 +53,15 @@
         "id": "E-RPC-008",
         "category": "E",
         "focus": "range-log partial success with missing intermediate header",
-        "status": "ACTIVE"
+        "status": "VERIFIED_SOFTWARE_DEFECT__PRODUCTION_REACHABILITY_OPEN",
+        "ciRun": 41743587384,
+        "lastEvidence": "Certified Go Filter.Logs returns 1 of 3 requested logs with nil error if synthetic header 2 is (nil,nil). Independent oracle rejected original exit 1; scratch nil guard re-run pass. Coherent real-node header absence unproven."
       },
       {
         "id": "E-RPC-004",
         "category": "E",
         "focus": "receipt hash vs lookup canonicality under reorg and N confirmations",
-        "status": "QUEUED"
+        "status": "ACTIVE"
       },
       {
         "id": "E-RPC-002",
@@ -131,22 +133,31 @@
   },
   "liveCampaign": {
     "workflow": ".github/workflows/electroneum-reverse-independent-ci.yml",
-    "runId": 41742642862,
-    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41742642862",
+    "runId": 41743587384,
+    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41743587384",
     "status": "COMPLETED_SUCCESS",
-    "firstCase": "E-RPC-010",
-    "jobId": 126287716651,
-    "triggerSha": "9cd0963117ee3fd93990a999cafa009eed836f5b",
+    "firstCase": "E-RPC-008",
+    "jobId": 126290902950,
+    "triggerSha": "04acc6fa5ce171e6182c3b90ed116602aa533334",
     "concurrentClassRunsMax": 1,
-    "closedAfter": [
-      "REVERSE_E_RUNTIME_NIL_HEADER_PANIC_OBSERVED",
-      "REVERSE_R_ORIGINAL_SOURCE_ORACLE_REJECTED exit=1",
-      "REVERSE_E_FAIL_CLOSED_ORACLE_PASS"
-    ]
+    "priorWorkflowConfigFailure": {
+      "runId": 41743525868,
+      "reason": "Malformed shell command YAML; zero jobs; corrected; not Electroneum vulnerability"
+    }
   },
   "confirmedFindingGate": "Only reproduce plus attacker-controlled lower-trust production path plus concrete impact; four headings exactly; never insert status/hypothesis material",
   "pausedOtherAutomations": false,
   "reportedAt": "2026-11-04 Asia/Kathmandu",
-  "currentObjective": "E-RPC-008: reverse-audit eth/filters unindexed and indexed partial-success on missing middle block header, against normal full-node counterexample",
-  "nextAction": "Implement independent certified E-RPC-008 Go fixtures in R-owned files; verify no active R CI before new workflow dispatch; then complete synthetic and backend reachability checks"
+  "currentObjective": "E-RPC-004: reverse-verify production transaction-index receipt canonicality under reorg and independent N-confirmation oracle; do not mistake synthetic backend mismatch for public exploit",
+  "nextAction": "Read original E-004 source and finished baseline E Go fixture; test actual shipped EthAPIBackend/rawdb under synthetic local reorg, strong absent/duplicate/stale indexes, only certified scratch",
+  "schedule": {
+    "chatgptAutomationCreation": "BLOCKED_MAX_5_ACTIVE_TASKS",
+    "existingAutomations": "A-E remain enabled and untouched",
+    "supportedTriggers": [
+      "GitHub Actions push of new R-owned fixture/workflow",
+      "manual workflow_dispatch"
+    ],
+    "githubSchedule": "NOT_CONFIGURED: default branch is main, audit branch only is authorized",
+    "userActionIfHourlyNeeded": "Free one scheduled task slot explicitly; do not remove A-E without permission"
+  }
 }
