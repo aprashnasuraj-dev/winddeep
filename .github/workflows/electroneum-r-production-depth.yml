@@ -43,6 +43,7 @@ jobs:
             04-priority-consensus) mode=priority ;;
             05-persist-abrupt-exit) mode=persist ;;
             06-peer-downloader-reorg) mode=peer ;;
+            07-devp2p-loopback) mode=devp2p ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -100,6 +101,12 @@ jobs:
               cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
               cp reports/electroneum/R/production_depth/peer_downloader_reorg_test.go "$scratch/eth/worker_r_peer_downloader_test.go"
               ;;
+            devp2p)
+              chmod u+w "$scratch/eth"
+              cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
+              cp reports/electroneum/R/production_depth/peer_downloader_reorg_test.go "$scratch/eth/worker_r_peer_downloader_helper_test.go"
+              cp reports/electroneum/R/production_depth/devp2p_loopback_reorg_test.go "$scratch/eth/worker_r_devp2p_loopback_test.go"
+              ;;
           esac
           echo "R_PROD_SCRATCH=$scratch" >> "$GITHUB_ENV"
 
@@ -143,6 +150,27 @@ jobs:
             echo "G4_reproducer=reports/electroneum/R/production_depth/peer_downloader_reorg_test.go"
             echo "external_public_network=NOT_USED"
             echo "QBFT_validator_adversary=NOT_TESTED"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P1c real loopback TCP RLPx devp2p reorg reachability
+        if: env.R_PROD_MODE == 'devp2p'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_PROD_SCRATCH"
+          go test -count=1 -timeout=15m -run '^TestRDevP2PLoopbackReorgReachability$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/devp2p_loopback.log"
+          grep -Fq 'R_DEVP2P_TCP_RLPX_PEER_CONNECTED' "$RUNNER_TEMP/r-prod-evidence/devp2p_loopback.log"
+          grep -Fq 'R_DEVP2P_DOWNLOADER_REORG_CONTROL_PASS' "$RUNNER_TEMP/r-prod-evidence/devp2p_loopback.log"
+          {
+            echo "G2_positive_control=PASS_real_TCP_RLPx_ETH66_peer"
+            echo "G4_reproducer=reports/electroneum/R/production_depth/devp2p_loopback_reorg_test.go"
+            echo "G6_transport_reachability=PARTIAL_REAL_LOOPBACK_TCP_RLPx_DEVP2P_TO_DOWNLOADER"
+            echo "external_public_network=NOT_USED"
+            echo "QBFT_valid_competing_fork_adversary=NOT_ESTABLISHED"
+            echo "G7_concrete_downstream_impact=OPEN"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: P2 persistent crash and replay checkpoints
