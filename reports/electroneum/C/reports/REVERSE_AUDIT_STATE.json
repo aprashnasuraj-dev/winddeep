@@ -38,7 +38,7 @@
       "A"
     ],
     "withinWorker": "most recently discovered active unresolved candidate first; skip disproven or resolved exact claims",
-    "cursor": 2,
+    "cursor": 3,
     "advanceOnlyAfter": "falsification with accepted runtime controls or documented proof of unreproducibility, otherwise leave WAITING_CI and rotate independent new evidence",
     "queue": [
       {
@@ -61,13 +61,15 @@
         "id": "E-RPC-004",
         "category": "E",
         "focus": "receipt hash vs lookup canonicality under reorg and N confirmations",
-        "status": "ACTIVE"
+        "status": "VERIFIED_SOFTWARE_DEFECT__CANONICAL_REORG_REACHABILITY_OPEN",
+        "ciRun": 41744841662,
+        "lastEvidence": "Certified rawdb-backed ethapi Go runtime: 4 defensive stable/missing controls passed; forced canonical flip during GetReceipts returned stale successful orphan receipt; strict original oracle exit 1 named marker; scratch post-read canonical check passed. No QBFT production attacker reachability."
       },
       {
         "id": "E-RPC-002",
         "category": "E",
         "focus": "big-int fee to uint64 representation and realistic accepted fee bounds",
-        "status": "QUEUED"
+        "status": "ACTIVE"
       },
       {
         "id": "D-PARTIAL-RECEIPT",
@@ -133,23 +135,26 @@
   },
   "liveCampaign": {
     "workflow": ".github/workflows/electroneum-reverse-independent-ci.yml",
-    "runId": 41743587384,
-    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41743587384",
+    "runId": 41744841662,
+    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41744841662",
     "status": "COMPLETED_SUCCESS",
-    "firstCase": "E-RPC-008",
-    "jobId": 126290902950,
-    "triggerSha": "04acc6fa5ce171e6182c3b90ed116602aa533334",
+    "jobId": 126295379539,
+    "triggerSha": "58360148aa9bbc2f6739170f3206aaba750c4446",
+    "firstCase": "E-RPC-004",
     "concurrentClassRunsMax": 1,
-    "priorWorkflowConfigFailure": {
-      "runId": 41743525868,
-      "reason": "Malformed shell command YAML; zero jobs; corrected; not Electroneum vulnerability"
-    }
+    "closedAfter": [
+      "REVERSE_E_RAWDB_ORPHAN_INDEX_DEFENSE_PASS",
+      "REVERSE_E_RAWDB_TOCTOU_STALE_RECEIPT_OBSERVED",
+      "REVERSE_R_CANONICAL_ORACLE_REJECTED_ORIGINAL exit=1",
+      "REVERSE_E_CANONICAL_TOCTOU_ORACLE_PASS",
+      "REVERSE_R_CANONICAL_GUARD_SENSITIVITY_CERTIFIED_SOURCE_INTACT_PASS"
+    ]
   },
   "confirmedFindingGate": "Only reproduce plus attacker-controlled lower-trust production path plus concrete impact; four headings exactly; never insert status/hypothesis material",
   "pausedOtherAutomations": false,
   "reportedAt": "2026-11-04 Asia/Kathmandu",
-  "currentObjective": "E-RPC-004: reverse-verify production transaction-index receipt canonicality under reorg and independent N-confirmation oracle; do not mistake synthetic backend mismatch for public exploit",
-  "nextAction": "Read original E-004 source and finished baseline E Go fixture; test actual shipped EthAPIBackend/rawdb under synthetic local reorg, strong absent/duplicate/stale indexes, only certified scratch",
+  "currentObjective": "E-RPC-002: source-backed big.Int effectiveGasPrice -> Uint64 narrowing in legacy and London receipt RPC; verify accepted on-chain-fee bounds, honest large-number response versus strict independent quantity oracle and scratch defensive mutation",
+  "nextAction": "In R-owned scratch test, construct valid signed synthetic legacy/London tx with gas price above 2^64-1; test source-backed ethapi receipt serialization, compare arbitrary precision gas fee independent oracle; then bound practical acceptance via txpool RPC fee cap and true source configuration before assessing attacker reachability.",
   "schedule": {
     "chatgptAutomationCreation": "BLOCKED_MAX_5_ACTIVE_TASKS",
     "existingAutomations": "A-E remain enabled and untouched",
@@ -158,6 +163,9 @@
       "manual workflow_dispatch"
     ],
     "githubSchedule": "NOT_CONFIGURED: default branch is main, audit branch only is authorized",
-    "userActionIfHourlyNeeded": "Free one scheduled task slot explicitly; do not remove A-E without permission"
-  }
+    "userActionIfHourlyNeeded": "Free one scheduled task slot explicitly; do not remove A-E without permission",
+    "currentMode": "LIVE_USER_REQUEST_NO_SCHEDULE_CHANGES",
+    "userClarification": "Combined R is an additional live run, NOT an hourly task; do not create, modify, or stop automations A-E."
+  },
+  "executionMode": "LIVE_AD_HOC_NOT_HOURLY"
 }
