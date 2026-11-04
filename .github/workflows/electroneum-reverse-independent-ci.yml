@@ -82,3 +82,38 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           sha256sum --check "$RUNNER_TEMP/reverse-r-immutable.sha256"
           echo REVERSE_R_E_GUARD_SENSITIVITY_AND_CERTIFIED_SOURCE_INTACT_PASS
+      - name: Reverse second-last E item - exercise missing log header partial-response controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod u+w "$REVERSE_R_SCRATCH/eth/filters" "$REVERSE_R_SCRATCH/eth/filters/filter.go"
+          cp reports/electroneum/C/reports/fixtures/reverse_e_log_range_test.go "$REVERSE_R_SCRATCH/eth/filters/worker_r_reverse_log_range_test.go"
+          sha256sum "$WINDEEP_ETN_SOURCE/eth/filters/filter.go" > "$RUNNER_TEMP/reverse-r-log-immutable.sha256"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=12m -run '^TestReverseELogRangeDefenseMatrix
+ -v ./eth/filters
+          echo REVERSE_R_E_LOG_DEFENSE_MATRIX_PASS
+      - name: Reverse log oracle - ensure incomplete range is not silently successful
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$REVERSE_R_SCRATCH"
+          set +e
+          go test -count=1 -timeout=10m -run '^TestReverseELogFailClosedOracle
+ -v ./eth/filters > "$RUNNER_TEMP/reverse-r-log-original.log" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/reverse-r-log-original.log"
+          if [ "$rc" -eq 0 ]; then echo REVERSE_R_LOG_ORACLE_UNEXPECTED_PASS; exit 65; fi
+          grep -Fq 'REVERSE_E_LOG_FAIL_CLOSED_ORACLE_MISMATCH' "$RUNNER_TEMP/reverse-r-log-original.log" || { echo REVERSE_R_LOG_ORACLE_INVALID_FAILURE; exit 66; }
+          echo "REVERSE_R_LOG_FAIL_CLOSED_ORACLE_REJECTED exit=$rc"
+      - name: Scratch-only log-gap guard proves sensitivity with certified source intact
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/C/reports/fixtures/reverse_e_log_guard_patch.py "$REVERSE_R_SCRATCH/eth/filters/filter.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=12m -run '^TestReverseELog' -v ./eth/filters
+          cd "$GITHUB_WORKSPACE"
+          sha256sum --check "$RUNNER_TEMP/reverse-r-log-immutable.sha256"
+          echo REVERSE_R_E_LOG_GUARD_SENSITIVITY_AND_SOURCE_INTACT_PASS
