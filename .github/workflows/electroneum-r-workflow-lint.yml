@@ -1,0 +1,69 @@
+name: Electroneum Worker R - Workflow Syntax Guard
+
+on:
+  push:
+    branches:
+      - 'audit/r-*'
+    paths:
+      - '.github/workflows/electroneum-r-*.yml'
+      - '.github/workflows/electroneum-reverse-independent-ci.yml'
+      - 'reports/electroneum/R/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r-workflow-lint-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact event SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Parse YAML and syntax-check every embedded Bash command
+        shell: bash
+        run: |
+          set -euo pipefail
+          ruby <<'RUBY'
+          require 'psych'
+          require 'open3'
+
+          def scripts_in(node, found)
+            if node.is_a?(Psych::Nodes::Mapping)
+              node.children.each_slice(2) do |key, value|
+                if key.is_a?(Psych::Nodes::Scalar) && key.value == 'run' && value.is_a?(Psych::Nodes::Scalar)
+                  found << value.value
+                end
+                scripts_in(value, found)
+              end
+            elsif node.respond_to?(:children)
+              (node.children || []).each { |child| scripts_in(child, found) }
+            end
+          end
+
+          paths = Dir.glob('.github/workflows/electroneum-r-*.yml').sort
+          paths << '.github/workflows/electroneum-reverse-independent-ci.yml'
+          abort 'R_WORKFLOW_LINT_NO_FILES' if paths.empty?
+          scripts_checked = 0
+          paths.each do |path|
+            document = Psych.parse_file(path)
+            abort "R_WORKFLOW_LINT_EMPTY_YAML #{path}" unless document
+            scripts = []
+            scripts_in(document, scripts)
+            abort "R_WORKFLOW_LINT_NO_RUN_STEPS #{path}" if scripts.empty?
+            scripts.each_with_index do |script, index|
+              _stdout, stderr, status = Open3.capture3('bash', '-n', stdin_data: script)
+              abort "R_WORKFLOW_LINT_BASH_ERROR #{path} run=#{index + 1}\n#{stderr}" unless status.success?
+              scripts_checked += 1
+            end
+            puts "R_WORKFLOW_LINT_PASS path=#{path} bash_blocks=#{scripts.length}"
+          end
+          puts "R_WORKFLOW_LINT_ALL_PASS workflows=#{paths.length} bash_blocks=#{scripts_checked}"
+          RUBY
