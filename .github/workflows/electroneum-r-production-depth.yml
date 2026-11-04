@@ -47,6 +47,7 @@ jobs:
             08-qbft-quorum-gate) mode=qbft ;;
             09-qbft-devp2p-e2e) mode=qbftnet ;;
             10-waitmined-impact) mode=impact ;;
+            11-guard-residual) mode=guardresidual ;;
             *) echo R_PROD_DEPTH_BAD_SELECTOR; exit 64 ;;
           esac
           echo "R_PROD_SELECTOR=$selector" >> "$GITHUB_ENV"
@@ -125,6 +126,12 @@ jobs:
               chmod u+w "$scratch/eth"
               cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
               cp reports/electroneum/R/production_depth/waitmined_impact_test.go "$scratch/eth/worker_r_waitmined_impact_test.go"
+              ;;
+            guardresidual)
+              chmod u+w "$scratch/eth" "$scratch/internal/ethapi" "$scratch/internal/ethapi/api.go"
+              cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
+              cp reports/electroneum/R/production_depth/canonical_guard_residual_test.go "$scratch/eth/worker_r_guard_residual_test.go"
+              python3 reports/electroneum/R/production_depth/canonical_guard_residual_patch.py "$scratch/internal/ethapi/api.go"
               ;;
           esac
           echo "R_PROD_SCRATCH=$scratch" >> "$GITHUB_ENV"
@@ -255,6 +262,24 @@ jobs:
             echo "G7_counterexample=SHIPPED_ETHCLIENT_CANONICAL_HEADER_RECHECK_REJECTS"
             echo "financial_loss=NOT_CLAIMED"
             echo "ordinary_external_peer_actor=NOT_ESTABLISHED"
+          } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
+
+      - name: P1g candidate canonical guard residual TOCTOU
+        if: env.R_PROD_MODE == 'guardresidual'
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$R_PROD_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestRCanonicalGuardResidualRace$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/guard_residual.log"
+          grep -Fq 'R_CANONICAL_GUARD_RESIDUAL_TOCTOU_OBSERVED' "$RUNNER_TEMP/r-prod-evidence/guard_residual.log"
+          grep -Fq 'R_CANONICAL_GUARD_NOT_COMPLETE_FIX_PASS' "$RUNNER_TEMP/r-prod-evidence/guard_residual.log"
+          {
+            echo "candidate_post_read_canonical_guard=INCOMPLETE"
+            echo "residual_race=REORG_AFTER_CANONICAL_READ_BEFORE_RETURN"
+            echo "mitigation_requirement=ATOMIC_CHAIN_VIEW_OR_CLIENT_REORG_AWARE_SEMANTICS"
           } >> "$RUNNER_TEMP/r-prod-evidence/triage.txt"
 
       - name: P2 persistent crash and replay checkpoints
