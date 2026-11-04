@@ -44,7 +44,7 @@ jobs:
                 scripts_in(value, found)
               end
             elsif node.respond_to?(:children)
-              node.children.each { |child| scripts_in(child, found) }
+              (node.children || []).each { |child| scripts_in(child, found) }
             end
           end
 
