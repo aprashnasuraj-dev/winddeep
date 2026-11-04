@@ -38,7 +38,7 @@
       "A"
     ],
     "withinWorker": "most recently discovered active unresolved candidate first; skip disproven or resolved exact claims",
-    "cursor": 5,
+    "cursor": 7,
     "advanceOnlyAfter": "falsification with accepted runtime controls or documented proof of unreproducibility, otherwise leave WAITING_CI and rotate independent new evidence",
     "queue": [
       {
@@ -77,27 +77,31 @@
         "id": "D-PARTIAL-RECEIPT",
         "category": "D",
         "focus": "receipt partial prefix/cancel/retry, rewind and restart consistency",
-        "status": "TESTED_PEER_REVOKE_RETRY_REPLAY_PASS__RESTART_UNTESTED",
-        "ciRun": 41746131665,
-        "lastEvidence": "Certified eth/downloader Go: stale revoked peer rejected, accepted prefix 1 and retried suffix 2, replay rejected, invalid RLP requeued, all 4 adversarial paths PASS; missing crash/restart pivot case retained separate. First run 41745900912 failed Go syntax before tests; fixed in 41746131665."
+        "status": "TESTED_REVOKE_RESET_EXPIRY_REPLAY_PATHS_PASS__SYNC_RESTART_OPEN",
+        "ciRun": 41747025272,
+        "lastEvidence": "Certified Go: revoked stale peer rejected, 1+2 prefix/suffix retry, malformed RLP and duplicate replay rejected, cancel/reset/timeout recovery passed; no synchronized real-node restart/pivot proof."
       },
       {
         "id": "D-HEADER-ROLLBACK",
         "category": "D",
         "focus": "authentic header restart and canonical root rollback",
-        "status": "ACTIVE"
+        "status": "TESTED_REWIND_REIMPORT_PASS__LOCAL_STALE_FINALIZED_METADATA_CANDIDATE",
+        "ciRun": 41747025272,
+        "lastEvidence": "Certified Go local SetHead(4) from eight blocks retained canonical 0..4; reopened correct head; invalid forged batch rejected; finalized 7 pointer persisted above head 4 and rawdb finalized marker survived restart (admin-only precondition)."
       },
       {
         "id": "D-RECEIPT-DIFFERENTIAL",
         "category": "D",
         "focus": "raw/decoded receipts and authenticated root binding",
-        "status": "QUEUED"
+        "status": "TESTED_WIRE_DECODING_4_TYPES_PASS__NETWORK_ATTACK_NOT_REPRODUCED",
+        "ciRun": 41747025272,
+        "lastEvidence": "Certified Go eth66 newRawTypedList/DecodeReceipts commitment root agreement types 0,1,2,64; reordering mutates root; unsupported type and short malformed RLP rejected."
       },
       {
         "id": "C-002",
         "category": "C",
         "focus": "malformed encrypted keystore Import boundary, panic propagation, actual caller reachability",
-        "status": "QUEUED"
+        "status": "ACTIVE"
       },
       {
         "id": "C-001",
@@ -139,25 +143,18 @@
   },
   "liveCampaign": {
     "workflow": ".github/workflows/electroneum-reverse-independent-ci.yml",
-    "runId": 41746131665,
-    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41746131665",
-    "status": "COMPLETED_SUCCESS",
-    "jobId": 126299468491,
-    "triggerSha": "ed9d1bda1e100d31cdf70118626f25aa1df7e106",
-    "firstCase": "D-PARTIAL-RECEIPT",
-    "concurrentClassRunsMax": 1,
-    "closedAfter": [
-      "REVERSE_D_RECEIPT_REVOKED_STALE_PEER_REJECTED_PASS reassigned=3",
-      "REVERSE_D_RECEIPT_PREFIX_REVOKE_RETRY_PASS accepted=1+2",
-      "REVERSE_D_RECEIPT_DUPLICATE_REPLAY_REJECTED_PASS",
-      "REVERSE_D_RECEIPT_INVALID_RLP_NO_LOSS_PASS"
-    ]
+    "runId": 41747296488,
+    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41747296488",
+    "status": "COMPLETED",
+    "triggerSha": "17963335de458bbf45842e2c830dd50b0ed0bd8e",
+    "firstCase": "C-002",
+    "concurrentClassRunsMax": 1
   },
   "confirmedFindingGate": "Only reproduce plus attacker-controlled lower-trust production path plus concrete impact; four headings exactly; never insert status/hypothesis material",
   "pausedOtherAutomations": false,
   "reportedAt": "2026-11-04 Asia/Kathmandu live run",
-  "currentObjective": "D-HEADER-ROLLBACK: test blockchain header/sethead restart consistency and reject invalid injected historical chain with independent rawdb canonical oracle.",
-  "nextAction": "Develop R-only certified Go restart fixture; run via sole R CI, strict rawdb canonicality and mutation oracle; never claim QBFT remote reachability from local SetHead.",
+  "currentObjective": "C-002 KeyStore.Import malformed encrypted JSON actual exported boundary; no default remote RPC assertion; retain D finalized marker local-only candidate for independent strict oracle.",
+  "nextAction": "Inspect current class R C-002 CI 41747296488 final logs, verify actual keystore Import panic and scratch guard outcomes; do not launch overlap; preserve A–E paths.",
   "schedule": {
     "chatgptAutomationCreation": "BLOCKED_MAX_5_ACTIVE_TASKS",
     "existingAutomations": "A-E remain enabled and untouched",
