@@ -45,7 +45,7 @@ func reverseDReceiptData(t *testing.T,f reverseDQueueFixture,heads []*types.Head
 func TestReverseDReceiptPeerRevocationAndReplay(t *testing.T){
  t.Run("revoke_inflight_then_reassign",func(t *testing.T){
   f:=reverseDNewReceiptFixture(t)
-  p1:=dummyPeer("reverse-r-revoked"),p2:=dummyPeer("reverse-r-reassigned")
+  p1,p2:=dummyPeer("reverse-r-revoked"),dummyPeer("reverse-r-reassigned")
   req,_,_:=f.q.ReserveReceipts(p1,3)
   if req==nil||len(req.Headers)!=3||!f.q.InFlightReceipts(){t.Fatal("expected three in-flight requested receipts")}
   oldRaw,oldHash:=reverseDReceiptData(t,f,req.Headers)
