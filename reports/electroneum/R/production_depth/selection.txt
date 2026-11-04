@@ -1,1 +1,1 @@
-23-live-snap1-qbft-root
+23-live-etn-snap-qbft-root
