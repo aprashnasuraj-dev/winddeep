@@ -14,8 +14,10 @@ package eth
 
 import (
     "bytes"
+    "crypto/ecdsa"
     "errors"
     "fmt"
+    "math/big"
     "os"
     "os/exec"
     "path/filepath"
@@ -23,6 +25,7 @@ import (
     "syscall"
     "testing"
 
+    "github.com/electroneum/electroneum-sc/common"
     "github.com/electroneum/electroneum-sc/consensus/istanbul"
     istanbulbackend "github.com/electroneum/electroneum-sc/consensus/istanbul/backend"
     "github.com/electroneum/electroneum-sc/core"
@@ -97,6 +100,38 @@ func rG6FillFilesystemToMargin(t *testing.T, root string, target uint64) (uint64
     return before, after
 }
 
+
+func rG6LargeSignedTx(t *testing.T, chain *core.BlockChain, key *ecdsa.PrivateKey) *types.Transaction {
+    t.Helper()
+    sender := crypto.PubkeyToAddress(key.PublicKey)
+    state, err := chain.State()
+    if err != nil {
+        t.Fatalf("R_G6_ENOSPC_TX_STATE_FAIL err=%v", err)
+    }
+    nonce := state.GetNonce(sender)
+    target := common.HexToAddress("0x0000000000000000000000000000000000000043")
+    const payloadBytes = 256 << 10
+    payload := bytes.Repeat([]byte{0xB7}, payloadBytes)
+    tx, err := types.SignTx(
+        types.NewTransaction(
+            nonce,
+            target,
+            big.NewInt(1),
+            6_000_000,
+            big.NewInt(10_000_000_000),
+            payload,
+        ),
+        types.LatestSigner(chain.Config()),
+        key,
+    )
+    if err != nil {
+        t.Fatalf("R_G6_ENOSPC_LARGE_TX_SIGN_FAIL err=%v", err)
+    }
+    t.Logf("R_G6_ENOSPC_LARGE_VALID_TX payload_bytes=%d gas=%d tx_rlp_size=%d",
+        payloadBytes, tx.Gas(), tx.Size())
+    return tx
+}
+
 func TestRQBFTWireRealENOSPCChild(t *testing.T) {
     if os.Getenv("R_G6_ENOSPC_CHILD") != "1" {
         return
@@ -115,7 +150,7 @@ func TestRQBFTWireRealENOSPCChild(t *testing.T) {
     // is armed.
     f, senderKey := rP1HBaseFixture(t)
     defer f.close()
-    remoteTx := rP1HSignedTx(t, f.remoteChain, senderKey, 0xB7)
+    remoteTx := rG6LargeSignedTx(t, f.remoteChain, senderKey)
     block := rQBFTBuildAndImport(t, f.remoteChain, f.remoteQBFT, f.remoteDB, f.validatorKeys, f.validators, remoteTx)
     if block == nil || block.NumberU64() != 1 {
         t.Fatal("R_G6_ENOSPC_REMOTE_QUORUM_BLOCK_NOT_BUILT")
@@ -176,8 +211,8 @@ func TestRQBFTWireRealENOSPCChild(t *testing.T) {
         t.Fatalf("R_G6_ENOSPC_PEER_HANDSHAKE_MISSING handshakes=%d got=%s want=%s",
             wire.handshakes.Load(), peerHash, block.Hash())
     }
-    fmt.Fprintf(os.Stderr, "R_G6_ENOSPC_ETH66_VALID_PEER_CONNECTED handshakes=%d block=%s role=serve_already_valid_quorum_block\n",
-        wire.handshakes.Load(), block.Hash())
+    fmt.Fprintf(os.Stderr, "R_G6_ENOSPC_ETH66_VALID_PEER_CONNECTED handshakes=%d block=%s body_bytes=%d role=serve_already_valid_quorum_block\n",
+        wire.handshakes.Load(), block.Hash(), block.Size())
 
     before, actual := rG6FillFilesystemToMargin(t, root, margin)
     fmt.Fprintf(os.Stderr, "R_G6_ENOSPC_MARGIN_ARMED requested=%d actual=%d before=%d\n", margin, actual, before)
