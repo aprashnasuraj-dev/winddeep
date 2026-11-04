@@ -8,7 +8,6 @@
 package snap
 
 import (
-    "bytes"
     "fmt"
     "os"
     "path/filepath"
