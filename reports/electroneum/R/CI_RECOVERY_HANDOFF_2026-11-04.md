@@ -105,3 +105,47 @@ Source defect != public-network exploit. A candidate security finding requires e
 - All three P2b/P2c Go test functions together executed **14** passing leaf cases (4 WAL-tail restarts, 4 completed-checkpoint resume tests, 6 incomplete-checkpoint resumes). The certified Electroneum source remained unchanged.
 - Classification: **TESTED_NEGATIVE** for replay/restart consistency, not a discovered security vulnerability. This does not cover a crash inside an active LevelDB `Put`, in-flight compaction, fsync, kernel/power loss, write caching, or remote control of the fault.
 - Next useful step: identify legitimate power-loss/data-durability contracts and inject failure at actual LevelDB write/batch boundaries. Prioritize reachability and application impact rather than multiplying arbitrary file corruptions.
+
+## P2d/P2e — real chain batch-write fatal exit, replay, and public receipt visibility
+
+**Certified source untouched:** Electroneum source commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, tree `de7f3c75a2db7e87a89918f1257820703d5b731e`. Reproducers are Worker R test files mounted only into disposable CI scratch:
+- `reports/electroneum/R/production_depth/persistent_batch_write_failure_test.go`
+- `reports/electroneum/R/production_depth/batch_receipt_public_rpc_test.go`
+
+### Tested fault mechanism and counterexamples
+
+Production `core/blockchain.go` writes the block/header/body/receipt payload using one LevelDB batch, and canonical/transaction/head markers using a later batch. On a `Batch.Write()` error in either path, `log.Crit` invokes `os.Exit(1)`. The test intercepts the **real `ethdb.Batch.Write` call** using an explicit adapter and returns a synthetic error either **before** the underlying LevelDB commit or **after** an intentionally successful underlying commit. Thus the after-commit variant models an ambiguous error acknowledgement, **not a measured storage, fsync, or power-failure behavior**.
+
+In [CI 41790270454](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41790270454), all four fault cases exited code 1 in an isolated subprocess; parent process reopened real LevelDB and verified exact payload/head atomicity, real block import through `BlockChain.InsertChain`, canonical/header/fast/full heads at 2, valid signed transaction and successful receipt, and second restart at head 2.
+
+| Failure stage | Persisted payload | Persisted head/index batch | Post-fault pre-replay lookup | Replay to block 2 and second restart |
+|---|---|---|---|---|
+| payload_before | no | no | tx/receipt absent | PASS |
+| payload_after | yes | no | tx/receipt absent | PASS |
+| head_before | yes | no | tx/receipt absent | PASS |
+| head_after | yes | yes | tx/receipt present while executed full head = 0 | PASS |
+
+More precise pre-replay instrumentation [CI 41790480812](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41790480812) verified for `head_after`: full executed head **0**, header and fast heads **1**, canonical mapping **1 present**, tx index, tx object, and receipt object all present. Other three cases had no tx/receipt lookup.
+
+### Verified public-API-level consistency observation
+
+The separate `internal/ethapi` reproducer creates a **genesis-only persistent LevelDB** and generates block 1 only in memory. A child imports block 1 and receives an artificial error *after the canonical/head batch was durably committed*, causing `log.Crit` exit. The parent restarts the real `core.BlockChain` and registers the **actual public `ethapi` service and JSON-RPC in-process dispatcher** with a narrow test backend whose `GetTransaction`, `GetReceipts`, `HeaderByHash` and `ChainConfig` calls delegate identically to the production `eth.EthAPIBackend` implementation.
+
+[CI 41791176586](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41791176586) **PASS**: `eth_getTransactionReceipt` resolves a block-1 receipt despite full head 0. A stronger same-session public JSON-RPC countercheck [CI 41791452592](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41791452592) **PASS**: `eth_getBlockByNumber("latest", false)` returned block `0x0` while `eth_getTransactionReceipt(txHash)` reported `blockNumber: "0x1"`. Test log marker `R_RPC_JSONRPC_LATEST_BLOCK_ZERO_RECEIPT_ONE` confirms exact outputs. The regular control cases with no indexed transaction did **not** expose a receipt, and all replay paths recovered.
+
+Relevant source:
+- `vendor/electroneum-sc/core/blockchain.go`: `writeBlockWithState` and `writeHeadBlock`.
+- `vendor/electroneum-sc/log/root.go`: `Crit` exits with status 1.
+- `vendor/electroneum-sc/internal/ethapi/api.go`: `PublicTransactionPoolAPI.GetTransactionReceipt` reads tx and receipt via backend without comparing `CurrentBlock`.
+- `vendor/electroneum-sc/eth/api_backend.go`: `GetTransaction` -> `rawdb.ReadTransaction`, `GetReceipts` -> `BlockChain.GetReceiptsByHash`, `BlockByNumber(latest)` -> `CurrentBlock`.
+
+### Classification, limitations and next gates
+
+**Verified behavior:** synthetic post-commit storage-acknowledgement error can leave a restarted node where receipt JSON-RPC is one block ahead of the JSON-RPC latest executed full block. This is an *API consistency condition in an explicitly synthetic local failure model*.
+
+**Not established:** actual physical storage/write/fsync fault reachability of this after-commit return behavior; a remotely triggerable failure; mainnet QBFT validator seal correctness (the test uses `ethash.NewFaker`); a competing quorum-valid canonical block; a real exchange/explorer relying on this narrow window; any incorrect credit, financial loss, QBFT finality breach, or bounty-ready security severity. A header/fast head ahead of the executed full head can occur legitimately during sync, so the mismatch is **not** automatically a consensus or safety breach.
+
+**Next gates:** (1) demonstrate a real write/ack ambiguity from a supported storage fault model rather than an adapter deliberately lying about `Write`; (2) independently exercise production-backed RPC during a true crash/restart window and QBFT-valid block importing, without weakening seal checks; (3) identify a reachable lower-trust trigger and a concrete consumer that mistakes receipt visibility for finalized execution. Until then mark `G6_remote_reachability=OPEN_NOT_DEMONSTRATED`, `G7_security_impact=OPEN_NOT_DEMONSTRATED`; do not submit as a proven exploit.
+
+**CI correction provenance:** [41789930116](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41789930116) failed only due an incorrect expectation that the logger must print the critical line; [41790108254](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41790108254) failed only because the second-restart oracle incorrectly demanded a pre-replay head <=1. Both harness defects were corrected; no incorrect source defect or risk finding was inferred.
+
