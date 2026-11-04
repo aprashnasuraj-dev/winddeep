@@ -102,3 +102,36 @@ REVERSE_R_E_LOG_GUARD_SENSITIVITY_AND_SOURCE_INTACT_PASS
 **Scheduling control:** Attempt to create a sixth hourly ChatGPT automation `ETN Reverse Audit R` returned `too_many_active_automations` — account limit **5**, already occupied by A–E. **No** A–E task was altered or paused. R remains independently executable via its own branch-scoped GitHub Actions push/manual workflow; GitHub cron does not run from this nondefault branch (`main` is default), and the worker is not represented as autonomously scheduled until a task slot is freed. No changes to default branch or upstream.
 
 **Recommended correction:** Handle `header == nil` as an explicit error in both indexed and unindexed filters, and add real backend gap/reorg/rollback tests before classifying remote financial risk. Keep the original target immutable; the proven guard exists only in an isolated scratch.
+
+
+## 2026-11-04 05:57 NPT — Reverse pass 3 of 14: E-RPC-004 rawdb-backed canonicality TOCTOU reproduced
+
+**Run mode: USER-REQUESTED LIVE SESSION, NOT HOURLY.** Independent reverse Worker R acts only in `reports/electroneum/C/reports/`, `reports/electroneum/C/reverse/` and `.github/workflows/electroneum-reverse-independent-ci.yml`. No A–E existing reports, tests, workflows or task automations were modified, stopped or restarted.
+
+**Executive result:** Source-backed **conditional RPC read-consistency defect** reproduced by real certified `PublicTransactionPoolAPI.GetTransactionReceipt` using actual `rawdb.ReadTransaction` and `rawdb.ReadReceipts` on synthetic in-memory chain data. A transaction seen as canonical during the first read was returned as a *successful orphan receipt* after the canonical mapping changed before the second read. **No proof of a below-BFT-threshold attacker-induced live QBFT reorg, exchange credit error or real loss**.
+
+### Certified source / reverse evidence gates
+
+- **G1 PASS:** certified source bootstrap in [GitHub Actions #41744841662](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41744841662), job `126295379539`. Immutable Windeep commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, tree `de7f3c75a2db7e87a89918f1257820703d5b731e`, pinned upstream `3aeb14db0d6384243302f3a025bdff904dc28bf6`, historical archive provenance `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b`. Passed shell gate/identity; scratch-only Go test, source file SHA unchanged.
+- **G2 PARTIAL** production path source-linked: `internal/ethapi/api.go:GetTransactionReceipt` [1571–1627](https://github.com/aprashnasuraj-dev/winddeep/blob/7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0/vendor/electroneum-sc/internal/ethapi/api.go#L1571-L1627), `EthAPIBackend.GetTransaction` [265–269](https://github.com/aprashnasuraj-dev/winddeep/blob/7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0/vendor/electroneum-sc/eth/api_backend.go#L265-L269), `rawdb.ReadTransaction` [94–120](https://github.com/aprashnasuraj-dev/winddeep/blob/7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0/vendor/electroneum-sc/core/rawdb/accessors_indexes.go#L94-L120), and `BlockChain.GetReceiptsByHash` [203–217](https://github.com/aprashnasuraj-dev/winddeep/blob/7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0/vendor/electroneum-sc/core/blockchain_reader.go#L203-L217). Original tx lookup canonicality is a verified defense **against completed reorg**; subsequent receipt lookup by original block hash has no new canonical check. Synchronized real full node QBFT reorg precondition remains unproved.
+- **G3 PASS:** `go test -count=1 -timeout=12m -run '^TestReverseECanonicalRawdbDefenseMatrix$' -v ./internal/ethapi`, exit **0**. Five cases: honest canonical receipt, stale lookup after completed reorg (null), new canonical receipt, missing stored receipt (null), and **forced mid-request block replacement** (stale receipt success). Go test executed actual `ethapi` and `rawdb`, not a mocked return-value matrix. Synthetic backend is not full `EthAPIBackend`.
+- **G4 PASS (in tested state):** `go test -count=1 -timeout=10m -run '^TestReverseECanonicalTOCTOUOracle$' -v ./internal/ethapi` on unmodified certified scratch returned **exit 1 expected**, marker `REVERSE_E_CANONICAL_TOCTOU_ORACLE_MISMATCH`; not a Go compile error. Adding a `BlockByNumber` identity guard to *scratch only* via `reverse_e_canonical_guard_patch.py` made `go test -count=1 -timeout=12m -run '^TestReverseECanonical' -v ./internal/ethapi` return **0**, with all controls and strict oracle PASS. Immutable source SHA check OK. A post-read guard itself is not a full atomic snapshot mechanism.
+- **G5 PASS:** 662-line decisive Actions job log fetched; workflow run `41744841662`, job `126295379539`, trigger SHA `58360148aa9bbc2f6739170f3206aaba750c4446`, overall **COMPLETED/SUCCESS**. Prior R runs `41744708472`, `41744735795` were completed SUCCESS on earlier file-only push SHAs, not the new E-004 tests. CI run `41744841662` finished 2026-11-04 00:12:12Z; no fuzz throughput claimed.
+- **G6 PASS:** independent counterexample-first **time-of-check/time-of-use** boundary added after previous E-010 nil header/E-008 partial logs; source-backed negative controls prevented interpreting a normal stale index as a flaw. Attacker control/reorg timing remains open.
+- **G7 PASS:** four-heading candidate assessment added to [`REVERSE_AUDIT_CANDIDATES.md`](REVERSE_AUDIT_CANDIDATES.md), commit `5a22577b9599db394788e287a78c6eb1b10975d7`; state updated `f3fa1bc69ca8cb7285544e53b1211ccee79ba3b5`; this latest entry committed. Dedicated CONFIRMED security-vulnerability report unchanged.
+
+**Runtime markers:**
+```text
+REVERSE_E_RAWDB_COHERENT_RECEIPT_PASS
+REVERSE_E_RAWDB_ORPHAN_INDEX_DEFENSE_PASS
+REVERSE_E_RAWDB_NEW_CANONICAL_PASS
+REVERSE_E_RAWDB_MISSING_RECEIPT_NULL_PASS
+REVERSE_E_RAWDB_TOCTOU_STALE_RECEIPT_OBSERVED
+REVERSE_E_CANONICAL_TOCTOU_ORACLE_MISMATCH (original, intentional exit=1)
+REVERSE_R_CANONICAL_ORACLE_REJECTED_ORIGINAL exit=1
+REVERSE_E_CANONICAL_SCRATCH_GUARD_INJECTED
+REVERSE_E_CANONICAL_TOCTOU_ORACLE_PASS
+REVERSE_R_CANONICAL_GUARD_SENSITIVITY_CERTIFIED_SOURCE_INTACT_PASS
+```
+
+**Preservation and next hypothesis:** Reverse traversal cursor **3/14** complete, E-RPC-004 conditionally reproduced; E-RPC-002 **ACTIVE**. Trace actual receipt `effectiveGasPrice` `big.Int -> Uint64` narrowing at `internal/ethapi/api.go:1606,1615`, use synthetic signed transactions with gas price crossing 2^64 while verifying legitimate chain/rpc fee cap constraints; execute a true source-backed Go response test and independent arbitrary-precision oracle. Then proceed D → C → B → A, newest unresolved items first; skip disproven cases. No new automations required, and A–E are untouched.
