@@ -35,6 +35,7 @@ jobs:
             01-rpc-batch) pkg=./rpc; baseline=TestRDeepRPCBatchBaseline; fuzz=FuzzRDeepRPCBatch; dest=rpc; source=rpc_batch_test.go ;;
             02-nested-abi) pkg=./accounts/abi; baseline=TestRDeepNestedABIBaseline; fuzz=FuzzRDeepNestedABI; dest=accounts/abi; source=abi_nested_test.go ;;
             03-tx-envelope) pkg=./core/types; baseline=TestRDeepTxEnvelopeBaseline; fuzz=FuzzRDeepTxEnvelope; dest=core/types; source=tx_envelope_test.go ;;
+            04-dual-sync-races) pkg=./eth/downloader; baseline=TestRDeepDualBaseline; fuzz=FuzzRDeepDualQueue; dest=eth/downloader; source=downloader_dual_test.go ;;
             *) echo R_DEEP_BAD_SELECTOR; exit 64 ;;
           esac
           {
@@ -83,6 +84,10 @@ jobs:
           grep -Fq -- "--- PASS: $R_DEEP_BASELINE" "$RUNNER_TEMP/r-deep-evidence/baseline.log" || { echo R_DEEP_BASELINE_MISSING; exit 65; }
           go tool cover -func="$RUNNER_TEMP/r-deep-evidence/baseline.cover" > "$RUNNER_TEMP/r-deep-evidence/coverage_functions.txt"
           tail -n 1 "$RUNNER_TEMP/r-deep-evidence/coverage_functions.txt"
+          if [ "$R_DEEP_SELECTOR" = "04-dual-sync-races" ]; then
+            go test -race -count=1 -timeout=5m -run "^$R_DEEP_BASELINE$" "$R_DEEP_PKG" 2>&1 | tee "$RUNNER_TEMP/r-deep-evidence/race.log"
+            echo R_DEEP_DUAL_RACE_DETECTOR_PASS
+          fi
           echo R_DEEP_BASELINE_PASS
       - name: Coverage-guided bounded mutation
         shell: bash
