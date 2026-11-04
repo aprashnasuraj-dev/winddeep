@@ -84,47 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$SCRATCH"
-          go test -count=1 -timeout=10m -run '^TestQBFTRewardReorgNoOrphanCredit        shell: bash
-        run: |
-          set -euo pipefail
-          python3 reports/electroneum/evidence5/reproduce_smartcard.py "$SOURCE" 2>&1 | tee "$RUNNER_TEMP/evidence5-logs/03_smartcard_source.log"
-          grep -Fq SMARTCARD_SOURCE_STATUS_BEFORE_LOCK_AND_LOADKEY_PASS "$RUNNER_TEMP/evidence5-logs/03_smartcard_source.log"
-          grep -Fq SMARTCARD_TWO_PRECHECKS_CAN_REACH_LOAD_ATTEMPT_IN_MODEL "$RUNNER_TEMP/evidence5-logs/03_smartcard_source.log"
-          grep -Fq SMARTCARD_FIRMWARE_ONE_TIME_INIT_CONTROL_BLOCKS_SECOND_LOAD "$RUNNER_TEMP/evidence5-logs/03_smartcard_source.log"
-      - name: QBFT reward location and fork accounting invariant
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 reports/electroneum/evidence5/reproduce_rewards.py "$SOURCE" 2>&1 | tee "$RUNNER_TEMP/evidence5-logs/05_reward_source.log"
-          grep -Fq REWARD_REAL_QBFT_CREDIT_LOCATION_PASS "$RUNNER_TEMP/evidence5-logs/05_reward_source.log"
-          grep -Fq REWARD_CANONICAL_BRANCH_ORACLE_PASS "$RUNNER_TEMP/evidence5-logs/05_reward_source.log"
-      - name: Source immutable
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --exit-code -- vendor/electroneum-sc
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          echo EVIDENCE5_ORIGINAL_SOURCE_UNCHANGED_PASS
-      - name: Include complete focused source
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp reports/electroneum/evidence5/*.go "$RUNNER_TEMP/evidence5-logs/"
-          for file in full_backend_reorg peer_downloader_reorg devp2p_loopback_reorg qbft_devp2p_reorg lower_authority_peer; do
-            cp "reports/electroneum/R/production_depth/${file}_test.go" "$RUNNER_TEMP/evidence5-logs/helper_${file}_test.go"
-          done
-          cp reports/electroneum/evidence5/*.py "$RUNNER_TEMP/evidence5-logs/"
-          sha256sum "$RUNNER_TEMP/evidence5-logs/"*.go > "$RUNNER_TEMP/evidence5-logs/SOURCE_SHA256.txt"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: etn-five-evidence-${{ github.run_id }}
-          path: ${{ runner.temp }}/evidence5-logs/
-          if-no-files-found: warn
-          retention-days: 14
- -v ./eth 2>&1 | tee "$RUNNER_TEMP/evidence5-logs/05_reward_reorg_go.log"
+          go test -count=1 -timeout=10m -run '^TestQBFTRewardReorgNoOrphanCredit$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/evidence5-logs/05_reward_reorg_go.log"
           grep -Fq REWARD_OLD_BRANCH_CREDIT_CONFIRMED "$RUNNER_TEMP/evidence5-logs/05_reward_reorg_go.log"
           grep -Fq REWARD_ORPHAN_CREDIT_REMOVED_PASS "$RUNNER_TEMP/evidence5-logs/05_reward_reorg_go.log"
           grep -Fq REWARD_REORG_CANONICAL_BALANCES_MATCH_INDEPENDENT_BRANCH_PASS "$RUNNER_TEMP/evidence5-logs/05_reward_reorg_go.log"
