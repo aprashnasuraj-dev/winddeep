@@ -1,0 +1,91 @@
+name: Healthy Reserve ETH66 Disk Exhaustion Proof Gate
+on:
+  push:
+    branches: [audit/healthy-peer-storage-gate-20261104]
+    paths:
+      - 'reports/electroneum/healthy_peer_storage/**'
+      - '.github/workflows/healthy-peer-storage-gate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out exact reproducibility revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Certify unchanged Electroneum source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = 7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = de7f3c75a2db7e87a89918f1257820703d5b731e
+          echo "SOURCE=$WINDEEP_ETN_SOURCE" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Mount Go tests into disposable immutable-source copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/healthy-storage-go"
+          mkdir -p "$scratch" "$RUNNER_TEMP/healthy-storage-logs"
+          cp -a "$SOURCE"/. "$scratch"/
+          chmod u+w "$scratch/eth"
+          for file in full_backend_reorg peer_downloader_reorg devp2p_loopback_reorg qbft_devp2p_reorg lower_authority_peer qbft_storage_fault_reachability qbft_eth66_real_disk_limit qbft_real_enospc_peer_threshold qbft_peer_disk_growth_oracle; do
+            cp "reports/electroneum/R/production_depth/$file"_test.go "$scratch/eth/fixture_$file"_test.go
+          done
+          cp reports/electroneum/healthy_peer_storage/healthy_peer_two_height_test.go "$scratch/eth/healthy_peer_two_height_test.go"
+          echo "SCRATCH=$scratch" >> "$GITHUB_ENV"
+      - name: Isolated ext4 healthy reserve and two-height real ETH66 comparison
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          image="$RUNNER_TEMP/healthy-peer-ext4.img"
+          mountpoint="$RUNNER_TEMP/healthy-peer-ext4-mnt"
+          truncate -s 128M "$image"
+          mkfs.ext4 -q -F -m 0 "$image"
+          mkdir -p "$mountpoint"
+          sudo mount -o loop "$image" "$mountpoint"
+          sudo chown "$(id -u):$(id -g)" "$mountpoint"
+          cleanup() { sync || true; sudo umount "$mountpoint" || true; }
+          trap cleanup EXIT
+          test "$(findmnt -n -o FSTYPE --target "$mountpoint")" = ext4
+          df -B1 "$mountpoint" | tee "$RUNNER_TEMP/healthy-storage-logs/df_before.txt"
+          cd "$SCRATCH"
+          HEALTHY_PEER_STORAGE_ROOT="$mountpoint" go test -count=1 -timeout=12m -run '^TestHealthyReserveTwoHeightLowerTrustPeerGrowth$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/healthy-storage-logs/healthy_peer_two_height.log"
+          grep -Fq HEALTHY_PEER_INITIAL_RESERVE_PASS "$RUNNER_TEMP/healthy-storage-logs/healthy_peer_two_height.log"
+          grep -Fq HEALTHY_PEER_REAL_TCP_RLPX_ETH66_HANDSHAKE_PASS "$RUNNER_TEMP/healthy-storage-logs/healthy_peer_two_height.log"
+          grep -Fq HEALTHY_PEER_TWO_HEIGHT_CANONICAL_RECEIPTS_PASS "$RUNNER_TEMP/healthy-storage-logs/healthy_peer_two_height.log"
+          grep -Fq HEALTHY_PEER_DISK_RATIO_MEASURED "$RUNNER_TEMP/healthy-storage-logs/healthy_peer_two_height.log"
+          grep -Fq HEALTHY_PEER_NO_FATAL_EXIT_OBSERVED "$RUNNER_TEMP/healthy-storage-logs/healthy_peer_two_height.log"
+          df -B1 "$mountpoint" | tee "$RUNNER_TEMP/healthy-storage-logs/df_after.txt"
+      - name: Verify code and export reproducibility material
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code -- vendor/electroneum-sc
+          cp reports/electroneum/healthy_peer_storage/healthy_peer_two_height_test.go "$RUNNER_TEMP/healthy-storage-logs/"
+          cp reports/electroneum/R/production_depth/qbft_peer_disk_growth_oracle_test.go "$RUNNER_TEMP/healthy-storage-logs/"
+          sha256sum "$RUNNER_TEMP/healthy-storage-logs/"*.go > "$RUNNER_TEMP/healthy-storage-logs/SOURCE_SHA256.txt"
+          echo HEALTHY_PEER_IMMUTABLE_SOURCE_PASS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: healthy-peer-storage-proof-gate-${{ github.run_id }}
+          path: ${{ runner.temp }}/healthy-storage-logs/
+          retention-days: 14
+          if-no-files-found: warn
