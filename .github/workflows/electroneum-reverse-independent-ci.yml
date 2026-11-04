@@ -147,3 +147,26 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           sha256sum --check "$RUNNER_TEMP/reverse-r-immutable.sha256"
           echo REVERSE_R_CANONICAL_GUARD_SENSITIVITY_CERTIFIED_SOURCE_INTACT_PASS
+
+      - name: Reverse RPC fee width characterizer for signed synthetic transactions
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp reports/electroneum/C/reverse/reverse_e_fee_width_test.go "$REVERSE_R_SCRATCH/internal/ethapi/worker_r_fee_width_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestReverseEReceiptFeeWidthCharacterization$' -v ./internal/ethapi
+          echo REVERSE_R_E_FEE_WIDTH_CHARACTERIZATION_PASS
+      - name: Reverse strict large-fee precision oracle rejects uint64 narrowing
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$REVERSE_R_SCRATCH"
+          set +e
+          go test -count=1 -timeout=10m -run '^TestReverseEReceiptFeeWidthOracle$' -v ./internal/ethapi > "$RUNNER_TEMP/reverse-r-fee-original.log" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/reverse-r-fee-original.log"
+          if [ "$rc" -eq 0 ]; then echo REVERSE_R_E_FEE_ORACLE_UNEXPECTED_PASS; exit 65; fi
+          grep -Fq 'REVERSE_E_FEE_FULLWIDTH_ORACLE_MISMATCH' "$RUNNER_TEMP/reverse-r-fee-original.log" || { echo REVERSE_R_E_FEE_ORACLE_INVALID_FAILURE; exit 66; }
+          sha256sum --check "$RUNNER_TEMP/reverse-r-immutable.sha256"
+          echo "REVERSE_R_E_FEE_ORACLE_REJECTED_ORIGINAL exit=$rc"
