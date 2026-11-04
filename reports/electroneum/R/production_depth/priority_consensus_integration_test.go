@@ -104,7 +104,7 @@ func rExecutionAcceptsPriorityTransition(t *testing.T)(*rPriorityFixture,*BlockC
 
 func TestRPriorityExecutionPoolCharacterization(t *testing.T){
  f,chain,block,tx:=rExecutionAcceptsPriorityTransition(t)
- defer chain.Stop();defer f.close()
+ defer f.close();defer chain.Stop()
  // Counterexample: old registry key must no longer hold privilege at block 1.
  state,err:=chain.StateAt(block.Root());if err!=nil{t.Fatal(err)}
  evm:=vm.NewEVM(NewEVMBlockContext(block.Header(),chain,nil),vm.TxContext{},state,f.cfg,vm.Config{})
