@@ -369,9 +369,11 @@ jobs:
         run: |
           set -euo pipefail
           cd "$R_PROD_SCRATCH"
-          go test -count=1 -timeout=10m -run '^TestRLevelDBWAL(TailFaultMatrix|ResumeSync)$' -v ./core 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
+          go test -count=1 -timeout=10m -run '^TestRLevelDBWAL(TailFaultMatrix|ResumeSync|CheckpointStageResume)$' -v ./core 2>&1 | tee "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
           grep -Fq 'R_WAL_FAULT_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
           grep -Fq 'R_WAL_RESUME_SYNC_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
+          grep -Fq 'R_WAL_CHECKPOINT_STAGE_RESUME_MATRIX_PASS' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
+          grep -Fq 'R_WAL_STAGE_RESUME_PASS stage=body_receipt_no_lookup mode=truncate_64' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
           grep -Fq 'R_WAL_RESUME_INVALID_FORK_REJECTED_PASS mode=truncate_64' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
           grep -Fq 'R_WAL_RESUME_SECOND_RESTART_PASS mode=truncate_64' "$RUNNER_TEMP/r-prod-evidence/wal_tail_fault.log"
           {

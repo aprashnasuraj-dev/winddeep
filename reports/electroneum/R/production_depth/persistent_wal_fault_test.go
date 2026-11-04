@@ -327,3 +327,132 @@ func TestRLevelDBWALResumeSync(t *testing.T) {
     }
     t.Log("R_WAL_RESUME_SYNC_MATRIX_PASS local_post_exit_WAL_fault_no_remote_exploit_claim")
 }
+
+
+// TestRLevelDBWALCheckpointStageResume expands the recovery oracle from a
+// completed checkpoint to three *incomplete* sync checkpoints, both with and
+// without synthetic post-exit WAL truncation. No node or network is attacked.
+func TestRLevelDBWALCheckpointStageResume(t *testing.T) {
+    stages := []string{"receipt_before_body", "body_before_receipt", "body_receipt_no_lookup"}
+    modes := []string{"clean", "truncate_64"}
+
+    for _, stage := range stages {
+        t.Run(stage, func(t *testing.T) {
+            baseline := filepath.Join(t.TempDir(), "abrupt-stage")
+            child := exec.Command(os.Args[0], "-test.run=^TestRPersistentSubprocessAbruptExitChild$", "-test.v")
+            child.Env = append(os.Environ(), "R_PERSIST_CHILD_STAGE="+stage, "R_PERSIST_CHILD_PATH="+baseline)
+            output, err := child.CombinedOutput()
+            exit, ok := err.(*exec.ExitError)
+            if !ok || exit.ExitCode() != 97 {
+                t.Fatalf("R_WAL_STAGE_CHILD_EXIT_CONTROL_FAIL stage=%s err=%v output=%s", stage, err, output)
+            }
+
+            for _, mode := range modes {
+                t.Run(mode, func(t *testing.T) {
+                    path := filepath.Join(t.TempDir(), "chaindata")
+                    rWALCopyDirectory(t, baseline, path)
+                    if mode != "clean" { rWALInjectTail(t, path, mode) }
+
+                    db := rOpenPersist(t, path)
+                    genesisHash := rawdb.ReadCanonicalHash(db, 0)
+                    genesis := rawdb.ReadBlock(db, genesisHash, 0)
+                    cfg := rawdb.ReadChainConfig(db, genesisHash)
+                    if genesis == nil || cfg == nil {
+                        db.Close()
+                        t.Fatalf("R_WAL_STAGE_GENESIS_OR_CONFIG_LOST stage=%s mode=%s", stage, mode)
+                    }
+                    chain, err := NewBlockChain(db, nil, cfg, ethash.NewFaker(), vm.Config{}, nil, nil)
+                    if err != nil {
+                        db.Close()
+                        t.Fatalf("R_WAL_STAGE_CHAIN_RESTART_FAIL stage=%s mode=%s err=%v", stage, mode, err)
+                    }
+                    if chain.CurrentBlock() == nil || chain.CurrentBlock().NumberU64() != 0 {
+                        chain.Stop(); db.Close()
+                        t.Fatalf("R_WAL_STAGE_INCOMPLETE_FULL_HEAD_ADVANCED stage=%s mode=%s", stage, mode)
+                    }
+                    key, err := crypto.HexToECDSA("8a1f9a8f95be41cd7ccb6168179afb4504aefe388d1e14474d32c45c72ce7b7a")
+                    if err != nil { chain.Stop(); db.Close(); t.Fatal(err) }
+                    sender := crypto.PubkeyToAddress(key.PublicKey)
+                    dst := common.HexToAddress("0x0000000000000000000000000000000000000099")
+                    signer := types.LatestSigner(cfg)
+                    var txs [2]*types.Transaction
+                    fork, _ := GenerateChain(cfg, genesis, ethash.NewFaker(), db, 2, func(i int, b *BlockGen) {
+                        b.SetExtra([]byte{0x52, 0x53, 0x54, byte(i)})
+                        var signErr error
+                        txs[i], signErr = types.SignTx(types.NewTransaction(
+                            b.TxNonce(sender), dst, big.NewInt(int64(31+i)), 100000, b.BaseFee(), []byte{0xfa, byte(i)},
+                        ), signer, key)
+                        if signErr != nil { t.Fatal(signErr) }
+                        b.AddTx(txs[i])
+                    })
+                    if len(fork) != 2 || txs[0] == nil || txs[1] == nil ||
+                        fork[0].Hash() == rawdb.ReadCanonicalHash(db, 1) {
+                        chain.Stop(); db.Close()
+                        t.Fatalf("R_WAL_STAGE_FORK_FIXTURE_INVALID stage=%s mode=%s", stage, mode)
+                    }
+                    if idx, err := chain.InsertChain(fork); err != nil {
+                        chain.Stop(); db.Close()
+                        t.Fatalf("R_WAL_STAGE_SYNC_REIMPORT_FAIL stage=%s mode=%s index=%d err=%v", stage, mode, idx, err)
+                    }
+                    if chain.CurrentBlock().Hash() != fork[1].Hash() ||
+                        chain.GetCanonicalHash(1) != fork[0].Hash() ||
+                        chain.GetCanonicalHash(2) != fork[1].Hash() {
+                        chain.Stop(); db.Close()
+                        t.Fatalf("R_WAL_STAGE_CANONICAL_HEAD_INCONSISTENT stage=%s mode=%s", stage, mode)
+                    }
+                    headerHead := chain.CurrentHeader()
+                    fastHead := chain.CurrentFastBlock()
+                    if headerHead == nil || headerHead.Hash() != fork[1].Hash() ||
+                        fastHead == nil || fastHead.Hash() != fork[1].Hash() {
+                        chain.Stop(); db.Close()
+                        t.Fatalf("R_WAL_STAGE_HEADER_FAST_HEAD_MISMATCH stage=%s mode=%s", stage, mode)
+                    }
+                    for blockIndex, tx := range txs {
+                        found, blockHash, number, idx := rawdb.ReadTransaction(db, tx.Hash())
+                        receipt, receiptBlock, receiptNumber, receiptIndex := rawdb.ReadReceipt(db, tx.Hash(), cfg)
+                        wantBlock := fork[blockIndex].Hash()
+                        wantNumber := uint64(blockIndex + 1)
+                        if found == nil || found.Hash() != tx.Hash() || blockHash != wantBlock ||
+                            number != wantNumber || idx != 0 || receipt == nil ||
+                            receipt.TxHash != tx.Hash() || receipt.Status != types.ReceiptStatusSuccessful ||
+                            receiptBlock != wantBlock || receiptNumber != wantNumber || receiptIndex != 0 {
+                            chain.Stop(); db.Close()
+                            t.Fatalf("R_WAL_STAGE_TX_RECEIPT_LOOKUP_BAD stage=%s mode=%s block=%d", stage, mode, wantNumber)
+                        }
+                    }
+                    chain.Stop()
+                    if err := db.Close(); err != nil { t.Fatal(err) }
+
+                    reopened := rOpenPersist(t, path)
+                    persistedCfg := rawdb.ReadChainConfig(reopened, rawdb.ReadCanonicalHash(reopened, 0))
+                    again, err := NewBlockChain(reopened, nil, persistedCfg, ethash.NewFaker(), vm.Config{}, nil, nil)
+                    if err != nil {
+                        reopened.Close()
+                        t.Fatalf("R_WAL_STAGE_SECOND_RESTART_FAIL stage=%s mode=%s err=%v", stage, mode, err)
+                    }
+                    if again.CurrentBlock().Hash() != fork[1].Hash() ||
+                        again.CurrentHeader().Hash() != fork[1].Hash() ||
+                        again.CurrentFastBlock().Hash() != fork[1].Hash() ||
+                        again.GetCanonicalHash(1) != fork[0].Hash() ||
+                        again.GetCanonicalHash(2) != fork[1].Hash() {
+                        again.Stop(); reopened.Close()
+                        t.Fatalf("R_WAL_STAGE_RESTART_LOST_HEAD stage=%s mode=%s", stage, mode)
+                    }
+                    for _, tx := range txs {
+                        got, _, _, _ := rawdb.ReadTransaction(reopened, tx.Hash())
+                        receipt, _, _, _ := rawdb.ReadReceipt(reopened, tx.Hash(), persistedCfg)
+                        if got == nil || got.Hash() != tx.Hash() || receipt == nil ||
+                            receipt.TxHash != tx.Hash() || receipt.Status != types.ReceiptStatusSuccessful {
+                            again.Stop(); reopened.Close()
+                            t.Fatalf("R_WAL_STAGE_RESTART_LOST_TX_RECEIPT stage=%s mode=%s", stage, mode)
+                        }
+                    }
+                    t.Logf("R_WAL_STAGE_RESUME_PASS stage=%s mode=%s full=2 txs=2 receipts=2", stage, mode)
+                    again.Stop()
+                    if err := reopened.Close(); err != nil { t.Fatal(err) }
+                })
+            }
+        })
+    }
+    t.Log("R_WAL_CHECKPOINT_STAGE_RESUME_MATRIX_PASS local_synthetic_fault_only")
+}
