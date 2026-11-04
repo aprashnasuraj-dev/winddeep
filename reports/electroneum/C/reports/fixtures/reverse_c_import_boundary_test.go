@@ -79,3 +79,19 @@ func TestReverseCExportedImportFailClosedOracle(t *testing.T){
  if err==nil {t.Fatal("missing salt malformed JSON unexpectedly imported")}
  t.Logf("REVERSE_C_EXPORT_IMPORT_FAIL_CLOSED_ORACLE_PASS err=%v",err)
 }
+
+
+// TestReverseCExportedImportUnrecoveredPanic intentionally does NOT recover.
+// The CI wrapper must observe nonzero go-test exit and an exact KeyStore.Import
+// panic stack. This proves process-level propagation for a local library caller;
+// it is not evidence of default remote RPC reachability.
+func TestReverseCExportedImportUnrecoveredPanic(t *testing.T){
+ valid:=reverseCEncryptedSyntheticFixture(t)
+ bad:=reverseCModifyJSON(t,valid,func(x map[string]interface{}){
+  delete(x["crypto"].(map[string]interface{})["kdfparams"].(map[string]interface{}),"salt")
+ })
+ t.Log("REVERSE_C_UNRECOVERED_IMPORT_BEGIN")
+ ks:=NewKeyStore(t.TempDir(),16,1)
+ _,_ = ks.Import(bad,"fixture-password","rotated-fixture-password")
+ t.Fatal("REVERSE_C_UNRECOVERED_IMPORT_UNEXPECTED_RETURN")
+}
