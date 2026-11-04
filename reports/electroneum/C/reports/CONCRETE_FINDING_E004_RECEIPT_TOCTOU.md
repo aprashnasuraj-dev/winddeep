@@ -1,6 +1,6 @@
 # E-RPC-004 — Receipt Canonicality TOCTOU Across Concurrent Reorganization
 
-**Disposition (4 November 2026): CONFIRMED SOURCE-LEVEL DEFECT — VERIFICATION CLOSED.** The certified Electroneum receipt adapter can return a successful receipt for an orphaned transaction after a synthetic reorganization changes canonical state during its read. **Production exploitability, adversary control and financial impact remain unproven.** This report closes verification of source behavior, not remediation. Repeated fuzz reproductions refer to the same finding, not separate new vulnerabilities.
+**Disposition (4 November 2026): CONFIRMED SOURCE-LEVEL DEFECT — VERIFICATION CLOSED; FULL-BACKEND REACHABILITY STRENGTHENED.** The certified Electroneum receipt adapter can return a successful receipt for an orphaned transaction when a validated competing chain changes canonical state during its read. This is now reproduced with a real in-process core.BlockChain and real eth.EthAPIBackend, in addition to the earlier synthetic scheduling oracle. **External devp2p/QBFT adversary control and financial impact remain unproven.** This report closes verification of source behavior, not remediation. Repeated fuzz reproductions refer to the same finding, not separate new vulnerabilities.
 
 **Finding family:** RPC state-consistency; non-atomic transaction-to-receipt read. **Severity:** deployment/impact dependent, not assigned a remotely exploitable security severity without lower-trust reachability proof. **Target:** certified Windeep commit 7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0, vendor tree de7f3c75a2db7e87a89918f1257820703d5b731e, pinned Electroneum upstream 3aeb14db0d6384243302f3a025bdff904dc28bf6.
 
@@ -18,9 +18,9 @@
 
 **Demonstrated:** RPC read-consistency breach: a stale successful receipt can be assembled during a concurrent canonical switch. A downstream client that treats one receipt as irrevocably canonical might act on a block already displaced. This does not directly demonstrate consensus failure.
 
-**Required preconditions:** old transaction lookup resolves just before a concurrent reorganization; old receipts are still present; a caller queries within this window. The test sets these conditions by local hook. A deployed EthAPIBackend and live consensus chain are **not** exercised in the decisive synthetic reproduction.
+**Required preconditions:** old transaction lookup resolves just before a concurrent reorganization; old receipts remain addressable; a caller queries within this window. The earlier deterministic test set the timing by local hook. The newer campaign uses a real in-process BlockChain and unmodified EthAPIBackend while a longer, validated competing chain is imported through BlockChain.InsertChain; no per-call delay hook is used for the direct-race measurements.
 
-**Not demonstrated:** attacker-triggered/controlled QBFT reorg, bypassed finality, guaranteed race timing, default remote denial-of-service, exchange credit error, unauthorized ETN transfer, wallet theft or realized financial loss. No severity score based on imagined exploitation.
+**Not demonstrated:** an external devp2p peer or below-threshold QBFT adversary reliably creating the required reorg/timing, bypassed finality, a production-node race probability, default remote denial-of-service, exchange credit error, unauthorized ETN transfer, wallet theft or realized financial loss. No severity score based on imagined exploitation.
 
 **Defeating counterexample:** a consumer that rechecks canonical block identity, waits for confirmations and handles eventual consistency may not suffer an integrity violation. Even a final server-side check cannot prevent a chain change *after* response publication.
 
@@ -34,6 +34,10 @@
 
 **Full-chain counterexample CI [41754322942](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41754322942):** TestReorgLongBlocks, TestReorgShortBlocks, TestChainTxReorgs, TestEIP155Transition, TestTransactionIndices all passed. These do not exercise the narrow mid-receipt-read timing.
 
+**Full-backend strengthening CI [41763336581](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41763336581):** package-level test constructs a real `core.BlockChain`, real `eth.EthAPIBackend`, signed transaction/receipts, and a validated longer fork inserted through `BlockChain.InsertChain`. A deterministic between-call control still reproduces the stale receipt and an immediate downstream canonical-hash recheck rejects it. More importantly, the unmodified backend was queried concurrently while the validated fork was imported across **24 trials** (old-chain depths 2, 4 and 7; two query workers). The bounded campaign logged **380,464 receipt calls**, **9,723 old-receipt responses**, **44 old-receipt responses whose immediate postcheck already saw the new canonical block**, and **14 calls whose measured request interval straddled the observed canonical flip and still returned the old receipt**. The largest measured interval from observed flip to return among those straddled responses was **2,074,585 ns (~2.07 ms)**. Marker: `R_FULL_BACKEND_ORDINARY_IMPORT_TOCTOU_OBSERVED`. This is stronger production-path evidence, but `InsertChain` is a peer-equivalent validated import path, **not a reproduced devp2p/QBFT network attack**. These counts measure one CI stress campaign and must not be interpreted as deployment probability.
+
+**Downstream confirmation control:** the same full-backend test performs an immediate canonical hash recheck at the receipt height. It rejects the stale response (`R_FULL_DOWNSTREAM_RECHECK_REJECTS_STALE_RECEIPT_PASS`). This demonstrates a concrete consumer-side defense and is a counterexample to claims that every stale response necessarily causes downstream loss.
+
 **Source identity:** certified Windeep source tree de7f3c75a2db7e87a89918f1257820703d5b731e; all tested mutations occurred in disposable scratch. No public nodes, funds or credentials.
 
 ## 4. Recommendation and Closure Decision
@@ -41,7 +45,7 @@
 1. Tie transaction lookup, canonical block identity and receipt reads to a consistent chain view. At minimum, revalidate canonical block identity at the returned height after receipt/header construction and retry or return a controlled not-current error when it differs.
 2. Avoid introducing nil dereferences: check absent tx, receipt, header and post-London BaseFee before use. Maintain explicit negative controls and error semantics.
 3. Add permanent full-backend tests: stable A, completed A→B, A→B between lookup and receipt, repeated A↔B transitions, missing data, context cancellation, and JSON-RPC transport response consistency.
-4. Prove real production reachability separately: use an in-process full Ethereum/Electroneum blockchain backend and actual head changes, quantify window width and frequency, and test downstream consumer behavior. Do not promote severity based solely on synthetic control of chain switching.
+4. Continue reachability work beyond the now-completed in-process full-backend test: drive the same transition through the actual downloader/devp2p peer path and, separately, realistic QBFT validator/finality transitions. Quantify results without converting bounded CI frequencies into production probabilities. Test real consumer confirmation logic before assigning financial impact.
 5. Scratch-only canonical recheck was an **oracle-sensitivity control**, not an upstream patch; review remediation and retain the certified source baseline.
 
-**Final verification disposition:** E-RPC-004 = CONFIRMED_SOURCE_DEFECT / REPRODUCTION_CLOSED / REMEDIATION_OPEN / PRODUCTION_EXPLOITABILITY_OPEN. Close the report's reproducibility investigation; do not mark production remediation completed or create a duplicate CVE from the same source behavior.
+**Final verification disposition:** E-RPC-004 = CONFIRMED_SOURCE_DEFECT / REPRODUCTION_CLOSED / FULL_BACKEND_INSERTCHAIN_REACHABILITY_ESTABLISHED / EXTERNAL_DEVp2p_QBFT_EXPLOITABILITY_OPEN / REMEDIATION_OPEN. Close the report's reproducibility investigation; do not mark production remediation completed or create a duplicate CVE from the same source behavior.
