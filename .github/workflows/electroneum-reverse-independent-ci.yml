@@ -170,3 +170,13 @@ jobs:
           grep -Fq 'REVERSE_E_FEE_FULLWIDTH_ORACLE_MISMATCH' "$RUNNER_TEMP/reverse-r-fee-original.log" || { echo REVERSE_R_E_FEE_ORACLE_INVALID_FAILURE; exit 66; }
           sha256sum --check "$RUNNER_TEMP/reverse-r-immutable.sha256"
           echo "REVERSE_R_E_FEE_ORACLE_REJECTED_ORIGINAL exit=$rc"
+
+      - name: Reverse downloader peer revocation and receipt retry state machine
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod u+w "$REVERSE_R_SCRATCH/eth/downloader"
+          cp reports/electroneum/C/reverse/reverse_d_receipt_peer_revoke_test.go "$REVERSE_R_SCRATCH/eth/downloader/worker_r_reverse_receipt_peer_revoke_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=15m -run '^TestReverseDReceiptPeerRevocationAndReplay$' -v ./eth/downloader
+          echo REVERSE_R_D_RECEIPT_PEER_REVOCATION_MATRIX_PASS
