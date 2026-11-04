@@ -265,3 +265,32 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           sha256sum --check "$RUNNER_TEMP/reverse-r-keystore-immutable.sha256"
           echo REVERSE_R_C_KEYSTORE_GUARD_SENSITIVITY_PASS
+
+      - name: Reverse C-001 personal wallet initialization exposure controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp reports/electroneum/C/reports/fixtures/reverse_c_personal_rpc_test.go "$REVERSE_R_SCRATCH/internal/ethapi/worker_r_personal_init_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=12m -run '^(TestReverseCInitializeWalletDefenseMatrix|TestReverseCPersonalAPIRegistrationIsPrivate)$' -v ./internal/ethapi
+          echo REVERSE_R_C_PERSONAL_INITIALIZE_DEFENSE_MATRIX_PASS
+
+      - name: Reverse C-001 RPC error result suppression control
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod u+w "$REVERSE_R_SCRATCH/rpc"
+          cp reports/electroneum/C/reports/fixtures/reverse_c_rpc_error_result_test.go "$REVERSE_R_SCRATCH/rpc/worker_r_rpc_error_result_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestReverseCRPCErrorSuppressesSensitiveResult$' -v ./rpc
+          echo REVERSE_R_C_RPC_ERROR_RESULT_SUPPRESSION_PASS
+
+      - name: Reverse C-001 default HTTP and WS module exposure
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod u+w "$REVERSE_R_SCRATCH/node"
+          cp reports/electroneum/C/reports/fixtures/reverse_c_default_modules_test.go "$REVERSE_R_SCRATCH/node/worker_r_default_modules_test.go"
+          cd "$REVERSE_R_SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestReverseCDefaultTransportExcludesPersonal$' -v ./node
+          echo REVERSE_R_C_DEFAULT_PERSONAL_EXPOSURE_PASS
