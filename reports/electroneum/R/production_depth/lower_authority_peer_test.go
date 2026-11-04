@@ -18,6 +18,7 @@ import (
 	ethproto "github.com/electroneum/electroneum-sc/eth/protocols/eth"
 	"github.com/electroneum/electroneum-sc/internal/ethapi"
 	"github.com/electroneum/electroneum-sc/p2p"
+	"github.com/electroneum/electroneum-sc/rlp"
 	qbftengine "github.com/electroneum/electroneum-sc/consensus/istanbul/engine"
 )
 
