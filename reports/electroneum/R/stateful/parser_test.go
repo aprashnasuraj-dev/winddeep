@@ -64,10 +64,10 @@ func auditRParserScenario(t *testing.T, control []byte) {
  if err:=stream.Decode(&streamed);err==nil&&len(streamed)>len(arbitrary){
   t.Fatalf("R_PARSER_RLP_STREAM_EXCEEDED_INPUT_BUDGET")
  }
- t.Logf("R_PARSER_BOUNDED_GRAMMAR_MUTATION_PASS bytes=%d",len(control))
 }
 func TestRParserBaselineControls(t *testing.T){
  for _,data:=range [][]byte{{0,1},{1,255},{2,0},{3,7},{4,63},{5,0},{0,4,5}}{auditRParserScenario(t,data)}
+ t.Log("R_PARSER_BASELINE_ALL_GRAMMAR_CLASSES_PASS")
 }
 func FuzzRParserResourceBudget(f *testing.F){
  f.Add([]byte{0,1})
