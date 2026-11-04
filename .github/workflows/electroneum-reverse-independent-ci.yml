@@ -332,5 +332,7 @@ jobs:
           chmod u+w "$REVERSE_R_SCRATCH/core"
           cp reports/electroneum/C/reports/fixtures/reverse_a_priority_fee_test.go "$REVERSE_R_SCRATCH/core/worker_r_priority_fee_test.go"
           cd "$REVERSE_R_SCRATCH"
-          go test -count=1 -timeout=20m -run '^(TestReverseAPriorityCacheTransactionBoundaries|TestReverseALondonSupplyAccounting)$' -v ./core
+          go test -count=1 -timeout=20m -run '^(TestReverseAPriorityCacheTransactionBoundaries|TestReverseALondonSupplyAccounting|TestReverseALondonRevertAndWaiverAccounting)
+          echo REVERSE_R_A_PRIORITY_AND_SUPPLY_MATRIX_PASS
+ -v ./core
           echo REVERSE_R_A_PRIORITY_AND_SUPPLY_MATRIX_PASS
