@@ -1,0 +1,99 @@
+name: ETN Five Topic Reproducer Verification
+on:
+  push:
+    branches: [audit/five-evidence-20261104]
+    paths:
+      - 'reports/electroneum/evidence5/**'
+      - '.github/workflows/electroneum-five-evidence.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Certify exact Electroneum source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = 7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = de7f3c75a2db7e87a89918f1257820703d5b731e
+          echo "SOURCE=$WINDEEP_ETN_SOURCE" >> "$GITHUB_ENV"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Mount actual test code and working QBFT fixture dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/evidence5-source"
+          mkdir -p "$scratch" "$RUNNER_TEMP/evidence5-logs"
+          cp -a "$SOURCE"/. "$scratch"/
+          chmod u+w "$scratch/internal/ethapi" "$scratch/consensus/istanbul/core" "$scratch/eth"
+          cp reports/electroneum/evidence5/e001_receipt_identity_test.go "$scratch/internal/ethapi/evidence_receipt_identity_test.go"
+          cp reports/electroneum/evidence5/roundchange_future_test.go "$scratch/consensus/istanbul/core/evidence_roundchange_test.go"
+          cp reports/electroneum/evidence5/finalized_header_panic_test.go "$scratch/eth/evidence_finalized_header_test.go"
+          for file in full_backend_reorg peer_downloader_reorg devp2p_loopback_reorg qbft_devp2p_reorg lower_authority_peer; do
+            cp "reports/electroneum/R/production_depth/${file}_test.go" "$scratch/eth/evidence_helper_${file}_test.go"
+          done
+          echo "SCRATCH=$scratch" >> "$GITHUB_ENV"
+          echo EVIDENCE5_SOURCE_INSTALL_PASS
+      - name: Receipt identity mismatch through actual public RPC adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$SCRATCH"
+          go test -count=1 -timeout=8m -run '^TestReceiptIdentityCrossRecord$' -v ./internal/ethapi 2>&1 | tee "$RUNNER_TEMP/evidence5-logs/01_receipt_identity.log"
+          grep -Fq RECEIPT_IDENTITY_MISMATCH_CONFIRMED "$RUNNER_TEMP/evidence5-logs/01_receipt_identity.log"
+          grep -Fq RECEIPT_IDENTITY_VALID_BASELINE_PASS "$RUNNER_TEMP/evidence5-logs/01_receipt_identity.log"
+      - name: QBFT future round-change backlog admission
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$SCRATCH"
+          go test -count=1 -timeout=8m -run '^TestRoundChangeFutureSequenceRoundWindow$' -v ./consensus/istanbul/core 2>&1 | tee "$RUNNER_TEMP/evidence5-logs/04_roundchange_backlog.log"
+          grep -Fq BACKLOG_FUTURE_SEQUENCE_BYPASSES_ROUND_CAP_CONFIRMED "$RUNNER_TEMP/evidence5-logs/04_roundchange_backlog.log"
+          grep -Fq BACKLOG_FUTURE_ROUND_RETAINED "$RUNNER_TEMP/evidence5-logs/04_roundchange_backlog.log"
+      - name: Finalized header RPC with actually validated 3-of-4 QBFT block
+        shell: bash
+        env:
+          GOMAXPROCS: '2'
+          GOMEMLIMIT: 768MiB
+        run: |
+          set -euo pipefail
+          cd "$SCRATCH"
+          go test -count=1 -timeout=10m -run '^TestFinalizedHeaderAbsentAfterValidQBFTImport$' -v ./eth 2>&1 | tee "$RUNNER_TEMP/evidence5-logs/02_finalized_header.log"
+          grep -Fq FINALIZED_QBFT_3_OF_4_CANONICAL_POSITIVE_PASS "$RUNNER_TEMP/evidence5-logs/02_finalized_header.log"
+          grep -Fq FINALIZED_GETBLOCK_RETURNS_NULL_CONFIRMED "$RUNNER_TEMP/evidence5-logs/02_finalized_header.log"
+          grep -Fq FINALIZED_GETHEADER_NIL_DEREFERENCE_CONFIRMED "$RUNNER_TEMP/evidence5-logs/02_finalized_header.log"
+      - name: Source immutable
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code -- vendor/electroneum-sc
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo EVIDENCE5_ORIGINAL_SOURCE_UNCHANGED_PASS
+      - name: Include complete focused source
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp reports/electroneum/evidence5/*.go "$RUNNER_TEMP/evidence5-logs/"
+          sha256sum "$RUNNER_TEMP/evidence5-logs/"*.go > "$RUNNER_TEMP/evidence5-logs/SOURCE_SHA256.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: etn-five-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/evidence5-logs/
+          if-no-files-found: warn
+          retention-days: 14
