@@ -45,6 +45,10 @@ type rQBFTNetFixture struct {
 func rQBFTBackendConfig() istanbul.Config {
 	cfg := *istanbul.DefaultConfig
 	cfg.ProposerPolicy = istanbul.NewRoundRobinProposerPolicy()
+	// Permit fast deterministic fixture construction while retaining the shipped
+	// 5-second block period. Before transport begins, the test waits until the
+	// resulting tip is inside the normal 5-second production future window.
+	cfg.AllowedFutureBlockTime = 60
 	return cfg
 }
 
@@ -215,6 +219,16 @@ func rNewQBFTNetFixture(t *testing.T, oldLen int) *rQBFTNetFixture {
 	for i := 0; i < oldLen+1; i++ {
 		rQBFTBuildAndImport(t, remoteChain, remoteBE, remoteDB, keys, addrs, nil)
 	}
+	// Time-compressed construction can put the quorum-authorized tip ahead of
+	// wall clock. Do not begin devp2p delivery until the branch is within the
+	// shipped production AllowedFutureBlockTime (5s).
+	for remoteChain.CurrentBlock().Time() > uint64(time.Now().Unix())+5 {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if remoteChain.CurrentBlock().Time() > uint64(time.Now().Unix())+5 {
+		t.Fatal("R_QBFT_DEVP2P_PRODUCTION_TIME_WINDOW_FAIL")
+	}
+	t.Logf("R_QBFT_DEVP2P_PRODUCTION_TIME_WINDOW_PASS tip_time=%d now=%d", remoteChain.CurrentBlock().Time(), time.Now().Unix())
 
 	svc := &Ethereum{blockchain: localChain, chainDb: localDB}
 	apiBackend := &EthAPIBackend{eth: svc}
