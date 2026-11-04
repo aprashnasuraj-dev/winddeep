@@ -59,8 +59,9 @@ func TestRQBFTWireDiskLimitCrashChild(t *testing.T){
     genesis:=rQBFTNetworkGenesis(t,f.validatorKeys,crypto.PubkeyToAddress(senderKey.PublicKey))
     g:=genesis.MustCommit(db)
     if g.Hash()!=block.ParentHash(){t.Fatalf("R_G6_GENESIS_MISMATCH got=%s want=%s",g.Hash(),block.ParentHash())}
-    backend:=istanbulbackend.New(*istanbul.DefaultConfig,f.validatorKeys[0],db)
-    chain,err:=core.NewBlockChain(db,nil,genesis.Config,backend,vm.Config{},nil,nil)
+    tracedDB:=&rQBFTObservedDB{Database:db}
+    backend:=istanbulbackend.New(*istanbul.DefaultConfig,f.validatorKeys[0],tracedDB)
+    chain,err:=core.NewBlockChain(tracedDB,nil,genesis.Config,backend,vm.Config{},nil,nil)
     if err!=nil{t.Fatal(err)}
     if err:=backend.Start(chain,chain.CurrentBlock,rawdb.HasBadBlock);err!=nil{t.Fatal(err)}
     if err:=backend.VerifyHeader(chain,block.Header(),true);err!=nil{
@@ -74,7 +75,7 @@ func TestRQBFTWireDiskLimitCrashChild(t *testing.T){
     if err!=nil{t.Fatal(err)}
     if err:=os.WriteFile(os.Getenv("R_G6_META_PATH"),encoded,0600);err!=nil{t.Fatal(err)}
 
-    localHandler:=rDevP2PHandler(t,db,chain)
+    localHandler:=rDevP2PHandler(t,tracedDB,chain)
     defer localHandler.Stop()
     localServer:=rDevP2PServer(t,"r-g6-local-disk-full",localHandler,false)
     defer localServer.Stop()
@@ -129,6 +130,7 @@ func TestRQBFTWireDiskLimitPeerDelivery(t *testing.T){
         "R_G6_REAL_OS_EFBIG_ARMED",
         "R_G6_ETH66_DOWNLOADER_SYNC_START",
         "R_G6_ETH66_BODY_RESPONSE_SENT_SUCCESS",
+        "R_QBFT_REAL_LEVELDB_BATCH_WRITE_ERROR",
     }
     for _,marker:=range checks {
         if !bytes.Contains(output,[]byte(marker)) {
@@ -160,6 +162,7 @@ func TestRQBFTWireDiskLimitPeerDelivery(t *testing.T){
         t.Fatalf("R_G6_PEER_VALID_BLOCK_DISK_LIMIT_UNEXPECTED_STATE full=%v canon=%s tx=%v receipt=%v",
             full,canon,tx,receipt)
     }
+    t.Log("R_G6_NATIVE_LEVELDB_ERROR_CAPTURED from_real_Linux_EFBIG")
     t.Logf("R_G6_PEER_TRIGGERED_LOCAL_AVAILABILITY_FAIL_VALID_QUORUM disk_limit=64B_wal_growth exit=1 latest=0 receipts_visible=0")
     // Recovery counterexample: restoring disk write capacity alone leaves the
     // node at genesis. A real QBFT-valid reimport is required to catch up.

@@ -36,6 +36,21 @@ import (
     "github.com/electroneum/electroneum-sc/rpc"
 )
 
+// Passive observer: forward the exact original LevelDB Batch.Write return.
+type rQBFTObservedDB struct{ ethdb.Database }
+type rQBFTObservedBatch struct{ ethdb.Batch }
+func (d *rQBFTObservedDB) NewBatch() ethdb.Batch {
+    return &rQBFTObservedBatch{Batch:d.Database.NewBatch()}
+}
+func (d *rQBFTObservedDB) NewBatchWithSize(n int) ethdb.Batch {
+    return &rQBFTObservedBatch{Batch:d.Database.NewBatchWithSize(n)}
+}
+func (b *rQBFTObservedBatch) Write() error {
+    err:=b.Batch.Write()
+    if err!=nil {fmt.Fprintf(os.Stderr,"R_QBFT_REAL_LEVELDB_BATCH_WRITE_ERROR err=%q\n",err.Error())}
+    return err
+}
+
 type rQBFTCrashDB struct { ethdb.Database }
 type rQBFTCrashBatch struct { ethdb.Batch; head bool }
 func (d *rQBFTCrashDB) NewBatch() ethdb.Batch {
@@ -135,6 +150,7 @@ func TestRQBFTStorageCrashChild(t *testing.T) {
     disk:=rQBFTOpenDisk(t,path)
     var db ethdb.Database=disk
     if mode=="head_after" {db=&rQBFTCrashDB{Database:disk}}
+    if mode=="os_fsize" || mode=="os_fsize_late" {db=&rQBFTObservedDB{Database:disk}}
     chain,be:=rQBFTEngine(t,db,key)
     if chain.CurrentBlock().NumberU64()!=0{t.Fatal("R_QBFT_BAD_START_HEAD")}
     if err:=be.VerifyHeader(chain,block.Header(),true);err!=nil{
@@ -260,8 +276,11 @@ func TestRProductionQBFTStorageCrashMatrix(t *testing.T){
                 if !bytes.Contains(output,[]byte("R_QBFT_SYNTHETIC_HEAD_BATCH_COMMITTED_THEN_ERROR")){
                     t.Fatalf("R_QBFT_HEAD_AFTER_TRIGGER_MISSING output=%s",output)
                 }
-            }else if !bytes.Contains(output,[]byte("R_QBFT_REAL_OS_EFBIG_CONFIRMED")){
-                t.Fatalf("R_QBFT_REAL_OS_PROOF_MISSING output=%s",output)
+            }else if !bytes.Contains(output,[]byte("R_QBFT_REAL_OS_EFBIG_CONFIRMED")) ||
+                !bytes.Contains(output,[]byte("R_QBFT_REAL_LEVELDB_BATCH_WRITE_ERROR")) {
+                t.Fatalf("R_QBFT_UNMODIFIED_LEVELDB_ERROR_NOT_CAPTURED output=%s",output)
+            }else{
+                t.Logf("R_QBFT_UNMODIFIED_LEVELDB_ERROR_CAPTURED mode=%s",mode)
             }
             t.Logf("R_QBFT_FAULT_EXPECTED_EXIT_PASS mode=%s",mode)
             recoveredDB:=rQBFTOpenDisk(t,runDir)
