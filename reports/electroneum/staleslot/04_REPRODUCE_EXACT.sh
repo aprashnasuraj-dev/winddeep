@@ -24,7 +24,13 @@ if [[ "$#" -ge 2 ]]; then out="$2"; fi
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+cleanup() {
+  rc=$?
+  chmod -R u+w "$tmp" >/dev/null 2>&1 || true
+  rm -rf "$tmp" >/dev/null 2>&1 || true
+  exit "$rc"
+}
+trap cleanup EXIT
 scratch="$tmp/staleslot-scratch"
 mkdir -p "$scratch"
 cp -a "$src"/. "$scratch"/
