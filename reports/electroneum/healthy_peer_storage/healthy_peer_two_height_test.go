@@ -51,7 +51,7 @@ func TestHealthyReserveTwoHeightLowerTrustPeerGrowth(t *testing.T) {
    if block.NumberU64()!=uint64(n+1){t.Fatalf("unexpected block height %d",block.NumberU64())}
    blocks=append(blocks,block);txs=append(txs,tx)
  }
- t.Logf("HEALTHY_PEER_QUORUM_VALID_HISTORY_PASS heights=2 block_1_bytes=%d block_2_bytes=%d",blocks[0].Size(),blocks[1].Size())
+ t.Logf("HEALTHY_PEER_QUORUM_VALID_HISTORY_PASS heights=2 block_1_bytes=%v block_2_bytes=%v",blocks[0].Size(),blocks[1].Size())
 
  base:=filepath.Join(mount,"two-heights")
  if err:=os.MkdirAll(base,0700);err!=nil{t.Fatal(err)}
