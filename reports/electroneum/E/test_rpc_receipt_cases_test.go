@@ -6,6 +6,7 @@ import (
  "testing"
 
  "github.com/electroneum/electroneum-sc/common"
+ "github.com/electroneum/electroneum-sc/common/hexutil"
  "github.com/electroneum/electroneum-sc/core/types"
  "github.com/electroneum/electroneum-sc/params"
 )
@@ -98,7 +99,7 @@ func TestWorkerEReceiptStatusAndIndexControls(t *testing.T) {
   b.receipt.Status=types.ReceiptStatusFailed
   got,err:=api.GetTransactionReceipt(context.Background(),hash)
   if err!=nil || got==nil {t.Fatalf("failed receipt query: %v, %v",err,got)}
-  if got["status"]==nil {t.Fatal("failed transaction omitted status")}
+  if got["status"]!=hexutil.Uint(types.ReceiptStatusFailed) {t.Fatalf("failed receipt status mismatch: %v",got["status"])}
   if got["transactionHash"]!=hash {t.Fatal("failed transaction misidentified")}
   t.Log("E_RPC_FAILED_STATUS_CONTROL",got["status"])
  })
