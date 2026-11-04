@@ -84,6 +84,16 @@ func(b *rRPCTestBackend) GetReceipts(_ context.Context,h common.Hash)(types.Rece
 func(b *rRPCTestBackend) HeaderByHash(_ context.Context,h common.Hash)(*types.Header,error){
     return b.chain.GetHeaderByHash(h),nil
 }
+func(b *rRPCTestBackend) BlockByNumber(_ context.Context,n rpc.BlockNumber)(*types.Block,error){
+    if n==rpc.LatestBlockNumber{return b.chain.CurrentBlock(),nil}
+    if n<0{return nil,nil}
+    return b.chain.GetBlockByNumber(uint64(n)),nil
+}
+func(b *rRPCTestBackend) GetTd(_ context.Context,h common.Hash)*big.Int{
+    n:=rawdb.ReadHeaderNumber(b.db,h)
+    if n==nil{return nil}
+    return rawdb.ReadTd(b.db,h,*n)
+}
 func TestRPublicReceiptAfterHeadBatchCrashChild(t *testing.T){
     if os.Getenv("R_RPC_BATCH_CHILD")!="1"{return}
     _,block,_:=rRPCFixture(t)
@@ -124,7 +134,8 @@ func TestRPublicReceiptCrashVisibility(t *testing.T){
         chain.Stop();db.Close()
         t.Fatalf("R_RPC_PRE_REPLAY_STATE_WRONG full=%d canonical=%s",fullHead,chain.GetCanonicalHash(1))
     }
-    api:=NewPublicTransactionPoolAPI(&rRPCTestBackend{db:db,chain:chain},nil)
+    backend:=&rRPCTestBackend{db:db,chain:chain}
+    api:=NewPublicTransactionPoolAPI(backend,nil)
     ctx:=context.Background()
     receipt,err:=api.GetTransactionReceipt(ctx,tx.Hash())
     if err!=nil||receipt==nil||receipt["blockHash"]!=block.Hash()||
@@ -137,6 +148,9 @@ func TestRPublicReceiptCrashVisibility(t *testing.T){
     if err:=server.RegisterName("eth",api);err!=nil{
         chain.Stop();db.Close();t.Fatal(err)
     }
+    if err:=server.RegisterName("eth",NewPublicBlockChainAPI(backend));err!=nil{
+        server.Stop();chain.Stop();db.Close();t.Fatal(err)
+    }
     client:=rpc.DialInProc(server)
     var returned map[string]interface{}
     err=client.CallContext(ctx,&returned,"eth_getTransactionReceipt",tx.Hash())
@@ -145,6 +159,13 @@ func TestRPublicReceiptCrashVisibility(t *testing.T){
         t.Fatalf("R_RPC_INPROC_RECEIPT_MISSING err=%v result=%v",err,returned)
     }
     t.Logf("R_RPC_JSONRPC_RECEIPT_VISIBLE full_head=%d returned_block=%v",fullHead,returned["blockHash"])
+    var latest map[string]interface{}
+    if err:=client.CallContext(ctx,&latest,"eth_getBlockByNumber","latest",false);err!=nil||
+        latest==nil||latest["number"]!="0x0"{
+        client.Close();server.Stop();chain.Stop();db.Close()
+        t.Fatalf("R_RPC_LATEST_BLOCK_EXPECTED_GENESIS err=%v latest=%v",err,latest)
+    }
+    t.Logf("R_RPC_JSONRPC_LATEST_BLOCK_ZERO_RECEIPT_ONE latest=%v receipt_block=%v",latest["number"],returned["blockNumber"])
     client.Close()
     server.Stop()
     chain.Stop()
