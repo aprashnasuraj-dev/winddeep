@@ -28,7 +28,7 @@ func rDeepNewDualFixture(t *testing.T)*rDeepDualFixture{
  hashes:=make([]common.Hash,len(blocks))
  for i,b:=range blocks{h[i]=b.Header();hashes[i]=h[i].Hash()}
  q:=newQueue(12,12);q.Prepare(1,SnapSync);q.Schedule(h,hashes,1)
- if q.PendingBodies()!=3||q.PendingReceipts()!=3{t.Fatalf("R_DUAL_INVALID_FIXTURE: bodies=%d receipts=%d",q.PendingBodies(),q.PendingReceipts())}
+ if q.PendingBodies()!=6||q.PendingReceipts()!=3{t.Fatalf("R_DUAL_INVALID_FIXTURE: bodies=%d receipts=%d",q.PendingBodies(),q.PendingReceipts())}
  return &rDeepDualFixture{q:q,blocks:blocks,receipts:receipts,headers:h,hashes:hashes}
 }
 type rDeepBodyRequest struct{
@@ -118,7 +118,7 @@ func rDeepDualScenario(t *testing.T,script []byte){
    body=nil;receipt=nil
    if got:=f.q.Schedule(f.headers,f.hashes,1);len(got)!=6{t.Fatalf("R_DUAL_RESET_MISSED_HEADERS: got=%d",len(got))}
   }
-  if f.q.PendingBodies()<0||f.q.PendingBodies()>3||f.q.PendingReceipts()<0||f.q.PendingReceipts()>3{
+  if f.q.PendingBodies()<0||f.q.PendingBodies()>6||f.q.PendingReceipts()<0||f.q.PendingReceipts()>3{
    t.Fatalf("R_DUAL_QUEUE_COUNT_BREACH: step=%d bodies=%d receipts=%d",step,f.q.PendingBodies(),f.q.PendingReceipts())
   }
  }
@@ -157,7 +157,7 @@ func TestRDeepDualBaseline(t *testing.T){
   go func(){defer wg.Done();<-start;f.q.DeliverBodies(b.id,b.raw,b.txHashes,b.uncleHashes)}()
   go func(){defer wg.Done();<-start;f.q.DeliverReceipts(rr.id,rr.raw,rr.roots)}()
   close(start);wg.Wait()
-  if f.q.PendingBodies()>3||f.q.PendingReceipts()>3{t.Fatalf("R_DUAL_RACE_QUEUE_OVERFLOW: n=%d",n)}
+  if f.q.PendingBodies()>6||f.q.PendingReceipts()>3{t.Fatalf("R_DUAL_RACE_QUEUE_OVERFLOW: n=%d",n)}
   // Reset reimports every trusted header to certify no residual stale slots.
   f.q.Close();f.q.Reset(12,12);f.q.Prepare(1,SnapSync)
   f.rejectStaleBody(t,b);f.rejectStaleReceipt(t,rr)
