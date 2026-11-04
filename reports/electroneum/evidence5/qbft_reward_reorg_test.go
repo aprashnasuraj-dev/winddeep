@@ -10,9 +10,9 @@ func TestQBFTRewardReorgNoOrphanCredit(t *testing.T){
  funded:=common.HexToAddress("0x0000000000000000000000000000000000000099")
  genesis:=rQBFTNetworkGenesis(t,keys,funded)
  oldDB,oldChain,oldBE:=rQBFTStartChain(t,genesis,keys[0])
- defer oldBE.Stop();defer oldChain.Stop();defer oldDB.Close()
+ defer oldDB.Close();defer oldChain.Stop();defer oldBE.Stop()
  newDB,newChain,newBE:=rQBFTStartChain(t,genesis,keys[1])
- defer newBE.Stop();defer newChain.Stop();defer newDB.Close()
+ defer newDB.Close();defer newChain.Stop();defer newBE.Stop()
  a,b:=validators[0],validators[1]
  initial,err:=oldChain.StateAt(oldChain.Genesis().Root())
  if err!=nil{t.Fatalf("genesis state missing: %v",err)}
