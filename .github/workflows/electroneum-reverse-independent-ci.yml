@@ -1,4 +1,5 @@
 name: Electroneum Reverse Independent Audit R
+# live-trigger-c001: execute C-001 after prior R regression completed
 on:
   push:
     branches: [electroneum-sc-master-audit]
