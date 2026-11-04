@@ -1,0 +1,92 @@
+name: Electroneum Worker R - Ten Independent Adversarial Aspects
+on:
+  push:
+    branches:
+      - 'audit/r-next10-*'
+      - '!audit/r-next10-seed'
+    paths:
+      - 'reports/electroneum/R/next10/**'
+      - '.github/workflows/electroneum-r-next10-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: etn-r-next10-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  independent-aspect:
+    name: Audit R / ${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Pin checkout to exact triggering commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select only designated attack aspect and reject mismatched branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          selector="$(cat reports/electroneum/R/next10/selection.txt)"
+          test "$GITHUB_REF_NAME" = "audit/r-next10-$selector"
+          case "$selector" in
+            01-rpc-ingress) testname=TestRNext10RPCIngress ;;
+            02-rpc-batch) testname=TestRNext10RPCBatch ;;
+            03-rpc-quantity) testname=TestRNext10RPCQuantity ;;
+            04-rlp-canonical) testname=TestRNext10RLPCanonical ;;
+            05-abi-offset) testname=TestRNext10ABIOffset ;;
+            06-abi-allocation) testname=TestRNext10ABIAllocation ;;
+            07-scalar-bounds) testname=TestRNext10ScalarBounds ;;
+            08-signature-malleability) testname=TestRNext10SignatureMalleability ;;
+            09-chainid-replay) testname=TestRNext10ChainIDReplay ;;
+            10-typed-tx-envelope) testname=TestRNext10TypedTxEnvelope ;;
+            *) echo "R10_INVALID_SELECTOR=$selector"; exit 64 ;;
+          esac
+          echo "R10_TEST=$testname" >> "$GITHUB_ENV"
+          echo "R10_SELECTOR=$selector" >> "$GITHUB_ENV"
+          echo "R10_TRIGGER_SHA=$GITHUB_SHA"
+      - name: Validate certified immutable Electroneum source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = 7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = de7f3c75a2db7e87a89918f1257820703d5b731e
+          echo "R10_SOURCE_VERIFIED=$WINDEEP_ETN_SOURCE_TREE_SHA"
+      - name: Set up Go 1.24
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Execute one isolated test with positive and adversarial controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/worker-r-next10-$R10_SELECTOR"
+          mkdir -p "$scratch"
+          cp -a "$WINDEEP_ETN_SOURCE"/. "$scratch"/
+          chmod u+w "$scratch"
+          mkdir "$scratch/audit_r_next10"
+          cp reports/electroneum/R/next10/next10_test.go "$scratch/audit_r_next10/next10_test.go"
+          cd "$scratch"
+          set +e
+          go test -v -count=1 -timeout=8m -run "^$R10_TEST$" ./audit_r_next10 2>&1 | tee "$RUNNER_TEMP/r10-test-result.log"
+          rc=${PIPESTATUS[0]}
+          set -e
+          grep -Fq "=== RUN   $R10_TEST" "$RUNNER_TEMP/r10-test-result.log" || { echo R10_ZERO_TESTS_EXECUTED; exit 65; }
+          echo "R10_ASPECT_RESULT=$R10_SELECTOR exit=$rc"
+          {
+            echo "### Worker R next-10 / $R10_SELECTOR"
+            echo "Trigger SHA: $GITHUB_SHA"
+            echo "Certified Electroneum tree: $WINDEEP_ETN_SOURCE_TREE_SHA"
+            echo "Test: $R10_TEST"
+            echo "Go test exit: $rc"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$rc" -eq 0
+          cd "$GITHUB_WORKSPACE"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --exit-code -- vendor/electroneum-sc
+          echo R10_CERTIFIED_SOURCE_UNMODIFIED_PASS
