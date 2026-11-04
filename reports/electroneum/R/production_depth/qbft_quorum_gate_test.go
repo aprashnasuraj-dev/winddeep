@@ -113,6 +113,14 @@ func rQBFTFixtureNew(t *testing.T, n int) *rQBFTFixture {
 		_ = db.Close()
 		t.Fatalf("R_QBFT_ASSEMBLE_FAIL n=%d err=%v", n, err)
 	}
+	// FinalizeAndAssemble applies the consensus block reward to the working state.
+	// Mirror the miner/chain-maker boundary by committing that post-finalization
+	// state root into the header before the block is sealed. Without this step a
+	// manually assembled fixture has a pre-reward root and InsertChain correctly
+	// rejects it as an invalid merkle root.
+	finalizedHeader := block.Header()
+	finalizedHeader.Root = state.IntermediateRoot(chain.Config().IsEIP158(finalizedHeader.Number))
+	block = block.WithSeal(finalizedHeader)
 	snap, err = be.snapshot(chain, 0, common.Hash{}, nil)
 	if err != nil {
 		be.Stop()
