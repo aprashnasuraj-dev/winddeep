@@ -8,6 +8,7 @@ import (
 
 	electroneum "github.com/electroneum/electroneum-sc"
 	"github.com/electroneum/electroneum-sc/accounts/abi/bind"
+	"github.com/electroneum/electroneum-sc/core/types"
 	"github.com/electroneum/electroneum-sc/ethclient"
 	"github.com/electroneum/electroneum-sc/internal/ethapi"
 	"github.com/electroneum/electroneum-sc/rpc"
@@ -118,7 +119,7 @@ func TestRP1IQBFTFinalizedTagVisibility(t *testing.T) {
 	if f.localChain.CurrentBlock().Hash() != block.Hash() {
 		t.Fatalf("R_P1I_QBFT_COMMITTED_HEAD_FAIL got=%s want=%s", f.localChain.CurrentBlock().Hash(), block.Hash())
 	}
-	extra, err := block.Header().QBFTExtra()
+	extra, err := types.ExtractQBFTExtra(block.Header())
 	if err != nil {
 		t.Fatalf("R_P1I_QBFT_EXTRA_FAIL: %v", err)
 	}
