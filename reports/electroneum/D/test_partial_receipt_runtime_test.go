@@ -99,9 +99,21 @@ func TestWorkerDReceiptPartialDelivery(t *testing.T) {
   req,_,_:=f.q.ReserveReceipts(peer,3)
   if req==nil||len(req.Headers)!=3 {t.Fatal("expected receipt request")}
   raw,hashes:=workerDEncodedReceipts(t,f,req.Headers)
-  altered:=hashes[0]
-  altered[0]^=1
-  hashes[0]=altered // Invalid-root admission control.
+  // Corrupt the actual RLP receipt, then derive the received root locally.
+  // A remote peer cannot choose the metadata hash independently of its payload.
+  first:=int(req.Headers[0].Number.Uint64())-1
+  original:=f.receipts[first]
+  if len(original)==0 {t.Fatal("first receipt list unexpectedly empty")}
+  altered:=make(types.Receipts,len(original))
+  copy(altered,original)
+  receiptCopy:=*altered[0]
+  receiptCopy.Status ^= 1
+  altered[0]=&receiptCopy
+  var encodeErr error
+  raw[0],encodeErr=rlp.EncodeToBytes(altered)
+  if encodeErr!=nil {t.Fatal(encodeErr)}
+  hashes[0]=types.DeriveSha(altered,trie.NewStackTrie(nil))
+  if hashes[0]==req.Headers[0].ReceiptHash {t.Fatal("invalid-first receipt mutation did not alter root")}
   accepted,err:=f.q.DeliverReceipts(peer.id,raw,hashes)
   if err==nil||accepted!=0 {t.Fatalf("invalid first should reject all; accepted=%d err=%v",accepted,err)}
   if n:=f.q.PendingReceipts();n!=3 {t.Fatalf("invalid-first dropped tasks: pending=%d",n)}
