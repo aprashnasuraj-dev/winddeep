@@ -17,7 +17,7 @@ import (
 	istanbulcommon "github.com/electroneum/electroneum-sc/consensus/istanbul/common"
 	qbftengine "github.com/electroneum/electroneum-sc/consensus/istanbul/engine"
 	"github.com/electroneum/electroneum-sc/consensus/istanbul/testutils"
-	"github.com/electroneum/electroneum-sc/consensus/istanbul/validator"
+	"github.com/electroneum/electroneum-sc/consensus/misc"
 	"github.com/electroneum/electroneum-sc/core"
 	"github.com/electroneum/electroneum-sc/core/rawdb"
 	"github.com/electroneum/electroneum-sc/core/types"
@@ -25,7 +25,6 @@ import (
 	"github.com/electroneum/electroneum-sc/crypto"
 	"github.com/electroneum/electroneum-sc/ethdb"
 	"github.com/electroneum/electroneum-sc/internal/ethapi"
-	"github.com/electroneum/electroneum-sc/rlp"
 )
 
 type rQBFTNetFixture struct {
@@ -90,42 +89,54 @@ func rQBFTStartChain(t *testing.T, g *core.Genesis, key *ecdsa.PrivateKey) (ethd
 	return db, chain, be
 }
 
-func rQBFTEmptyExtra(t *testing.T, addrs []common.Address) []byte {
-	t.Helper()
-	valset := validator.NewSet(addrs, istanbul.NewRoundRobinProposerPolicy())
-	extra := &types.QBFTExtra{
-		VanityData:    make([]byte, types.IstanbulExtraVanity),
-		Validators:    validator.SortedAddresses(valset.List()),
-		Vote:          nil,
-		CommittedSeal: [][]byte{},
-		Round:         0,
-	}
-	out, err := rlp.EncodeToBytes(extra)
-	if err != nil {
-		t.Fatalf("R_QBFT_NET_EXTRA_ENCODE_FAIL: %v", err)
-	}
-	return out
-}
-
 func rQBFTBuildAndImport(t *testing.T, chain *core.BlockChain, be *istanbulbackend.Backend, db ethdb.Database, keys []*ecdsa.PrivateKey, addrs []common.Address, tx *types.Transaction) *types.Block {
 	t.Helper()
 	parent := chain.CurrentBlock()
-	coinbase := addrs[0]
-	extra := rQBFTEmptyExtra(t, addrs)
-	blocks, _ := core.GenerateChain(chain.Config(), parent, be, db, 1, func(_ int, b *core.BlockGen) {
-		b.SetCoinbase(coinbase)
-		b.SetExtra(extra)
-		b.SetNonce(istanbulcommon.EmptyBlockNonce)
-		if tx != nil {
-			b.AddTx(tx)
+	number := new(big.Int).Add(parent.Number(), common.Big1)
+	header := &types.Header{
+		ParentHash: parent.Hash(),
+		Coinbase:   addrs[0],
+		Number:     number,
+		GasLimit:   core.CalcGasLimit(parent.GasLimit(), parent.GasLimit()),
+		GasUsed:    0,
+		Time:       parent.Time() + 10,
+		Difficulty: istanbulcommon.DefaultDifficulty,
+	}
+	if chain.Config().IsLondon(number) {
+		header.BaseFee = misc.CalcBaseFee(chain.Config(), parent.Header())
+	}
+	if err := be.Prepare(chain, header); err != nil {
+		t.Fatalf("R_QBFT_NET_PREPARE_FAIL number=%d err=%v", number.Uint64(), err)
+	}
+	st, err := chain.StateAt(parent.Root())
+	if err != nil {
+		t.Fatalf("R_QBFT_NET_STATE_AT_FAIL number=%d err=%v", number.Uint64(), err)
+	}
+	var txs []*types.Transaction
+	var receipts []*types.Receipt
+	if tx != nil {
+		st.Prepare(tx.Hash(), 0)
+		gp := new(core.GasPool).AddGas(header.GasLimit)
+		receipt, err := core.ApplyTransaction(chain.Config(), chain, &header.Coinbase, gp, st, header, tx, &header.GasUsed, vm.Config{})
+		if err != nil {
+			t.Fatalf("R_QBFT_NET_APPLY_TX_FAIL number=%d err=%v", number.Uint64(), err)
 		}
-	})
-	block := blocks[0]
-	h := block.Header()
-	h.MixDigest = types.IstanbulDigest
-	h.Nonce = istanbulcommon.EmptyBlockNonce
-	block = block.WithSeal(h)
+		txs = append(txs, tx)
+		receipts = append(receipts, receipt)
+	}
+	block, err := be.FinalizeAndAssemble(chain, header, st, txs, nil, receipts)
+	if err != nil {
+		t.Fatalf("R_QBFT_NET_FINALIZE_FAIL number=%d err=%v", number.Uint64(), err)
+	}
+	finalizedHeader := block.Header()
+	finalizedHeader.Root = st.IntermediateRoot(chain.Config().IsEIP158(finalizedHeader.Number))
+	block = block.WithSeal(finalizedHeader)
 
+	valset := be.ParentValidators(block)
+	block, err = be.EngineForBlockNumber(block.Number()).Seal(chain, block, valset)
+	if err != nil {
+		t.Fatalf("R_QBFT_NET_PROPOSER_SEAL_FAIL number=%d err=%v", number.Uint64(), err)
+	}
 	required := int(math.Ceil(float64(2*len(keys)) / 3))
 	msg := qbftengine.PrepareCommittedSeal(block.Header(), 0)
 	seals := make([][]byte, 0, required)
@@ -136,7 +147,7 @@ func rQBFTBuildAndImport(t *testing.T, chain *core.BlockChain, be *istanbulbacke
 		}
 		seals = append(seals, sig)
 	}
-	h = block.Header()
+	h := block.Header()
 	if err := be.EngineForBlockNumber(h.Number).CommitHeader(h, seals, big.NewInt(0)); err != nil {
 		t.Fatalf("R_QBFT_NET_COMMIT_HEADER_FAIL number=%d err=%v", h.Number.Uint64(), err)
 	}
@@ -189,12 +200,7 @@ func rNewQBFTNetFixture(t *testing.T, oldLen int) *rQBFTNetFixture {
 				t.Fatalf("R_QBFT_NET_STATE_FAIL: %v", stateErr)
 			}
 			nonce := st.GetNonce(sender)
-			gasPrice := new(big.Int)
-			if localChain.CurrentBlock().BaseFee() != nil {
-				gasPrice.Set(localChain.CurrentBlock().BaseFee())
-			} else {
-				gasPrice.SetInt64(1)
-			}
+			gasPrice := big.NewInt(10_000_000_000)
 			tx, err = types.SignTx(types.NewTransaction(nonce, target, big.NewInt(1), 100000, gasPrice, []byte{0x01}), signer, senderKey)
 			if err != nil {
 				t.Fatalf("R_QBFT_NET_TX_SIGN_FAIL: %v", err)
