@@ -146,6 +146,8 @@ jobs:
             consumerfinality)
               chmod u+w "$scratch/eth"
               cp reports/electroneum/R/production_depth/full_backend_reorg_test.go "$scratch/eth/worker_r_full_backend_helper_test.go"
+              cp reports/electroneum/R/production_depth/peer_downloader_reorg_test.go "$scratch/eth/worker_r_peer_downloader_helper_test.go"
+              cp reports/electroneum/R/production_depth/devp2p_loopback_reorg_test.go "$scratch/eth/worker_r_devp2p_helper_test.go"
               cp reports/electroneum/R/production_depth/qbft_devp2p_reorg_test.go "$scratch/eth/worker_r_qbft_devp2p_helper_test.go"
               cp reports/electroneum/R/production_depth/lower_authority_peer_test.go "$scratch/eth/worker_r_lower_authority_peer_helper_test.go"
               cp reports/electroneum/R/production_depth/consumer_finality_test.go "$scratch/eth/worker_r_consumer_finality_test.go"
