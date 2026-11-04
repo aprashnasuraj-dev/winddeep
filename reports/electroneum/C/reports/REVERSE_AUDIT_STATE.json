@@ -38,7 +38,7 @@
       "A"
     ],
     "withinWorker": "most recently discovered active unresolved candidate first; skip disproven or resolved exact claims",
-    "cursor": 12,
+    "cursor": 14,
     "advanceOnlyAfter": "falsification with accepted runtime controls or documented proof of unreproducibility, otherwise leave WAITING_CI and rotate independent new evidence",
     "queue": [
       {
@@ -141,30 +141,34 @@
         "id": "A-FEE-07",
         "category": "A",
         "focus": "fee/registry state parity across builder/import and failed EVM/core error",
-        "status": "ACTIVE"
+        "status": "TESTED_PRIORITY_CACHE_BOUNDARIES_PASS__NO_PARITY_DEFECT_REPRODUCED",
+        "ciRun": 41750891833,
+        "lastEvidence": "Certified real EVM registry fixture: successful registry target refresh preserved cache; registry-targeted EVM revert rebuilt cache from reverted state; intrinsic-gas core error plus miner-style StateDB snapshot rollback preserved non-journaled cache. Shared applyTransaction path behaved consistently in tested boundaries."
       },
       {
         "id": "A-FEE-04-05",
         "category": "A",
         "focus": "priority fee/burn supply semantics and cache rollback",
-        "status": "QUEUED"
+        "status": "TESTED_LONDON_SUPPLY_BURN_WAIVER_PASS__NO_SUPPLY_DEFECT_REPRODUCED",
+        "ciRun": 41750891833,
+        "lastEvidence": "Certified ApplyMessage: ordinary London tx gas=21000 burned basefee=168000 and miner tip=42000 at gasPrice10/baseFee8/tip2; EVM revert gas=21006 burned=168048 tip=42012; priority waiver zero fee charged no sender/miner fee; waiver with nonzero fee fields rejected."
       }
     ]
   },
   "liveCampaign": {
     "workflow": ".github/workflows/electroneum-reverse-independent-ci.yml",
-    "runId": 41749737953,
-    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41749737953",
+    "runId": 41750891833,
+    "url": "https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41750891833",
     "status": "COMPLETED_SUCCESS",
-    "firstCase": "B-ROUND-32",
-    "jobId": 126311669910,
+    "firstCase": "A-FEE-07+A-FEE-04-05",
+    "jobId": 126315471301,
     "concurrentClassRunsMax": 1
   },
   "confirmedFindingGate": "Only reproduce plus attacker-controlled lower-trust production path plus concrete impact; four headings exactly; never insert status/hypothesis material",
   "pausedOtherAutomations": false,
   "reportedAt": "2026-11-04 Asia/Kathmandu",
-  "currentObjective": "A-FEE-07: reverse-test fee/priority registry parity across real imported block processing versus miner/build path, especially EVM revert versus core rejection and cache refresh timing.",
-  "nextAction": "Trace priority-registry cache update source in StateProcessor and miner worker; create certified synthetic two-transaction fixture that mutates registry state then tests follow-on priority transaction through Process and builder-equivalent execution, with success/EVM-revert/core-error controls.",
+  "currentObjective": "COMPLETE: reverse LIFO audit queue E→D→C→B→A finished 14/14. Preserve reproduced defect candidates; do not promote any to confirmed remote security vulnerability without lower-trust production reachability and concrete impact.",
+  "nextAction": "No remaining reverse queue item. If continuing, deepen production-reachability gates only for retained defect candidates: C-002 local/app ingestion, E-RPC-010/008/004 full-node race/reorg paths, E-RPC-002 realistic accepted fee bounds, D finalized-marker operational path, and B high-round protocol reachability.",
   "schedule": {
     "chatgptAutomationCreation": "BLOCKED_MAX_5_ACTIVE_TASKS",
     "existingAutomations": "A-E remain enabled and untouched",
@@ -177,5 +181,7 @@
     "currentMode": "LIVE_USER_REQUEST_NO_SCHEDULE_CHANGES",
     "userClarification": "Combined R is an additional live run, NOT an hourly task; do not create, modify, or stop automations A-E."
   },
-  "executionMode": "LIVE_AD_HOC_NOT_HOURLY"
+  "executionMode": "LIVE_AD_HOC_NOT_HOURLY",
+  "reverseQueueComplete": true,
+  "completedItems": 14
 }
