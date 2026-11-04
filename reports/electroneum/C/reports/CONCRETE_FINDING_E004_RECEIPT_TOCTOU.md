@@ -20,7 +20,7 @@
 
 **Required preconditions:** old transaction lookup resolves just before a concurrent reorganization; old receipts remain addressable; a caller queries within this window. The earlier deterministic test set the timing by local hook. The newer campaign uses a real in-process BlockChain and unmodified EthAPIBackend while a longer, validated competing chain is imported through BlockChain.InsertChain; no per-call delay hook is used for the direct-race measurements.
 
-**Not demonstrated:** an external devp2p peer or below-threshold QBFT adversary reliably creating the required reorg/timing, bypassed finality, a production-node race probability, default remote denial-of-service, exchange credit error, unauthorized ETN transfer, wallet theft or realized financial loss. No severity score based on imagined exploitation.
+**Not demonstrated:** an external TCP/RLPx/devp2p peer or below-threshold QBFT adversary reliably creating the required reorg/timing, bypassed finality, a production-node race probability, default remote denial-of-service, exchange credit error, unauthorized ETN transfer, wallet theft or realized financial loss. No severity score based on imagined exploitation.
 
 **Defeating counterexample:** a consumer that rechecks canonical block identity, waits for confirmations and handles eventual consistency may not suffer an integrity violation. Even a final server-side check cannot prevent a chain change *after* response publication.
 
@@ -38,6 +38,10 @@
 
 **Downstream confirmation control:** the same full-backend test performs an immediate canonical hash recheck at the receipt height. It rejects the stale response (`R_FULL_DOWNSTREAM_RECHECK_REJECTS_STALE_RECEIPT_PASS`). This demonstrates a concrete consumer-side defense and is a counterexample to claims that every stale response necessarily causes downstream loss.
 
+**Downloader-fed reachability CI [41764867034](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41764867034):** a synthetic in-process peer implements Electroneum's real downloader `Peer` interface, serves headers/bodies/receipts through the ETH66 service query helpers, registers with the real downloader, and drives the competing fork through `LegacySync` into the same real `BlockChain` while `EthAPIBackend.GetTransactionReceipt` is queried concurrently. Across **32 trials** (old-chain depths 2/4/7/10; four query workers), the run logged **814,710 receipt calls**, **27,379 old-receipt responses**, **114 old-receipt responses whose immediate postcheck already saw the new canonical chain**, and **36 calls whose measured request interval straddled the observed canonical flip and still returned the old receipt**. Maximum measured observed flip→return interval among those straddled responses was **6,930,483 ns (~6.93 ms)**. Markers: `R_PEER_DOWNLOADER_TOCTOU_OBSERVED` and `R_PEER_DOWNLOADER_REORG_CONTROL_PASS`.
+
+This closes the question of whether the race survives Electroneum's downloader synchronization abstraction and protocol request/response service path. It still does **not** exercise a TCP socket, RLPx/devp2p handshake, discovery, public peer, or QBFT validator adversary. Therefore it strengthens G6 production-path reachability but does not establish external attacker control or exploitability.
+
 **Source identity:** certified Windeep source tree de7f3c75a2db7e87a89918f1257820703d5b731e; all tested mutations occurred in disposable scratch. No public nodes, funds or credentials.
 
 ## 4. Recommendation and Closure Decision
@@ -45,7 +49,7 @@
 1. Tie transaction lookup, canonical block identity and receipt reads to a consistent chain view. At minimum, revalidate canonical block identity at the returned height after receipt/header construction and retry or return a controlled not-current error when it differs.
 2. Avoid introducing nil dereferences: check absent tx, receipt, header and post-London BaseFee before use. Maintain explicit negative controls and error semantics.
 3. Add permanent full-backend tests: stable A, completed A→B, A→B between lookup and receipt, repeated A↔B transitions, missing data, context cancellation, and JSON-RPC transport response consistency.
-4. Continue reachability work beyond the now-completed in-process full-backend test: drive the same transition through the actual downloader/devp2p peer path and, separately, realistic QBFT validator/finality transitions. Quantify results without converting bounded CI frequencies into production probabilities. Test real consumer confirmation logic before assigning financial impact.
+4. Continue reachability work beyond the now-completed full-backend and downloader-Peer/LegacySync tests: drive the same transition through an actual TCP/RLPx/devp2p connection and, separately, realistic QBFT validator/finality transitions. Quantify results without converting bounded CI frequencies into production probabilities. Test real consumer confirmation logic before assigning financial impact.
 5. Scratch-only canonical recheck was an **oracle-sensitivity control**, not an upstream patch; review remediation and retain the certified source baseline.
 
-**Final verification disposition:** E-RPC-004 = CONFIRMED_SOURCE_DEFECT / REPRODUCTION_CLOSED / FULL_BACKEND_INSERTCHAIN_REACHABILITY_ESTABLISHED / EXTERNAL_DEVp2p_QBFT_EXPLOITABILITY_OPEN / REMEDIATION_OPEN. Close the report's reproducibility investigation; do not mark production remediation completed or create a duplicate CVE from the same source behavior.
+**Final verification disposition:** E-RPC-004 = CONFIRMED_SOURCE_DEFECT / REPRODUCTION_CLOSED / FULL_BACKEND_INSERTCHAIN_REACHABILITY_ESTABLISHED / DOWNLOADER_PEER_LEGACYSYNC_REACHABILITY_ESTABLISHED / EXTERNAL_TCP_RLPx_DEVp2p_QBFT_EXPLOITABILITY_OPEN / REMEDIATION_OPEN. Close the report's reproducibility investigation; do not mark production remediation completed or create a duplicate CVE from the same source behavior.
