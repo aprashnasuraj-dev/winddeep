@@ -5,6 +5,7 @@
 - Tested source is immutable Electroneum commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, certified tree `de7f3c75a2db7e87a89918f1257820703d5b731e`. The audit did **not** patch the certified source.
 - The latest specialized production-depth campaign, P1g, passed: [run 41770476077](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41770476077). It showed that a single post-read canonical-block check still permits a TOCTOU race if the canonical chain changes after that read.
 - P1h lower-authority end-to-end control also passed: [run 41776625295](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41776625295). A real loopback TCP/RLPx/ETN66 retrieval peer carrying 2-of-4 QBFT committed seals reached the real downloader and was rejected as `invalid committed seals`; 73 concurrent receipt reads produced 0 stale results. The identical wire path accepted the 3-of-4 positive control.
+- P1i consumer-policy/finality visibility passed on corrected branch head `36f5c7917784c1e3ecec676669c4d8823571313b`: [run 41778377285](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41778377285). In the deterministic stale-receipt case, a synthetic `mined` policy and a naive 4-confirmation policy both credited an orphaned receipt even with 5 apparent confirmations; a canonical-hash-aware 4-confirmation policy rejected it. A separate valid 3-of-4 QBFT committed block did not populate the generic `finalized` RPC marker.
 
 ## Correct classification of E-RPC-004
 - **Reproduced:** `GetTransactionReceipt` can return an already-noncanonical successful receipt during reorg; the shipped `bind.WaitMined` consumer can surface that receipt as mined, and a later canonical header-hash comparison rejects it.
@@ -44,9 +45,22 @@
 - Invalid candidate was served directly by the peer; it was not pre-imported and rawdb was not rewritten.
 - Classification: ordinary/lower-authority reachability is **DISPROVEN for this tested 2-of-4 subquorum model**. Do not generalize this into proof that every possible lower-authority, protocol-valid reorg mechanism is impossible.
 
+## P1i completed — consumer decision boundary and QBFT finalized-tag visibility
+
+- Dedicated branch: `audit/r-production-depth-20261104-13-consumer-finality`.
+- Certified corrected run: [41778377285](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41778377285), PASS. Evidence artifact: `r-production-depth-41778377285-1` (artifact ID `13297104747`).
+- Deterministic stale receipt: receipt block `0x2118fb81fc1ac90e51dbe4f2dd06c1e583764dbcbd462ef849bed8a3053637a8`; canonical block at the same height `0xa074042bbe13cf87c5ce8ec218ff5e03616568794c13a9a65883a8a413acb60b`.
+- Synthetic `mined` policy: **false credit reproduced**.
+- Synthetic naive `N=4` height-only confirmation policy: **false credit reproduced with 5 apparent confirmations**. This proves confirmation count alone is insufficient if the receipt's block identity is not revalidated against the canonical chain.
+- Canonical-hash-aware `N=4` policy: **rejected the stale receipt** in the deterministic case. This is a mitigation counterexample, not an atomic no-reorg guarantee.
+- QBFT control: a valid block carrying 3-of-4 committed seals imported and became the chain head, but `CurrentFinalizedBlock()` remained nil and `eth_getBlockByNumber("finalized")`-equivalent block lookup returned no block. The shipped generic finalized marker is therefore **not populated by this tested QBFT import path**.
+- Source trace: the generic finalized marker is set by `BlockChain.SetFinalized`; in the certified tree the observed setter call is in beacon/Engine-API forkchoice handling. Do not prescribe the generic `finalized` tag as an ETN/QBFT fix without a separately verified ETN finality integration.
+- Scope: the consumer is synthetic. **No real exchange integration, financial loss, or arbitrary remote exploit is claimed.**
+- Superseded red runs [41778274857](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41778274857) and [41778309547](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/41778309547) are harness-only build failures (wrong QBFT decoder call; then incomplete helper mount set). They are not source findings.
+
 ## Next nonredundant evidence gates
-1. **Consumer-finality decision test:** implement a deliberately specified exchange/deposit-style crediting policy in the lab and compare `mined`, N-confirmation and `finalized` decisions under a concurrent canonical replacement. Keep the consumer synthetic unless a real integration is independently verified.
-2. **Alternative lower-authority protocol-valid reorg model:** only if a concrete mechanism exists that can create a canonical replacement without validator quorum (for example a legitimate non-finalized branch transition under the shipped rules). Do not manufacture impossible QBFT finality states.
-3. **Crash fault model expansion:** current LevelDB tests cover `os.Exit` after completed writes, not torn writes or filesystem/power failure. Label such a new campaign as separate and require precise fault-injection evidence.
+1. **Real third-party integration evidence:** only strengthen invariant E beyond the synthetic model if an actual wallet/explorer/exchange integration can be verified to credit on `mined` or height-only confirmations without canonical block identity/reorg handling. Do not infer this from the SDK alone.
+2. **Alternative lower-authority protocol-valid reorg model:** only if a concrete mechanism exists that can create a canonical replacement without validator quorum. P1h already disproves the tested 2-of-4 subquorum path; do not manufacture impossible QBFT states.
+3. **Crash fault model expansion:** current LevelDB tests cover `os.Exit` after completed writes, not torn writes or filesystem/power failure. Treat this as a separate campaign with precise fault injection.
 ### Gating policy
 Source defect != public-network exploit. A candidate security finding requires exact source identity, positive control, named oracle, durable reproducer, counterexample, lower-trust production reachability, and concrete impact (G1–G7). A zero-job workflow, generic panic, test compile error or unexpected fuzz assertion is **not** security evidence without triage. Do not modify A–E-owned files or certified source. Do not merge or release based on CI syntax validation alone.
