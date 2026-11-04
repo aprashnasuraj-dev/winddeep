@@ -13,7 +13,7 @@ import (
 	qbftengine "github.com/electroneum/electroneum-sc/consensus/istanbul/engine"
 	"github.com/electroneum/electroneum-sc/consensus/istanbul/testutils"
 	"github.com/electroneum/electroneum-sc/core"
-	"github.com/electroneum/electroneum-sc/core/misc"
+	"github.com/electroneum/electroneum-sc/consensus/misc"
 	"github.com/electroneum/electroneum-sc/core/rawdb"
 	"github.com/electroneum/electroneum-sc/core/types"
 	"github.com/electroneum/electroneum-sc/core/vm"
