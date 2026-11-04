@@ -16,7 +16,6 @@ import (
     "testing"
     "time"
 
-    "github.com/electroneum/electroneum-sc/core/rawdb"
     "github.com/electroneum/electroneum-sc/core/types"
     "github.com/electroneum/electroneum-sc/crypto"
     "github.com/electroneum/electroneum-sc/eth/downloader"
