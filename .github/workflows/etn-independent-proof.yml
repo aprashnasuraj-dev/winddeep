@@ -59,27 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           cd "$ETN_PROOF_SCRATCH"
-          go test -count=3 -timeout=9m -run '^TestIndependentFeeHistoryRewardPercentileAmplification -v ./eth/gasprice 2>&1 | tee "$RUNNER_TEMP/etn-feehistory-proof.log"
-          grep -q 'ETN_PROVEN_FEEHISTORY_AMPLIFICATION percentiles=4096 blocks=32 matrix_cells=131072' "$RUNNER_TEMP/etn-feehistory-proof.log"
-          echo ETN_INDEPENDENT_FEEHISTORY_TARGET_PROOF_PASS
-      - name: Store non-sensitive proof log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: etn-independent-feehistory-proof
-          path: ${{ runner.temp }}/etn-feehistory-proof.log
-          if-no-files-found: ignore
-      - name: Publish final status
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RESULT: ${{ job.status }}
-        run: |
-          result=success
-          [ "$RESULT" = success ] || result=failure
-          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" -f state="$result" -f context=etn-proof/feehistory -f target_url="https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" -f description="Certified bounded proof: $RESULT"
- -v ./eth/gasprice 2>&1 | tee "$RUNNER_TEMP/etn-feehistory-proof.log"
+          go test -count=3 -timeout=9m -run '^TestIndependentFeeHistoryRewardPercentileAmplification$' -v ./eth/gasprice 2>&1 | tee "$RUNNER_TEMP/etn-feehistory-proof.log"
           grep -q 'ETN_PROVEN_FEEHISTORY_AMPLIFICATION percentiles=4096 blocks=32 matrix_cells=131072' "$RUNNER_TEMP/etn-feehistory-proof.log"
           echo ETN_INDEPENDENT_FEEHISTORY_TARGET_PROOF_PASS
       - name: Store non-sensitive proof log
