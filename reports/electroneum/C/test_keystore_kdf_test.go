@@ -2,6 +2,10 @@ package keystore
 
 import (
  "encoding/json"
+ "crypto/sha256"
+ "encoding/hex"
+ "github.com/electroneum/electroneum-sc/common/math"
+ "golang.org/x/crypto/pbkdf2"
  "fmt"
  "testing"
 
@@ -150,6 +154,80 @@ func TestWorkerCImportMaliciousJSON(t *testing.T) {
    } else {
     t.Fatalf("C_IMPORT_NO_OUTCOME case=%s",tc.name)
    }
+  })
+ }
+}
+
+
+// TestWorkerCPBKDF2AuthenticImport constructs a genuinely PBKDF2-encrypted
+// synthetic keyfile. Unlike the older characterization, this fixture never
+// relabels scrypt ciphertext as PBKDF2. Panic observations are not remote impact.
+func TestWorkerCPBKDF2AuthenticImport(t *testing.T) {
+ privateKey, err := crypto.GenerateKey()
+ if err != nil { t.Fatal(err) }
+ key := newKeyFromECDSA(privateKey)
+ original, err := EncryptKey(key, "synthetic-pbkdf2-password", 16, 1)
+ if err != nil { t.Fatal(err) }
+ var doc map[string]interface{}
+ if err := json.Unmarshal(original, &doc); err != nil { t.Fatal(err) }
+ cryptoDoc := doc["crypto"].(map[string]interface{})
+ salt := []byte("worker-c-pbkdf2-synthetic-salt-32")
+ iv, err := hex.DecodeString(cryptoDoc["cipherparams"].(map[string]interface{})["iv"].(string))
+ if err != nil { t.Fatal(err) }
+ plaintext := math.PaddedBigBytes(privateKey.D, 32)
+ derived := pbkdf2.Key([]byte("synthetic-pbkdf2-password"), salt, 16, 32, sha256.New)
+ ciphertext, err := aesCTRXOR(derived[:16], plaintext, iv)
+ if err != nil { t.Fatal(err) }
+ cryptoDoc["ciphertext"] = hex.EncodeToString(ciphertext)
+ cryptoDoc["mac"] = hex.EncodeToString(crypto.Keccak256(derived[16:32], ciphertext))
+ cryptoDoc["kdf"] = "pbkdf2"
+ cryptoDoc["kdfparams"] = map[string]interface{}{
+  "salt": hex.EncodeToString(salt), "c": 16, "dklen": 32, "prf": "hmac-sha256",
+ }
+ valid, err := json.Marshal(doc)
+ if err != nil { t.Fatal(err) }
+ honestStore := NewKeyStore(t.TempDir(), 16, 1)
+ imported, err := honestStore.Import(valid, "synthetic-pbkdf2-password", "synthetic-new-password")
+ if err != nil { t.Fatalf("genuine PBKDF2 honest import failed: %v", err) }
+ if imported.Address != key.Address { t.Fatal("genuine PBKDF2 imported wrong address") }
+ t.Log("C_PBKDF2_AUTHENTIC_IMPORT_CONTROL_PASS")
+ for _, tc := range []struct {
+  name string
+  mutate func(map[string]interface{})
+ }{
+  {"wrong_password", func(p map[string]interface{}){}},
+  {"fractional_c", func(p map[string]interface{}){p["c"]=16.5}},
+  {"negative_c", func(p map[string]interface{}){p["c"]=-1}},
+  {"string_c", func(p map[string]interface{}){p["c"]="16"}},
+  {"fractional_dklen", func(p map[string]interface{}){p["dklen"]=32.5}},
+  {"negative_dklen", func(p map[string]interface{}){p["dklen"]=-1}},
+  {"missing_prf", func(p map[string]interface{}){delete(p,"prf")}},
+  {"numeric_prf", func(p map[string]interface{}){p["prf"]=7}},
+ } {
+  t.Run(tc.name, func(t *testing.T) {
+   var candidate map[string]interface{}
+   if err:=json.Unmarshal(valid,&candidate);err!=nil {t.Fatal(err)}
+   p:=candidate["crypto"].(map[string]interface{})["kdfparams"].(map[string]interface{})
+   tc.mutate(p)
+   payload,err:=json.Marshal(candidate)
+   if err!=nil {t.Fatal(err)}
+   password:="synthetic-pbkdf2-password"
+   if tc.name=="wrong_password" {password="synthetic-wrong-password"}
+   store:=NewKeyStore(t.TempDir(),16,1)
+   var panicValue interface{}
+   var importErr error
+   var succeeded bool
+   func(){
+    defer func(){panicValue=recover()}()
+    _,importErr=store.Import(payload,password,"synthetic-new-password")
+    succeeded=importErr==nil
+   }()
+   if succeeded {t.Fatalf("C_PBKDF2_UNEXPECTED_IMPORT name=%s",tc.name)}
+   if panicValue!=nil {
+    t.Logf("C_PBKDF2_SAFETY_ORACLE_PANIC_DETECTED name=%s type=%T",tc.name,panicValue)
+   } else if importErr!=nil {
+    t.Logf("C_PBKDF2_CONTROLLED_REJECTION name=%s err=%v",tc.name,importErr)
+   } else {t.Fatalf("C_PBKDF2_NO_OUTCOME name=%s",tc.name)}
   })
  }
 }
