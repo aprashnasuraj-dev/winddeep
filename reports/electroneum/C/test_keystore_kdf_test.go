@@ -109,6 +109,9 @@ func TestWorkerCImportMaliciousJSON(t *testing.T) {
   {"numeric_salt",func(p map[string]interface{}){p["salt"]=42}},
   {"string_dklen",func(p map[string]interface{}){p["dklen"]="32"}},
   {"invalid_scrypt_n",func(p map[string]interface{}){p["n"]=3}},
+  {"missing_pbkdf2_prf",func(p map[string]interface{}){p["c"]=1;delete(p,"prf")}},
+  {"numeric_pbkdf2_prf",func(p map[string]interface{}){p["c"]=1;p["prf"]=123}},
+  {"unsupported_pbkdf2_prf",func(p map[string]interface{}){p["c"]=1;p["prf"]="hmac-sha1"}},
  } {
   t.Run(tc.name,func(t *testing.T){
    var candidate map[string]interface{}
@@ -118,6 +121,7 @@ func TestWorkerCImportMaliciousJSON(t *testing.T) {
    kdfParams,ok:=cryptoDoc["kdfparams"].(map[string]interface{})
    if !ok {t.Fatal("missing KDF parameters")}
    tc.mutate(kdfParams)
+   if tc.name=="missing_pbkdf2_prf" || tc.name=="numeric_pbkdf2_prf" || tc.name=="unsupported_pbkdf2_prf" {cryptoDoc["kdf"]="pbkdf2"}
    payload,err:=json.Marshal(candidate)
    if err!=nil {t.Fatal(err)}
    var panicValue interface{}
