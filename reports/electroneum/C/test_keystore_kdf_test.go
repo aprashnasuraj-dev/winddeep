@@ -4,6 +4,7 @@ import (
  "encoding/json"
  "crypto/sha256"
  "encoding/hex"
+ "github.com/electroneum/electroneum-sc/common"
  "github.com/electroneum/electroneum-sc/common/math"
  "golang.org/x/crypto/pbkdf2"
  "fmt"
