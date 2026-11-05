@@ -50,6 +50,7 @@ jobs:
           scratch="$RUNNER_TEMP/etn-independent-source"
           mkdir -p "$scratch"
           cp -a "$WINDEEP_ETN_SOURCE"/. "$scratch"/
+          chmod u+w "$scratch/eth/gasprice"
           cp "$GITHUB_WORKSPACE/reports/electroneum/E/test_independent_feehistory_amplification_test.go" "$scratch/eth/gasprice/etn_independent_feehistory_test.go"
           echo "ETN_PROOF_SCRATCH=$scratch" >> "$GITHUB_ENV"
           echo "ETN_INDEPENDENT_SCRATCH_READY"
