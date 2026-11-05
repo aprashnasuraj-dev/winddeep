@@ -100,4 +100,47 @@ func TestWorkerCImportMaliciousJSON(t *testing.T) {
  }()
  if rejectedPanic!=nil || rejectedErr==nil {t.Fatalf("expected controlled error for unsupported cipher; panic=%v err=%v",rejectedPanic,rejectedErr)}
  t.Logf("C_IMPORT_INVALID_CIPHER_RETURNED_ERROR err=%v",rejectedErr)
+ // Additional independently specified malformed KDF fields must never import
+ // a usable account. Characterize panic separately from controlled rejection.
+ for _, tc := range []struct {
+  name string
+  mutate func(map[string]interface{})
+ }{
+  {"numeric_salt",func(p map[string]interface{}){p["salt"]=42}},
+  {"string_dklen",func(p map[string]interface{}){p["dklen"]="32"}},
+  {"invalid_scrypt_n",func(p map[string]interface{}){p["n"]=3}},
+ } {
+  t.Run(tc.name,func(t *testing.T){
+   var candidate map[string]interface{}
+   if err:=json.Unmarshal(validJSON,&candidate);err!=nil {t.Fatal(err)}
+   cryptoDoc,ok:=candidate["crypto"].(map[string]interface{})
+   if !ok {t.Fatal("missing crypto object")}
+   kdfParams,ok:=cryptoDoc["kdfparams"].(map[string]interface{})
+   if !ok {t.Fatal("missing KDF parameters")}
+   tc.mutate(kdfParams)
+   payload,err:=json.Marshal(candidate)
+   if err!=nil {t.Fatal(err)}
+   var panicValue interface{}
+   var importErr error
+   var imported bool
+   func(){
+    defer func(){panicValue=recover()}()
+    account,e:=ks.Import(payload,"fixture-password","new-fixture-password")
+    importErr=e
+    imported=e==nil
+    _=account
+   }()
+   // Independent safety oracle: malformed key metadata must not create a
+   // successfully imported account. A panic is separately logged and is NOT
+   // considered a safe rejection or proof of remotely reachable impact.
+   if imported {t.Fatalf("C_IMPORT_ORACLE_VIOLATION: malformed %s imported",tc.name)}
+   if panicValue!=nil {
+    t.Logf("C_IMPORT_PANIC case=%s type=%T detail=%v",tc.name,panicValue,panicValue)
+   } else if importErr!=nil {
+    t.Logf("C_IMPORT_REJECTED case=%s err=%v",tc.name,importErr)
+   } else {
+    t.Fatalf("C_IMPORT_NO_OUTCOME case=%s",tc.name)
+   }
+  })
+ }
 }
