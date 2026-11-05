@@ -23,3 +23,9 @@
 ## Certified CI supervision
 - Trigger SHA `cd579153353f0e5560bfc5439fa30a71a482e581`; run `41923789539`, job `126902759599`, completed success; full log checked 2026-11-05. `FuzzWorkerEReorgLookup` 43,753,576 executions / 3600.10 seconds, PASS within rawdb fixture scope. CI historical evidence is not new execution for this candidate.
 - Source commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, tree `de7f3c75a2db7e87a89918f1257820703d5b731e`; source provenance archive SHA-256 `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b`.
+
+
+### 2026-11-05 08:00 NPT — HYP-E-004 new executable falsification
+- Grade remains **V1**; **SIMULATION_PREPARED_NOT_EXECUTED** at commit time. Added four real ethapi adapter fee-width cases at 2^64-1, 2^64, 2^64+1, 2^65+17, with full-width independent big-int oracle and cross-method newRPCTransaction comparison, in `test_rpc_receipt_cases_test.go` (commit cf23abe9). The test detects current truncation as characterization; a PASS does **not** demonstrate a financially reachable exploit.
+- Workflow test selector now includes FeeWidthBoundary (commit 19b45652), and default push fuzz budget is one minute to prioritize new distinct semantic cases; manual sustained fuzz remains available. Both triggering commit statuses were empty on immediate inspection; **run ID unknown/pending**, no claimed target-runtime execution.
+- Strongest remaining counterexample: a realistic funded transaction cannot satisfy effective fee/consensus validation at these prices, or no relying-party fee-reimbursement decision relies on this field. Next: inspect fresh CI logs and actual named four test cases, then model real transaction admission/consensus and monetary consequence.
