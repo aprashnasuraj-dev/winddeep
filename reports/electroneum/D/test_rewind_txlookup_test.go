@@ -73,6 +73,20 @@ func TestWorkerDRewindTxLookupCanonicality(t *testing.T) {
         t.Fatalf("honest precondition: canonical A receipt lookup failed")
     }
 
+    // Independent height-to-hash oracle: chain A is canonical before rewind.
+    // Raw receipt storage omits derived transaction metadata by design.
+    if got := rawdb.ReadCanonicalHash(db, 2); got != chainA[1].Hash() {
+        bc.Stop()
+        t.Fatalf("oracle A canonical hash mismatch: got=%s want=%s", got, chainA[1].Hash())
+    }
+    rawA := rawdb.ReadRawReceipts(db, chainA[1].Hash(), 2)
+    derivedA := rawdb.ReadReceipts(db, chainA[1].Hash(), 2, gspec.Config)
+    if len(rawA) != 1 || len(derivedA) != 1 || derivedA[0].TxHash != oldTx.Hash() || rawA[0].Status != derivedA[0].Status {
+        bc.Stop()
+        t.Fatalf("honest raw/derived receipt binding failed")
+    }
+    t.Logf("WORKER_D_RECEIPT_RAW_DERIVED_CONTROL rawTxHash=%s derivedTxHash=%s status=%d", rawA[0].TxHash, derivedA[0].TxHash, derivedA[0].Status)
+
     if err := bc.SetHead(1); err != nil {
         bc.Stop()
         t.Fatalf("SetHead(1): %v", err)
@@ -117,6 +131,25 @@ func TestWorkerDRewindTxLookupCanonicality(t *testing.T) {
         bc.Stop()
         t.Fatalf("replacement canonical mismatch at 2: got=%s want=%s", got, chainB[0].Hash())
     }
+
+    // Compare independent expected canonical mapping with both hash-addressed
+    // and canonical-bound accessors. A hash-addressed orphan receipt, if retained,
+    // is not proof of canonical transaction exposure.
+    if got := rawdb.ReadCanonicalHash(db, 2); got != chainB[0].Hash() {
+        bc.Stop()
+        t.Fatalf("oracle B canonical mapping mismatch: got=%s want=%s", got, chainB[0].Hash())
+    }
+    orphanRaw := rawdb.ReadRawReceipts(db, chainA[1].Hash(), 2)
+    orphanDerived := rawdb.ReadReceipts(db, chainA[1].Hash(), 2, gspec.Config)
+    if len(orphanRaw) != len(orphanDerived) {
+        bc.Stop()
+        t.Fatalf("orphan raw/derived count disagreement: raw=%d derived=%d", len(orphanRaw), len(orphanDerived))
+    }
+    if len(orphanDerived) > 0 && orphanDerived[0].TxHash != oldTx.Hash() {
+        bc.Stop()
+        t.Fatalf("hash-addressed orphan receipt bound to unexpected tx")
+    }
+    t.Logf("WORKER_D_ORPHAN_HASH_ADDRESSED_RECEIPTS raw=%d derived=%d canonicalB=%s", len(orphanRaw), len(orphanDerived), chainB[0].Hash())
 
     newTx := chainB[0].Transactions()[0]
     if tx, bh, bn, _ := rawdb.ReadTransaction(db, newTx.Hash()); tx == nil || bh != chainB[0].Hash() || bn != 2 {
