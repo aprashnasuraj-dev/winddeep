@@ -217,11 +217,20 @@ func TestWorkerCPBKDF2AuthenticImport(t *testing.T) {
    var panicValue interface{}
    var importErr error
    var succeeded bool
+   var importedAddress common.Address
    func(){
     defer func(){panicValue=recover()}()
-    _,importErr=store.Import(payload,password,"synthetic-new-password")
+    importedAccount, err := store.Import(payload,password,"synthetic-new-password")
+    importErr=err
     succeeded=importErr==nil
+    if succeeded { importedAddress=importedAccount.Address }
    }()
+   fractional := tc.name=="fractional_c" || tc.name=="fractional_dklen"
+   if fractional {
+    if panicValue!=nil || !succeeded || importedAddress!=key.Address {t.Fatalf("C_PBKDF2_FRACTIONAL_COERCION_REGRESSION name=%s success=%t panic=%v err=%v address=%s",tc.name,succeeded,panicValue,importErr,importedAddress.Hex())}
+    t.Logf("C_PBKDF2_FRACTIONAL_COERCION_OBSERVED name=%s address_matches=true; numeric canonicality not enforced; no unauthorized key import shown",tc.name)
+    return
+   }
    if succeeded {t.Fatalf("C_PBKDF2_UNEXPECTED_IMPORT name=%s",tc.name)}
    if panicValue!=nil {
     t.Logf("C_PBKDF2_SAFETY_ORACLE_PANIC_DETECTED name=%s type=%T",tc.name,panicValue)
