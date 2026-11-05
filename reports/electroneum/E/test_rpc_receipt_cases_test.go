@@ -144,3 +144,45 @@ func TestWorkerEReceiptOracleMutationSensitivity(t *testing.T) {
   })
  }
 }
+
+
+// TestWorkerEReceiptFeeWidthBoundary characterizes the shipped RPC fee encoding
+// with actual certified ethapi code. The backend remains synthetic: this does
+// not prove that a funded >64-bit gas-price transaction can enter a real block.
+// The expected fee is independently computed from the fixture input, not RPC.
+func TestWorkerEReceiptFeeWidthBoundary(t *testing.T) {
+ boundary:=new(big.Int).Lsh(big.NewInt(1),64)
+ cases:=[]struct{name string;price *big.Int; expectLoss bool}{
+  {"below_uint64_max",new(big.Int).Sub(new(big.Int).Set(boundary),big.NewInt(1)),false},
+  {"at_2pow64",new(big.Int).Set(boundary),true},
+  {"above_2pow64",new(big.Int).Add(new(big.Int).Set(boundary),big.NewInt(1)),true},
+  {"above_2pow65",new(big.Int).Add(new(big.Int).Lsh(big.NewInt(1),65),big.NewInt(17)),true},
+ }
+ for _,tc:=range cases {
+  t.Run(tc.name,func(t *testing.T){
+   api,b,_:=workerEFixture()
+   to:=common.HexToAddress("0x0000000000000000000000000000000000000001")
+   b.tx=types.NewTransaction(0,to,big.NewInt(1),21000,new(big.Int).Set(tc.price),nil)
+   b.receipt.TxHash=b.tx.Hash()
+   got,err:=api.GetTransactionReceipt(context.Background(),b.tx.Hash())
+   if err!=nil||got==nil {t.Fatalf("receipt error=%v result=%v",err,got)}
+   field,ok:=got["effectiveGasPrice"].(hexutil.Uint64)
+   if !ok {t.Fatalf("unexpected fee field type %T",got["effectiveGasPrice"])}
+   observed:=new(big.Int).SetUint64(uint64(field))
+   // Independent big-int fee oracle for a legacy transaction with baseFee=1.
+   expected:=new(big.Int).Set(tc.price)
+   discrepancy:=new(big.Int).Sub(expected,observed)
+   loss:=discrepancy.Sign()!=0
+   if loss!=tc.expectLoss {t.Fatalf("width boundary: expectedLoss=%v actualLoss=%v",tc.expectLoss,loss)}
+   if observed.Uint64()!=tc.price.Uint64() {t.Fatalf("unexpected serialization %s",observed)}
+   sibling:=newRPCTransaction(b.tx,b.block,1,0,b.header.BaseFee,b.ChainConfig())
+   if sibling.GasPrice==nil||(*big.Int)(sibling.GasPrice).Cmp(expected)!=0 {
+    t.Fatalf("sibling full-width price mismatch: got=%v expected=%v",sibling.GasPrice,expected)
+   }
+   if loss && discrepancy.Cmp(boundary)<0 {t.Fatalf("truncation delta unexpectedly small: %s",discrepancy)}
+   // Corrected full-width encoding would remove the discrepancy; the
+   // independent oracle explicitly detects the current narrowing mutation.
+   t.Logf("E_FEE_WIDTH_CASE price=%s receipt=%s sibling=%s loss=%v delta=%s",expected,observed,(*big.Int)(sibling.GasPrice),loss,discrepancy)
+  })
+ }
+}
