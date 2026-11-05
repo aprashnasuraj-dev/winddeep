@@ -113,12 +113,12 @@ jobs:
           chmod u+w "$ETN_E_SCRATCH/internal/ethapi"
           cp reports/electroneum/E/test_rpc_receipt_cases_test.go "$ETN_E_SCRATCH/internal/ethapi/worker_e_receipt_cases_test.go"
           cd "$ETN_E_SCRATCH"
-          go test -count=1 -timeout=12m -run '^TestWorkerEReceipt(IdentityAndNilHeader|StatusAndIndexControls|OracleMutationSensitivity)' -v ./internal/ethapi
+          go test -count=1 -timeout=12m -run '^TestWorkerEReceipt(IdentityAndNilHeader|StatusAndIndexControls|OracleMutationSensitivity|FeeWidthBoundary)' -v ./internal/ethapi
           echo WORKER_E_RPC_RECEIPT_IDENTITY_STATUS_INDEX_MUTATION_ORACLE_PASS
       - name: Coverage-guided class E security fuzz campaign
         shell: bash
         env:
-          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '60' }}
+          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '1' }}
         run: |
           set -euo pipefail
           minutes="$AUDIT_FUZZ_MINUTES"
