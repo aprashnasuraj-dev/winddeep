@@ -8,6 +8,7 @@ on:
       - reports/electroneum/D/test_historical_roots_test.go
       - reports/electroneum/D/test_historical_import_test.go
       - reports/electroneum/D/test_partial_receipt_runtime_test.go
+      - reports/electroneum/D/test_rewind_txlookup_test.go
       - tools/electroneum_target_bootstrap.sh
       - reports/electroneum/TARGET_CERTIFICATE.json
   workflow_dispatch:
@@ -100,6 +101,45 @@ jobs:
           cp "$WINDEEP_ETN_SOURCE/core/block_validator.go" "$scratch/core/block_validator.go"
           go test -count=1 -timeout=10m -run '^TestWorkerDHistoricalImportAdmission$/^bad_transaction_root$' -v ./core
           echo "WORKER_D_GUARD_RESTORE_PASS"
+      - name: Execute rewind/reimport txlookup canonicality regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/worker-d-scratch"
+          cp reports/electroneum/D/test_rewind_txlookup_test.go "$scratch/core/worker_d_rewind_txlookup_test.go"
+          cd "$scratch"
+          go test -count=1 -timeout=12m -run '^TestWorkerDRewindTxLookupCanonicality        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/worker-d-scratch"
+          chmod u+w "$scratch/eth/downloader"
+          cp reports/electroneum/D/test_partial_receipt_runtime_test.go "$scratch/eth/downloader/worker_d_receipt_partial_test.go"
+          cd "$scratch"
+          go test -count=1 -timeout=12m -run TestWorkerDReceiptPartialDelivery -v ./eth/downloader
+          echo WORKER_D_RECEIPT_PARTIAL_CHARACTERIZATION_PASS
+      - name: Stateful full-import semantic adversarial fuzz campaign
+        shell: bash
+        env:
+          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '15' }}
+        run: |
+          set -euo pipefail
+          minutes="$AUDIT_FUZZ_MINUTES"
+          if ! [[ "$minutes" =~ ^[0-9]+$ ]] || (( minutes < 1 || minutes > 300 )); then
+            echo "Invalid fuzz budget $minutes"; exit 65
+          fi
+          cd "$RUNNER_TEMP/worker-d-scratch"
+          echo "WORKER_D_IMPORT_FUZZ_BEGIN minutes=$minutes certified_commit=$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT"
+          go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerDImportAdmission$' -fuzztime="${minutes}m" -v ./core
+          echo "WORKER_D_IMPORT_FUZZ_PASS"
+      - name: Publish class D final CI outcome
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: bash tools/electroneum_ci_status.sh D finish
+ -v ./core
+          echo WORKER_D_REWIND_TXLOOKUP_RUNTIME_PASS
       - name: Test source-verified partial receipt delivery and safe retry
         shell: bash
         run: |
