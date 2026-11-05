@@ -52,3 +52,11 @@
 5. Protect externally reachable API integrations separately: do not expose arbitrary encrypted keyfile import to untrusted clients, avoid default `personal` exposure, and require explicit authorization and rate/resource limits on any import service.
 
 **Classification guard:** This four-part technical analysis belongs **only in the C candidate log** until the exported import path is dynamically proven attacker-reachable with concrete application harm; do not transfer it to the dedicated four-heading CONFIRMED vulnerability report solely because a characterization CI returned a failure.
+
+
+## 2026-11-06 05:28 NPT — C-001 finding-first decision
+- **Status:** SUSPECTED / E1, **not reportable**; Y2 only under explicitly enabled `personal` RPC namespace, not default HTTP/WS. No wallet or card test was executed this run.
+- **New source-checked control:** `internal/ethapi/api.go:572-592` resolves wallet URL before generating a mnemonic; unsupported wallet type and missing URL return errors. `node/defaults.go:59-65` excludes `personal` by default. `accounts/scwallet/wallet.go:310-405` requires pairing and PIN/PUK for `Open`, but whether `Initialize` separately enforces it remains unknown.
+- **Impact not established:** no existing mnemonic disclosure, card initialization, unauthorized signing or funds movement. The response mnemonic is newly generated, not an existing user's recovery phrase. Strongest counterexample: default namespace exclusion and wallet type/URL rejection.
+- **Evidence:** `reports/electroneum/C/EVIDENCE_ASSESSMENT_2026-11-06_C-001.md`; pinned-source connector reads E1, no current bootstrap or target execution.
+- **Next exact falsification:** inspect certified `scwallet.Wallet.Initialize` and card APDU guard; if plausible, run an offline synthetic card-emulator state matrix with honest and unauthorized session controls, independently checking state change and mnemonic visibility.
