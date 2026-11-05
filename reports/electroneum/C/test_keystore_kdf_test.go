@@ -112,6 +112,11 @@ func TestWorkerCImportMaliciousJSON(t *testing.T) {
   {"missing_pbkdf2_prf",func(p map[string]interface{}){p["c"]=1;delete(p,"prf")}},
   {"numeric_pbkdf2_prf",func(p map[string]interface{}){p["c"]=1;p["prf"]=123}},
   {"unsupported_pbkdf2_prf",func(p map[string]interface{}){p["c"]=1;p["prf"]="hmac-sha1"}},
+  {"fractional_pbkdf2_c",func(p map[string]interface{}){p["c"]=1.5;p["prf"]="hmac-sha256"}},
+  {"negative_pbkdf2_c",func(p map[string]interface{}){p["c"]=-1;p["prf"]="hmac-sha256"}},
+  {"string_pbkdf2_c",func(p map[string]interface{}){p["c"]="2";p["prf"]="hmac-sha256"}},
+  {"fractional_pbkdf2_dklen",func(p map[string]interface{}){p["c"]=1;p["dklen"]=32.5;p["prf"]="hmac-sha256"}},
+  {"negative_pbkdf2_dklen",func(p map[string]interface{}){p["c"]=1;p["dklen"]=-1;p["prf"]="hmac-sha256"}},
  } {
   t.Run(tc.name,func(t *testing.T){
    var candidate map[string]interface{}
@@ -121,7 +126,7 @@ func TestWorkerCImportMaliciousJSON(t *testing.T) {
    kdfParams,ok:=cryptoDoc["kdfparams"].(map[string]interface{})
    if !ok {t.Fatal("missing KDF parameters")}
    tc.mutate(kdfParams)
-   if tc.name=="missing_pbkdf2_prf" || tc.name=="numeric_pbkdf2_prf" || tc.name=="unsupported_pbkdf2_prf" {cryptoDoc["kdf"]="pbkdf2"}
+   if tc.name=="missing_pbkdf2_prf" || tc.name=="numeric_pbkdf2_prf" || tc.name=="unsupported_pbkdf2_prf" || tc.name=="fractional_pbkdf2_c" || tc.name=="negative_pbkdf2_c" || tc.name=="string_pbkdf2_c" || tc.name=="fractional_pbkdf2_dklen" || tc.name=="negative_pbkdf2_dklen" {cryptoDoc["kdf"]="pbkdf2"}
    payload,err:=json.Marshal(candidate)
    if err!=nil {t.Fatal(err)}
    var panicValue interface{}
