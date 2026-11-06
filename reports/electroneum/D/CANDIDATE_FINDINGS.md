@@ -81,3 +81,8 @@
 
 ### HYP-D-002 — 2026-11-06 16:44 NPT bounded reassessment
 - **DEFERRED / BLOCKED E1 public-source only; no confirmed P1–P3.** Public `syncWithPeer` orders ancestor lookup before snap-pivot persistence and includes documented malicious advertised-height ancient-limit mitigation. Certified-runtime parity and actual adversarial pivot reachability unverified; no execution, oracle or adverse effect. The strongest counterexample remains ancestor/skeleton/header authentication and intentional recovery metadata. See `ASSESSMENT_2026-11-06_1644_PIVOT_ANCIENT_LIMIT.md` commit `ba1c442043c1d0d92563f68aae6634b7275d0906`. Reopen only for a bounded certified-runner interrupted-import/restart A/B fixture; do not relabel safe resync as finalized rewrite.
+
+### HYP-D-003 — 2026-11-06 17:48 NPT ingress reassessment
+- **BLOCKED for fresh runtime proof / narrow independently forged metadata route source-falsified by previously verified certified handler/dispatcher/queue path.** Broader typed receipt normalization and canonical persistence remains SUSPECTED; no E4 finding, conditional P3 only, no CVSS.
+- **Fresh evidence:** six exact source fetch attempts returned HTTP 404; no Go/CI execution, no new runtime controls. Historical certified run 42172102719 rejected distinct-root swaps in queue-only synthetic tests, not a production peer restart test. Direct queue calls with independently forged metadata are not normal eth/66 peer ingress.
+- **Strongest counterexample:** local receipt metadata derived from the same network bytes and compared to header ReceiptHash before queue acceptance. **Next:** one bounded certified eth/66 typed receipt dispatch and rawdb reopen oracle after active CI check. Assessment: `ASSESSMENT_2026-11-06_1748_RECEIPT_INGRESS.md` (f07a7a9b).
