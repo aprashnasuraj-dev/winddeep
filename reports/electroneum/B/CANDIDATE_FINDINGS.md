@@ -23,3 +23,11 @@
 - Verified immutable-source `core/backlog.go:338-416`: future-message requeue breaks the **per-sender inner loop** only; the outer iteration continues to other validators' backlogs. This is the strongest source-level counterexample to cross-validator priority starvation, not a runtime proof of liveness.
 - `core/handler.go:103-174` asynchronously receives posted backlog events, so a deterministic barrier-counted handler test is still required to distinguish bounded queue isolation from event-loop resource pressure. `core/roundchange.go:113-145` rejects far-future ROUND_CHANGE before set insertion.
 - Attacker X1, N=4 F=1, eventual delivery; no malicious accepted finality, stall duration or memory increase measured. **SIMULATION_NOT_EXECUTED**; no E2/E3/E4. Internal assessment: `EVIDENCE_ASSESSMENT_2026-11-06_BACKLOG_QUEUE_ISOLATION.md`.
+
+
+## B-BACKLOG-ASYNC-FANOUT — 2026-11-06 10:22 NPT
+- **Status:** SUSPECTED E1, SIMULATION_NOT_EXECUTED; NOT reportable. **Adversary:** X1 N=4 F=1, authenticated one faulty validator, eventual honest delivery, no full partition.
+- **Source:** certified immutable `core/backlog.go:338-416` (`processBacklog` pops eligible entries and spawns `go c.sendEvent(event)` at line 408); `core/handler.go:handleEvents` processes posted events sequentially. Retained per-sender bounds 1024 messages/32 MiB, global 4-validator floor 4096/128 MiB; they do not themselves bound transient spawned goroutines.
+- **Competing explanations:** prompt event delivery; bounded transient latency; or persistent liveness loss under authentic state transition. Strongest counterexample: per-sender authentication/caps, three honest validators, eventual event delivery. No finalization delay, heap growth or unbounded goroutines observed.
+- **Expected vs actual:** honest 3/4 quorum progress expected; actual only source-level fanout mechanism inspected. No new target Go execution, oracle or mutant. E2–E4 missing. Full assessment: [EVIDENCE_ASSESSMENT_2026-11-06_ASYNC_FANOUT.md](EVIDENCE_ASSESSMENT_2026-11-06_ASYNC_FANOUT.md).
+- **Next:** certified N=4 F=1 signed backlog/event fixture with delivery barriers and 1/64/256/1024 queues; measure goroutine peak and finalization against honest control, then kill or escalate.
