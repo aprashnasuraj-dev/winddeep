@@ -104,3 +104,10 @@
 - **Strongest counterexample:** unsigned prepared block body cannot be changed while retaining signed header digest without failing the decoder's transaction/uncle commitment checks; normal empty prepared-block encoding is intentional.
 - **Evidence:** `EVIDENCE_ASSESSMENT_2026-11-07_ROUNDCHANGE_PREPARED_BODY.md`, commit `c46edab8587ffa8dd88991ac0b6cc231dccc1f24`. No E2–E4, no invalid finalization, no CVSS.
 - **Next:** distinct authenticated stateful QBFT handler fixture on certified runtime, no further source-only iterations on this candidate.
+
+
+## B-BACKLOG-EVENT-REAUTH — 2026-11-07 02:24 NPT
+- **Decision:** DISPROVEN for ordinary external MessageEvent -> authenticated backlog -> internal backlogEvent source path (E1 only); hypothetical P1 if an unauthorized vote were possible, but none observed. No CVSS/E2–E4.
+- **New checks:** 8/8 immutable-source contract assertions PASS against `handler.go` and `backlog.go` at certified commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`; no target Go runtime. External message passes `verifySignaturesWith` before `addToBacklog`, which checks source validator membership; internal backlog event is emitted from stored authenticated entry. Skipping redundant verification at internal replay is not an external signature bypass.
+- **Strongest counterexample:** a privileged local event-mux injection would be a different trust boundary, not demonstrated peer ingress. N=4/F=1 signed runtime negative controls remain unexecuted. Local Git DNS exit 128; bootstrap not executed; no CI started.
+- **Assessment:** `EVIDENCE_ASSESSMENT_2026-11-07_BACKLOG_EVENT_REAUTH.md`, commit `23fd490686f300a87b407d5a2373825eb7d4d024`. Next only if alternate externally reachable event injection is identified; otherwise rotate.
