@@ -85,3 +85,10 @@
 - New standalone Go 1.23.2 arithmetic/heap oracle exit 0: (seq1,round100,COMMIT) and (seq2,round0,COMMIT) tie at -2002, and equal-priority heap order depends on insertion in the simplified oracle; **not target runtime**.
 - Strongest falsifier: at current seq2, seq1 round100 is **OLD**, dropped by `checkMessage` and processing continues; at current seq1, seq2 round0 remains FUTURE and cannot yet be an eligible quorum message. Per-validator isolation further limits cross-sender interference. No measured liveness impact, E2–E4 absent.
 - Full assessment: `EVIDENCE_ASSESSMENT_2026-11-06_PRIORITY_TIE_FALSIFIER.md`, commit `539c52d0005d67125f4b35fccba0e500b62d8236`. Next one certified actual-prque/processBacklog test for old-vs-eligible ordering, then close if progress is intact.
+
+
+## B-PRIORITY-TIE-CURRENT-ROUND — 2026-11-06 23:23 NPT
+- **SUSPECTED E1, not reportable; conditional P3–P4 only.** Corrected previous overbroad old-message falsifier: at receiver current (seq1,r100), same-sender COMMIT (seq1,r100) is eligible while (seq2,r0) is future; both have priority -2002. A heap tie may allow future-head requeue/break to hold that sender's eligible COMMIT. At receiver seq2 the seq1 message is old, as previously observed.
+- New standalone Go 1.23.2 `GO111MODULE=off go test -count=1 -v ./...` **exit 0**, 4 named tests PASS (tie, r99/100/101, 2^64 narrowing, independent 3-of-4 quorum). This is copied arithmetic/oracle only, **NOT certified runtime**; E2–E4 missing. Git DNS exit 128; no new CI.
+- **Strongest counterexample:** each sender has an isolated backlog, outer loop proceeds to other validators, and 3 honest validators can finalize without the one Byzantine validator's eligible vote. Delaying one's own COMMIT is not necessarily a stronger attack than withholding it. No measured finalization delay or network harm.
+- Assessment: `EVIDENCE_ASSESSMENT_2026-11-06_PRIORITY_TIE_CURRENT_ROUND.md` commit `6af126c32eff8e65bc78c44073b202642d724b55`. Next one certified actual-prque/processBacklog test with both tie insertion orders and 3-honest finality control; close if no excess liveness effect.
