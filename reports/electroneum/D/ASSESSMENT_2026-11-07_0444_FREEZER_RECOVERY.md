@@ -1,0 +1,18 @@
+# Class D internal assessment — 2026-11-07 04:44 NPT
+
+**Lead:** HYP-D-007 — startup freezer truncation after missing-state rewind. **Decision:** BLOCKED / source fact E1 only. **Severity:** P5 for local-only missing-state corruption as currently evidenced; a hypothetical external P3 availability chain remains unproven and must not be submitted. **Verdict:** NO CONFIRMED FINDING IN TESTED SCOPE.
+
+## Source identity and actual work
+Read audit contract, manifest, certificate, provenance and bootstrap script from `reports/electroneum/` and `tools/` on audit branch. Root-level variants returned 404 because the files are nested. Inspected immutable certified source commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, tree `de7f3c75a2db7e87a89918f1257820703d5b731e`, pinned upstream `3aeb14db0d6384243302f3a025bdff904dc28bf6`, archive provenance `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b`. These are historical certificate identities; no fresh bootstrap or target execution.
+
+## Observed versus expected
+`core/blockchain.go:282-345`: on startup, missing head state invokes `setHeadBeyondRoot`; after recovery, the node checks whether ancient data exceeds the full/fast block heads and calls `SetHead(low)` when it does. `core/blockchain.go:519-638`: `setHeadBeyondRoot` reads the last pivot and freezer height, seeks a stateful ancestor, and may choose genesis when state is missing at/below pivot; it conditionally truncates ancient tables during head rewind. `core/rawdb/chain_freezer.go:125-185`: freezing works from the canonical full head, writes and syncs ancient tables before deleting active copies. These are deliberate crash/recovery ordering mechanisms, not an observed security invariant violation.
+
+**Hypothesis:** a malicious peer influences pivot metadata, an interruption leaves missing state, and restart unnecessarily truncates canonical ancient history. **Observed:** only source-level possibility of a rewind after *already missing local state*; no demonstrated peer-triggered missing-state condition, incorrect canonical hash, finalized rewrite, permanent stall, or measurable impact. **Expected controls (not executed):** honest A retains canonical map and state; valid sibling B rejected or safely reorged; malformed B rejected; interrupted A recovers with consistent ancient length and head; boundaries around pivot and freezer threshold behave consistently. Independent oracle would compare reopened canonical hash-by-height, state roots, finalized pointer and ancient count.
+
+**Strongest counterexample:** the code explicitly repairs a locally stateless head and trims ancient entries that exceed the recovered head; that can be correct crash recovery. Without proving that a network peer can create the missing-state precondition and a *wrong* recovery result, this is local corruption/operator recovery, not a remotely reportable vulnerability.
+
+## Commands, evidence, and decision
+GitHub connector `fetch_file` reads succeeded for nested contract and immutable source. No shell/Go command executed; no exit code, certified bootstrap, CI run, positive/negative runtime control, independent oracle, three reproductions, CVSS vector or E2–E4 evidence. No new CI dispatched and no external report created. No peer handoff warranted. The previous HYP-D-006 boundary-bypass subclaim remains source-falsified and is not recycled as a new finding.
+
+**Next discriminator:** only if a certified runner and a real production peer-driven missing-state trigger are available, run a <=10-minute honest A / sibling B interrupted-import restart fixture and compare canonical, finalized and freezer oracles. Otherwise close this local-only lead at P5 and prioritize a distinct externally reachable candidate.
