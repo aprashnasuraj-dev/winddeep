@@ -144,16 +144,7 @@ jobs:
           cp reports/electroneum/A/tests/signed_fee64_processing_test.go "$WORKER_A_SCRATCH/core/worker_a_signed_fee64_processing_test.go"
           cd "$WORKER_A_SCRATCH"
           go version
-          go test -count=1 -timeout=10m -run '^TestWorkerASignedFee64Processing
-
-      - name: Publish class A final CI outcome
-        if: always()
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          JOB_RESULT: ${{ job.status }}
-        run: bash tools/electroneum_ci_status.sh A finish
- -v ./core
+          go test -count=1 -timeout=10m -run '^TestWorkerASignedFee64Processing$' -v ./core
           echo WORKER_A_SIGNED_FEE64_PROCESSING_COMPLETE
 
       - name: Publish class A final CI outcome
