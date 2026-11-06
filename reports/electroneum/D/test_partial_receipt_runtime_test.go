@@ -93,6 +93,36 @@ func TestWorkerDReceiptPartialDelivery(t *testing.T) {
   }
   t.Log("D_RECEIPT_PARTIAL_SUFFIX_RETRY_PASS first=1 retried=2")
  })
+ t.Run("same_length_swapped_receipt_lists_rejected",func(t *testing.T){
+  f:=workerDNewReceiptQueue(t)
+  peer:=dummyPeer("worker-d-swap")
+  req,_,_:=f.q.ReserveReceipts(peer,3)
+  if req==nil||len(req.Headers)!=3 {t.Fatal("expected three receipt tasks")}
+  raw,hashes:=workerDEncodedReceipts(t,f,req.Headers)
+  if hashes[0]==hashes[1] {t.Skip("fixture has identical receipt roots; cannot establish swap sensitivity")}
+  raw[0],raw[1]=raw[1],raw[0]
+  hashes[0],hashes[1]=hashes[1],hashes[0]
+  accepted,err:=f.q.DeliverReceipts(peer.id,raw,hashes)
+  if err==nil||accepted!=0||f.q.PendingReceipts()!=3 {
+   t.Fatalf("swapped peer receipts accepted=%d err=%v pending=%d",accepted,err,f.q.PendingReceipts())
+  }
+  t.Log("D_RECEIPT_SAME_LENGTH_SWAP_REJECTED")
+ })
+ t.Run("honest_prefix_then_swapped_suffix_rejected",func(t *testing.T){
+  f:=workerDNewReceiptQueue(t)
+  peer:=dummyPeer("worker-d-suffix-swap")
+  req,_,_:=f.q.ReserveReceipts(peer,3)
+  if req==nil||len(req.Headers)!=3 {t.Fatal("expected three receipt tasks")}
+  raw,hashes:=workerDEncodedReceipts(t,f,req.Headers)
+  if hashes[1]==hashes[2] {t.Skip("fixture has identical suffix roots; cannot establish swap sensitivity")}
+  raw[1],raw[2]=raw[2],raw[1]
+  hashes[1],hashes[2]=hashes[2],hashes[1]
+  accepted,err:=f.q.DeliverReceipts(peer.id,raw,hashes)
+  if err==nil||accepted!=1||f.q.PendingReceipts()!=2 {
+   t.Fatalf("swapped suffix accepted=%d err=%v pending=%d",accepted,err,f.q.PendingReceipts())
+  }
+  t.Log("D_RECEIPT_SWAPPED_SUFFIX_REJECTED")
+ })
  t.Run("invalid_first_keeps_all_pending",func(t *testing.T){
   f:=workerDNewReceiptQueue(t)
   peer:=dummyPeer("worker-d-invalid-first")
