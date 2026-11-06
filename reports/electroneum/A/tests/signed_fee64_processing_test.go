@@ -20,13 +20,13 @@ func TestWorkerASignedFee64Processing(t *testing.T) {
  to,miner:=common.Address{2},common.Address{3}
  cfg:=&params.ChainConfig{ChainID:big.NewInt(1337),LondonBlock:big.NewInt(0),BerlinBlock:big.NewInt(0),EIP155Block:big.NewInt(0),ByzantiumBlock:big.NewInt(0)}
  signer:=types.MakeSigner(cfg,big.NewInt(1))
- q:=new(big.Int).Div(new(big.Int).Lsh(big.NewInt(1),64),big.NewInt(21000))
  for _,offset:=range []int64{-1,0,1} {
   for _,mode:=range []string{"success","revert","unfunded"} {
    t.Run(mode+"_"+big.NewInt(offset).String(),func(t *testing.T){
     st,e:=state.New(common.Hash{},state.NewDatabase(rawdb.NewMemoryDatabase()),nil);if e!=nil {t.Fatal(e)}
     gasLimit:=uint64(21000);if mode=="revert" {gasLimit=50000;st.SetCode(to,[]byte{0x60,0,0x60,0,0xfd})}
-    cap:=new(big.Int).Add(q,big.NewInt(offset))
+    boundary:=new(big.Int).Div(new(big.Int).Lsh(big.NewInt(1),64),new(big.Int).SetUint64(gasLimit))
+    cap:=new(big.Int).Add(boundary,big.NewInt(offset))
     escrow:=new(big.Int).Mul(cap,new(big.Int).SetUint64(gasLimit))
     initial:=new(big.Int).Add(escrow,big.NewInt(1000000))
     if mode=="unfunded" {initial.Sub(escrow,big.NewInt(1))}
