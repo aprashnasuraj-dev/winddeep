@@ -78,3 +78,10 @@
 - Decision SUSPECTED E1, no reportable P1–P3 weakness; hypothetical P3 only if measurable liveness harm. Exact certified source `vendor/electroneum-sc/consensus/istanbul/core/backlog.go:toPriority` at `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, blob `e6089fcde59ae8810ea007f4fc5ead2419ca00ad`.
 - Fresh local standalone Go 1.23.2 arithmetic oracle (NOT ETN runtime) exit 0: priority(seq1,round100,code2) = priority(seq2,round0,code2) = -2002; round 2^64 aliases round 0 due Uint64 narrowing. No signed ingress or finalization tested; E2/E3/E4 absent.
 - Strongest counterexample: per-validator backlog isolation, authenticated admission, future-window and capacity limits; 3 honest validators can still reach quorum. No observed delay or safety breach. Assessment: `EVIDENCE_ASSESSMENT_2026-11-06_PRIORITY_COLLISION.md`. Next only one certified signed N4/F1 handler fixture at rounds 99/100/101; measure finalization latency versus honest control.
+
+
+## B-PRIORITY-TIE-HEAD-OF-LINE — 2026-11-06 22:24 NPT
+- **Decision SUSPECTED E1 / NOT REPORTABLE**, hypothetical P3 only if actual prolonged finalization is observed. This narrows B-BACKLOG-PRIORITY-COLLISION.
+- New standalone Go 1.23.2 arithmetic/heap oracle exit 0: (seq1,round100,COMMIT) and (seq2,round0,COMMIT) tie at -2002, and equal-priority heap order depends on insertion in the simplified oracle; **not target runtime**.
+- Strongest falsifier: at current seq2, seq1 round100 is **OLD**, dropped by `checkMessage` and processing continues; at current seq1, seq2 round0 remains FUTURE and cannot yet be an eligible quorum message. Per-validator isolation further limits cross-sender interference. No measured liveness impact, E2–E4 absent.
+- Full assessment: `EVIDENCE_ASSESSMENT_2026-11-06_PRIORITY_TIE_FALSIFIER.md`, commit `539c52d0005d67125f4b35fccba0e500b62d8236`. Next one certified actual-prque/processBacklog test for old-vs-eligible ordering, then close if progress is intact.
