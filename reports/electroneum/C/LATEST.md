@@ -1,3 +1,10 @@
+## 2026-11-06 19:33 NPT — C-006 eth_call state ownership source trace
+- **Decision:** DISPROVEN for reviewed claim that ordinary eth_call commits fake-message state to canonical chain; overall NO CONFIRMED FINDING, E1 only.
+- **New evidence:** [state-isolation assessment](EVIDENCE_ASSESSMENT_2026-11-06_C-006_STATE_ISOLATION.md), commit `f622580ecf7b1f6738e6c301aaaaf249e164a5f2`. Certified immutable-source inspection traced `DoCall` -> backend `StateAt(header.Root)` -> `ApplyMessage`; no commit in reviewed path. Pending state via `miner.Pending()` is strongest unverified counterexample.
+- **Identity:** certified source `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, expected tree `de7f3c75a2db7e87a89918f1257820703d5b731e`; not independently bootstrapped this run.
+- **Execution:** connector source reads only; **Go tests 0, new CI 0, independent oracle 0, reproductions 0**; no shell exit codes. Positive canonical `AsMessage(isFake:false)` and negative simulated `ToMessage(isFake:true)` controls are source facts, not executed runtime controls. No E2-E4.
+- **Next:** isolated certified-runtime latest/pending eth_call state-persistence comparison and N-1/N/N+1 canonical controls; no external report.
+
 ## 2026-11-06 18:36 NPT — C-006 canonical/fake boundary cross-check
 - **Decision:** DISPROVEN for reviewed signed-transaction fake-flag inheritance hypothesis; overall NO CONFIRMED FINDING, E1 only.
 - **New executed evidence:** five immutable-source-file line/presence cross-check, recorded at [C-006 boundary cross-check](EVIDENCE_ASSESSMENT_2026-11-06_C-006_BOUNDARY_CROSSCHECK.md), commit `13432e6deece1f7528705bbdde786cf84c7efe88`. Signed `AsMessage` versus simulated `ToMessage` separated; source branches for low/high nonce located. Static observations, not Go runtime controls.
