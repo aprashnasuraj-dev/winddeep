@@ -6,6 +6,7 @@ on:
       - .github/workflows/electroneum-worker-e-ci.yml
       - reports/electroneum/E/test_canonical_lookup_test.go
       - reports/electroneum/E/test_rpc_receipt_cases_test.go
+      - reports/electroneum/E/test_signed_effective_fee_test.go
       - reports/electroneum/E/mutation_oracle.py
       - tools/electroneum_target_bootstrap.sh
       - reports/electroneum/TARGET_CERTIFICATE.json
@@ -115,6 +116,34 @@ jobs:
           cd "$ETN_E_SCRATCH"
           go test -count=1 -timeout=12m -run '^TestWorkerEReceipt(IdentityAndNilHeader|StatusAndIndexControls|OracleMutationSensitivity|FeeWidthBoundary)' -v ./internal/ethapi
           echo WORKER_E_RPC_RECEIPT_IDENTITY_STATUS_INDEX_MUTATION_ORACLE_PASS
+      - name: Execute signed funded effective gas price boundary on certified state transition
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp reports/electroneum/E/test_signed_effective_fee_test.go "$ETN_E_SCRATCH/core/worker_e_signed_effective_fee_test.go"
+          cd "$ETN_E_SCRATCH"
+          go test -count=1 -timeout=8m -run '^TestWorkerEActualEffectiveFeeWidth
+        shell: bash
+        env:
+          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '1' }}
+        run: |
+          set -euo pipefail
+          minutes="$AUDIT_FUZZ_MINUTES"
+          if ! [[ "$minutes" =~ ^[0-9]+$ ]] || (( minutes < 1 || minutes > 300 )); then
+            echo "Invalid fuzz minute budget: $minutes (require 1..300)"; exit 65
+          fi
+          echo "CERTIFIED_CLASS_E_FUZZ_BEGIN minutes=$minutes source_commit=7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
+          cd "$ETN_E_SCRATCH"
+          go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerEReorgLookup$' -fuzztime="${minutes}m" -v ./core/rawdb
+          echo "CERTIFIED_CLASS_E_FUZZ_PASS; minutes_requested=$minutes"
+      - name: Publish class E final CI outcome
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB_RESULT: ${{ job.status }}
+        run: bash tools/electroneum_ci_status.sh E finish -v ./core
+          echo WORKER_E_SIGNED_EFFECTIVE_FEE_BOUNDARY_PASS
       - name: Coverage-guided class E security fuzz campaign
         shell: bash
         env:
