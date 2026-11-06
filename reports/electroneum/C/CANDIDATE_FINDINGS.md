@@ -60,3 +60,11 @@
 - **Impact not established:** no existing mnemonic disclosure, card initialization, unauthorized signing or funds movement. The response mnemonic is newly generated, not an existing user's recovery phrase. Strongest counterexample: default namespace exclusion and wallet type/URL rejection.
 - **Evidence:** `reports/electroneum/C/EVIDENCE_ASSESSMENT_2026-11-06_C-001.md`; pinned-source connector reads E1, no current bootstrap or target execution.
 - **Next exact falsification:** inspect certified `scwallet.Wallet.Initialize` and card APDU guard; if plausible, run an offline synthetic card-emulator state matrix with honest and unauthorized session controls, independently checking state change and mnemonic visibility.
+
+
+## C-003 — 2026-11-06 08:29 NPT decision
+- **Status:** DEFERRED / BLOCKED for runtime, E1 source-only, NOT CONFIRMED. Actor Y0, W1/W2/W10. No victim, transferred amount or production-reachable exploit established.
+- **Source:** certified `core/types/transaction_signing.go:343-346,352-431`: London priority hash omits sender V/R/S; future-fork hash includes them and signer equality distinguishes contexts. No fresh bootstrap; certificate commit/tree as documented in C-003 assessment.
+- **Strongest counterexample:** different sender must independently sign to authorize spending; reusing a priority signature alone does not demonstrate unauthorized funds movement. The priority-key economic/privilege semantics and active fork configuration remain unknown.
+- **Next discriminating test:** C-004 source-trace actual priority authorization/fee accounting, then certified synthetic two-sender, one-priority-key pre/post-fork transaction execution and independent balance oracle only if a victim-impact route exists. Prior C-003 source-only attempts capped; do not rerun absent new access/evidence.
+- **Evidence:** `EVIDENCE_ASSESSMENT_2026-11-06_C-003.md` updated commit `b166a1b1a0f4750adfa37b768f82278a1077f2d3`; `LATEST.md` commit `5b00794992695baffbf320b97793170a5b7f8ec8`. No new Go execution, mutation or CI run.
