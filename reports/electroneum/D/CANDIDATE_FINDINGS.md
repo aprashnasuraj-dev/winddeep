@@ -35,3 +35,7 @@
 - **Evidence:** E1 only, **SIMULATION_NOT_EXECUTED**; no certified runtime invocation, no independent oracle, no breach, no economic impact. Expected malicious rejection; observed source guard only. Confidence of vulnerability low. Not DISPROVEN (E3 controls missing).
 - **Falsification:** certified two-header synthetic peer queue fixture; honest response, swapped same-length response, status mutation, receipt reorder; independently recompute ordered receipt roots; inspect accept count, requeue and post-restart receipt association. Scratch mutant disabling root check must be detected. Full assessment in D/LATEST.md 2026-11-06 06:44 NPT.
 - **Next action:** execute one bounded certified-runtime fixture, not a new long fuzz campaign.
+
+### HYP-D-003 follow-up — 2026-11-06 07:48 NPT
+- **SUSPECTED E1; not reportable.** New two-case same-length receipt-swap regression committed at `3d19960aab23bd0fc66ae78198ee05c117496da3`; runtime execution not yet observed. Cases require distinct fixture receipt roots, assert zero accepted on first swap and one accepted on suffix swap, and verify remaining pending count. They explicitly SKIP identical-root fixtures, which must be treated as an inconclusive harness control rather than a passing defense.
+- **Next proof:** retrieve decisive Actions test-name logs, fix any SKIP or harness failure, add an independent root oracle and deliberate guard mutant. The strongest defeating control remains the per-header receipt-root comparison; no proven attacker-reachable history rewrite.
