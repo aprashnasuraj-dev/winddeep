@@ -109,3 +109,6 @@
 
 ### HYP-D-005 — 2026-11-06 23:44 NPT dispatcher follow-up
 - **SUSPECTED E1; conditional P3, not reportable.** Certified dispatcher validates request ID/type, not semantic header ancestry; `fetchHeadersByHash` passes returned payload for caller validation, and `fetchHead` checks length/height. No demonstrated bypass; metadata producer and downstream validation unresolved. Strongest counterexample: header/ancestor/seal validation prevents malicious peer effects. No new Go tests, no E2-E4, no impact, no CVSS. See ASSESSMENT_2026-11-06_2344_DISPATCH_BINDING.md. Next single bounded real peer fixture after metadata trace.
+
+### HYP-D-005 — 2026-11-07 00:44 NPT metadata producer
+- **SUSPECTED E1 / conditional P3 only / NOT REPORTABLE.** Certified `handlers.go:403-423` derives header hash metadata from peer-returned headers; inspected `fetchHead` segment checks length/height but lacks an explicit returned-head-hash comparison. No runtime test, honest/malicious controls, independent oracle, reachability or harm. Strongest counterexample: downstream ancestry/seal validation and safe recovery. Evidence `ASSESSMENT_2026-11-07_0044_HEADER_METADATA.md`; next one bounded certified eth/66 sibling/wrong-head test. Defer if no execution in next invocation.
