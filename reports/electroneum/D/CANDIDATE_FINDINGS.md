@@ -101,3 +101,8 @@
 
 ### HYP-D-004 — 2026-11-06 21:46 NPT decision
 - **DEFERRED/BLOCKED E1**, second consecutive source-only iteration. Conditional P3 impact hypothesis unproven, no CVSS, no report. Fresh certified-source fetch verifies head-hash reverse request and height guard, but not acceptance of an unrelated sibling pivot. No bootstrap/Go tests, independent oracle, peer route, three reproductions or adverse effect. Strongest counterexample remains hash-anchored traversal and subsequent header/ancestor validation; safe missing-state rewind may be expected. Evidence: ASSESSMENT_2026-11-06_2146_PIVOT_BINDING.md, commit f9c791f705d203d2db4ad823ac78e451ab34b69d. Reopen only with verified helper response binding and <=10-minute certified peer fixture; otherwise rotate to different lead.
+
+## HYP-D-005 — Peer header response binding at snap pivot (2026-11-06 22:47 NPT)
+- **SUSPECTED E1; conditional P3 only; not reportable.** Certified `eth/downloader/fetchers.go:30-69` does not locally reject a malformed peer response; `downloader.go:698-732` checks the pivot number but does not itself validate parent-hash ancestry. This is a component observation only. No certified runtime, independent oracle, malicious sibling acceptance, restart impact or E4 reachability shown.
+- **Counterexample:** response tracker and header import may enforce request hash and ancestry before impact. `findAncestor` precedes pivot persistence. Safe rewind may be expected. Do not relabel this as P1 rewrite.
+- **Next:** trace request tracker/dispatcher then bounded certified A/B sibling test. Assessment ASSESSMENT_2026-11-06_2247_RESPONSE_BINDING.md at f0022ad960979b7bd4e1d7bfec9a03ed2fe66f54.
