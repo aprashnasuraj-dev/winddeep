@@ -57,3 +57,9 @@
 
 ### 2026-11-06 08:00 NPT — HYP-E-004 bounded execution checkpoint
 - **DEFERRED / SUSPECTED E1-V1, not reportable** after two consecutive source-only investigations. Existing receipt fee-width source mismatch remains; a funded canonical >2^64 transaction and wrong relying-party decision remain unproven. No new Go test, no new target runtime execution. Git DNS exit 128; GitHub connector lacks workflow dispatch. Historical run 41923789539 is not a funded block-admission test. Strongest counterexamples: real admission/funding constraints and fee-independent deposit accounting. Internal assessment: `EVIDENCE_HYP-E-004_2026-11-06_0800.md`. Reactivate only with a bounded actual imported-block admission experiment; rotate to HYP-E-003 actual reorg/restart receipt canonicality. No confirmed vulnerability report edit.
+
+
+### 2026-11-06 08:55 NPT — HYP-E-003 source-path discriminator
+- **SUSPECTED E1/V1; SIMULATION_NOT_EXECUTED; not reportable.** Real backend `eth/api_backend.go:265-268` calls canonical `rawdb.ReadTransaction`; receipt API `internal/ethapi/api.go:1571-1626` then calls `GetReceipts` by the previously returned block hash (`eth/api_backend.go:185-187`) without post-receipt canonical revalidation. This creates a source-level *possible* read-gap, not evidence of a real interleaving or miscredit.
+- **Strongest defense:** canonical lookup after reorg rejects orphaned tx; exchange may revalidate block hash at decision time. **Unknown:** real backend locking/receipt persistence during reorg, plus external N-confirmation behavior.
+- **Evidence:** `EVIDENCE_HYP-E-003_2026-11-06_0855.md`; local Git DNS exit 128; zero current target tests, no fresh bootstrap. Next: bounded real-backend competing-block reorg/receipt/credit oracle; no broad fuzz.
