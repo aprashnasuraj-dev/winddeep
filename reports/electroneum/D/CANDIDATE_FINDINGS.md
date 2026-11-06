@@ -112,3 +112,6 @@
 
 ### HYP-D-005 — 2026-11-07 00:44 NPT metadata producer
 - **SUSPECTED E1 / conditional P3 only / NOT REPORTABLE.** Certified `handlers.go:403-423` derives header hash metadata from peer-returned headers; inspected `fetchHead` segment checks length/height but lacks an explicit returned-head-hash comparison. No runtime test, honest/malicious controls, independent oracle, reachability or harm. Strongest counterexample: downstream ancestry/seal validation and safe recovery. Evidence `ASSESSMENT_2026-11-07_0044_HEADER_METADATA.md`; next one bounded certified eth/66 sibling/wrong-head test. Defer if no execution in next invocation.
+
+### HYP-D-005 — 2026-11-07 01:46 NPT final bounded decision
+- **DEFERRED/BLOCKED E1**, repeated static-only work; conditional P3 not demonstrated, no CVSS/E4 or report. Exact certified source comparison confirms the local fetchHead head-hash equality is not explicit, but request tracking and downstream header/ancestry/seal validation remain strongest defenses. No runtime, independent oracle, three runs, production harm or CI dispatch. Evidence: `ASSESSMENT_2026-11-07_0146_HEADER_HASH_GATE.md`. Reopen only for certified peer-response A/B rejection test; otherwise prioritize a distinct candidate.
