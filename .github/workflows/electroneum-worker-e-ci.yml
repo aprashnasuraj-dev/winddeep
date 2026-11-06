@@ -120,6 +120,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          chmod u+w "$ETN_E_SCRATCH/core"
           cp reports/electroneum/E/test_signed_effective_fee_test.go "$ETN_E_SCRATCH/core/worker_e_signed_effective_fee_test.go"
           cd "$ETN_E_SCRATCH"
           go test -count=1 -timeout=8m -run '^TestWorkerEActualEffectiveFeeWidth$' -v ./core
