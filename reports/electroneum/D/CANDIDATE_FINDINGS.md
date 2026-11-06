@@ -39,3 +39,8 @@
 ### HYP-D-003 follow-up — 2026-11-06 07:48 NPT
 - **SUSPECTED E1; not reportable.** New two-case same-length receipt-swap regression committed at `3d19960aab23bd0fc66ae78198ee05c117496da3`; runtime execution not yet observed. Cases require distinct fixture receipt roots, assert zero accepted on first swap and one accepted on suffix swap, and verify remaining pending count. They explicitly SKIP identical-root fixtures, which must be treated as an inconclusive harness control rather than a passing defense.
 - **Next proof:** retrieve decisive Actions test-name logs, fix any SKIP or harness failure, add an independent root oracle and deliberate guard mutant. The strongest defeating control remains the per-header receipt-root comparison; no proven attacker-reachable history rewrite.
+
+### HYP-D-003 execution review — 2026-11-06 08:44 NPT
+- **SUSPECTED / E1, NOT DISPROVEN.** Certified CI run `42147841161`, job `127663537717` completed success, but both new same-length swap cases were **SKIPPED** because `makeChain(6,0,genesis,false)` produced equal receipt roots. Zero meaningful swapped-list adversarial assertions ran. This is a harness blind spot, not an Electroneum vulnerability or a passing defense test.
+- **Observed:** log `fixture has identical receipt roots; cannot establish swap sensitivity` and `fixture has identical suffix roots; cannot establish swap sensitivity`. Honest and status-corruption partial-delivery controls passed, but are not swap controls. Full evidence and identities in D/LATEST.md 08:44 entry.
+- **Next:** distinct header-bound receipt roots, fail-fast fixture assertion, targeted `-count=1 -v` test and scratch guard mutant. Do not promote this lead without that evidence and a real peer-to-canonical-state route.
