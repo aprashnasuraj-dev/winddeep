@@ -97,3 +97,10 @@
 ## 2026-11-07 00:17 NPT — B-PRIORITY-TIE-CURRENT-ROUND DEFERRED
 - Second successive invocation without certified-runtime E2. Source-inspected exact `prque/sstack.go:Less` strict `a>b` tie handling; no guaranteed FIFO or eligible-first tie ordering. `processBacklog` future-head break is sender-local. N=4 F=1 honest 3/4 quorum remains strongest counterexample; no measured stall or unauthorized finalization. P3–P4 only hypothetical, not reportable. Local Git DNS exit 128, no target Go tests. Assessment: `EVIDENCE_ASSESSMENT_2026-11-07_PRIORITY_TIE_DEFERRED.md`.
 - Rotation: select distinct authenticated stateful message-sequence hypothesis next, not another arithmetic collision. Reopen this lead only with certified signed actual-prque/handler fixture.
+
+## B-RC-PREPARED-BODY-SUBSTITUTION — 2026-11-07 01:21 NPT
+- **Decision:** DISPROVEN within exact shipped decoder source-contract scope, E1 only, not reportable. Hypothetical P1 safety impact was not observed.
+- **New work:** 7/7 fresh connected immutable-source assertions passed for `handler.go` pre-verification and `types/roundchange.go:RoundChange.DecodeRLP` digest/header, transaction-root and uncle-root checks. No certified Go runtime execution. Local Git DNS exit 128.
+- **Strongest counterexample:** unsigned prepared block body cannot be changed while retaining signed header digest without failing the decoder's transaction/uncle commitment checks; normal empty prepared-block encoding is intentional.
+- **Evidence:** `EVIDENCE_ASSESSMENT_2026-11-07_ROUNDCHANGE_PREPARED_BODY.md`, commit `c46edab8587ffa8dd88991ac0b6cc231dccc1f24`. No E2–E4, no invalid finalization, no CVSS.
+- **Next:** distinct authenticated stateful QBFT handler fixture on certified runtime, no further source-only iterations on this candidate.
