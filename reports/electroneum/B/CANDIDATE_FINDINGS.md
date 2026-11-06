@@ -67,3 +67,8 @@
 
 ## B-MINER-SNAPSHOT-FAILURE-REACHABILITY — 2026-11-06 19:16 NPT
 - **DISPROVEN for persistent missing-parent-snapshot normal proposer path (E1); transient post-validation failure remains BLOCKED, not reportable.** Hypothetical P1 only. `Backend.Seal` and `Backend.Verify` require parent snapshot before proposal can be admitted, contradicting the persistent-failure precondition of the suspected direct-write bypass. `handleCommitMsg` verifies authenticated sender/commit seal before quorum. The preliminary `verifyCommitted` does skip checking on snapshot failure, but no attacker-reachable post-validation snapshot loss or invalid canonical write was observed. No fresh Go execution; local Git DNS exit 128. Evidence: `EVIDENCE_ASSESSMENT_2026-11-06_MINER_SNAPSHOT_PREREQUISITE.md`. Next: only test a real reachable transient invalidation; otherwise rotate to distinct stateful round-change message sequencing.
+
+
+## B-ROUNDCHANGE-HETEROGENEOUS-QUORUM — 2026-11-06 20:24 NPT
+- DISPROVEN within exact source path: one authenticated Byzantine validator cannot pool ROUND_CHANGE signatures from different rounds to meet same-round F+1 (N=4 F=1 requires two distinct validators for one round). Direct and backlog round-change ingress cap current+15. Seven new exact-source assertions passed; **no certified Go execution**, no E2–E4, no CVSS, no P1–P3 report.
+- Strongest unresolved counterexample: uint64/int64 narrowing at extreme rounds and actual signed message sequencing not tested. Evidence: EVIDENCE_ASSESSMENT_2026-11-06_ROUNDCHANGE_HETEROGENEOUS.md. Next: signed event-loop positive/negative/boundary Go fixture.
