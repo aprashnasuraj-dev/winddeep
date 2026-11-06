@@ -1,0 +1,19 @@
+# 2026-11-06 22:24 NPT — B-PRIORITY-TIE-HEAD-OF-LINE (internal evidence assessment)
+
+**Decision: SUSPECTED E1 / NOT REPORTABLE; hypothetical P3 only if real excess consensus delay is measured.** This is a narrower discriminating analysis of B-BACKLOG-PRIORITY-COLLISION, not a new confirmed vulnerability.
+
+## Identity and execution
+Immutable certified repository source object: `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`. Documented subtree `de7f3c75a2db7e87a89918f1257820703d5b731e`, upstream pin `3aeb14db0d6384243302f3a025bdff904dc28bf6`, archive `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b`. Immutable `vendor/electroneum-sc/consensus/istanbul/core/backlog.go` blob `e6089fcde59ae8810ea007f4fc5ead2419ca00ad` and `common/prque/prque.go` read through GitHub connector. Fresh certified bootstrap **NOT executed**. Root contract/certificate paths at repository root returned 404; their locations were not inferred. `git ls-remote https://github.com/aprashnasuraj-dev/winddeep.git refs/heads/electroneum-sc-master-audit` exit 128 (DNS resolution). `go version` = go1.23.2. `go run /tmp/b_priority.go` exit 0; this was a **standalone standard-library arithmetic/heap oracle**, not target code execution or E2.
+
+## Mechanism and actual new control
+`backlog.go:toPriority` uses `-int64(seq*1000+round*10+code)`; PREPARE code priority offset 3, COMMIT 2. At same code, (sequence 1, round 100) and (sequence 2, round 0) both map to -2002. `prque.go` uses a max-heap of int64 priorities, with no documented stable tie break. In the standalone stdlib heap oracle, insertion order determined which equal-priority item was popped first: [future,eligible] -> future; [eligible,future] -> eligible. This proves a possible ordering ambiguity in a simplified heap, **not** the actual prque runtime ordering.
+
+At current sequence 2, an old sequence-1 round-100 item is rejected as OLD by `checkMessage`, not FUTURE; therefore it is dropped and the inner loop continues. This is the **strongest direct falsifier** of the originally suggested permanent head-of-line blockage for this exact (1,100)/(2,0) collision. At current sequence 1, the sequence-2 message is future and both collision entries may be future; neither is then an eligible honest consensus message. The observed collision is therefore insufficient to establish delayed eligible processing in this pair.
+
+`processBacklog` iterates **per sender**, requeues and breaks only for a future head, then proceeds to other senders. Admission requires a current validator; count cap 1024 per sender, byte cap 32 MiB per sender; `withinBacklogFutureWindow` caps sequence gap at 32 and ROUND_CHANGE round gap at 15 but allows arbitrary same-sequence PREPARE/COMMIT round. No honest finalization test, signed ingress fixture, measured delay, or target mutation control executed.
+
+## Controls, reachability, impact
+Adversary: one authenticated faulty validator in N=4,F=1. Expected honest control: 3 honest validators reach quorum. Malicious case: same-sender future PREPARE/COMMIT with priority ties; actual outcome **NOT TESTED** in certified ETN runtime. Boundary variations: (1,99)->-1992, (1,100)->-2002, (1,101)->-2012, (2,0)->-2002; 2^64 round narrows to zero in uint64. Independent oracle results are arithmetic-only. No invalid finality, permanent stall, resource exhaustion, or quantified downtime. No CVSS or Bugcrowd classification assigned. E1 source fact only, E2/E3/E4 absent.
+
+## Next single discriminator
+Use fresh certified bootstrap and one bounded Go test in the **actual** `core.processBacklog` and prque path with signed N=4,F=1 messages; set current view to sequence 2, inject old (1,100) plus eligible (2,0) from same sender, verify old item drops and eligible item posts, then compare with three honest validators' finalization. If both variants progress, mark this priority-collision liveness lead DISPROVEN in the tested scope; do not rerun broad fuzz.
