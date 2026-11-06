@@ -50,7 +50,20 @@ jobs:
         run: |
           set -euo pipefail
           cd "$ETN_GOV_SCRATCH"
-          go test -count=3 -timeout=8m -run '^TestIndependentIstanbulUnauthenticatedVoteInjection$' -v ./consensus/istanbul/backend 2>&1 | tee "$RUNNER_TEMP/etn-governance-proof.log"
+          go test -count=3 -timeout=8m -run '^TestIndependent(IstanbulUnauthenticatedVoteInjection|GovernanceRPCCommitsUnauthorizedValidatorChange) -v ./consensus/istanbul/backend 2>&1 | tee "$RUNNER_TEMP/etn-governance-proof.log"
+          grep -q ETN_GOVERNANCE_UNAUTHENTICATED_HTTP_PROPOSE_SUCCEEDED "$RUNNER_TEMP/etn-governance-proof.log"
+          grep -q ETN_GOVERNANCE_UNAUTHENTICATED_VOTE_WRITTEN_TO_QBFT_HEADER "$RUNNER_TEMP/etn-governance-proof.log"
+          grep -q ETN_GOVERNANCE_UNAUTHENTICATED_HTTP_DISCARD_SUCCEEDED "$RUNNER_TEMP/etn-governance-proof.log"
+          grep -q ETN_GOVERNANCE_UNAUTHENTICATED_CANONICAL_VALIDATOR_ADDITION_CONFIRMED "$RUNNER_TEMP/etn-governance-proof.log"
+          echo "ETN_GOVERNANCE_CERTIFIED_TARGET_PROOF_PASS"
+      - name: Store bounded proof logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-governance-loopback-proof
+          path: ${{ runner.temp }}/etn-governance-proof.log
+          if-no-files-found: ignore
+ -v ./consensus/istanbul/backend 2>&1 | tee "$RUNNER_TEMP/etn-governance-proof.log"
           grep -q ETN_GOVERNANCE_UNAUTHENTICATED_HTTP_PROPOSE_SUCCEEDED "$RUNNER_TEMP/etn-governance-proof.log"
           grep -q ETN_GOVERNANCE_UNAUTHENTICATED_VOTE_WRITTEN_TO_QBFT_HEADER "$RUNNER_TEMP/etn-governance-proof.log"
           grep -q ETN_GOVERNANCE_UNAUTHENTICATED_HTTP_DISCARD_SUCCEEDED "$RUNNER_TEMP/etn-governance-proof.log"
