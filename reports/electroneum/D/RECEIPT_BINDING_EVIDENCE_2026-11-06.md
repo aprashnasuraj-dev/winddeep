@@ -37,3 +37,20 @@ In a scratch copy bootstrapped from the immutable certified object, run a short 
 ## Ownership and report boundary
 
 Only Class D files are in scope. No upstream modifications, live-node traffic, workflow dispatch/cancellation, or external disclosure. Keep HYP-D-003 open as a broader investigation, while recording the narrow eth/66 forged-metadata sub-route as source-falsified.
+
+## 2026-11-06 15:46 NPT — additional certified dispatcher ordering proof and execution blocker
+
+**Decision: SUSPECTED broader typed-receipt normalization/restart route; the independent peer-metadata injection sub-route is SOURCE-DISPROVEN within ordinary eth/66 dispatch.** No confirmed security finding; P1–P3/CVSS not established.
+
+Fresh certified-source reads at immutable commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`:
+- `eth/protocols/eth/dispatcher.go:153-182` `(*Peer).dispatchResponse` first matches a pending request, calls the response decode closure, sets `res.Res=data`, then calls the metadata closure and sets `res.Meta=metadata()`. It forwards the paired response only afterward at lines 189-200. This is stronger than merely observing a shared captured slice: metadata generation is sequenced after successful decoding and before response delivery. A peer cannot directly populate `res.Meta` through this path.
+- `eth/protocols/eth/handlers.go:498-530` `newRawTypedList` uses `rlp.SplitList` and `rlp.Split` with minimum-length and typed-envelope structural checks. It rejects undersized legacy entries and typed strings without a type byte followed by list encoding. This is structural validation, **not** proof that every semantically invalid receipt is rejected after trie-root matching.
+- `eth/downloader/fetchers_concurrent_receipts.go:90-94` forwards the response payload and locally generated metadata as one object. The queue checks the root before decoding.
+
+**Completed scoped falsification:** An external eth/66 peer cannot independently inject an honest claimed receipt hash alongside unrelated malicious raw receipts through the normal handler/dispatcher sequence. A synthetic direct queue call with mismatched raw/hash metadata does not cross the network trust boundary. This falsifies *only that route*, not typed receipt parser equivalence or persisted canonical read/restart behavior.
+
+**Actual execution status:** Tried `git ls-remote https://github.com/aprashnasuraj-dev/winddeep.git HEAD` in local shell; failed `Could not resolve host: github.com` (exit 128). No certified checkout could be bootstrapped locally. GitHub connector successfully read the certified source but exposes no direct arbitrary Go execution or workflow dispatch action; this invocation did **not** run a new Go test, perform an independent runtime oracle, or reopen a database. Historical CI run `42172102719` still proves only the earlier five queue tests. Do not label this an executed typed-receipt or persistence experiment.
+
+**Next narrow executable experiment:** In the already authorized class-owned certified Actions workflow (only if no class CI active), add a <=10-minute Go test under `eth/protocols/eth` using honest receipt RLP, legacy malformed item, typed malformed envelope, and typed reorder. Compute the independent expected trie root from receipt objects, compare to `handleReceipts66` metadata after dispatch, then independently test reopened on-disk raw/derived receipts in an isolated `core/rawdb` fixture. Preserve authenticated header and do not create a forged local-header acceptance claim. Capture actual test names, exit codes and logs. No new long fuzz campaign.
+
+**Counterexample:** Structural rejection at `newRawTypedList`, metadata derived from exactly the decoded bytes after request match, and authenticated-header root comparison together prevent the simple forged-hash route. No evidence presently defeats those guards. The broader HYP-D-003 remains open; no external vulnerability report is authorized.
