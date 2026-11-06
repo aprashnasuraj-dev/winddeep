@@ -49,9 +49,10 @@ jobs:
         run: |
           set -euo pipefail
           cd "$ETN_SCRATCH"
-          go test -count=1 -timeout=8m -run '^TestIndependentMainnetPrioritySignatureRebindingFullImport$' -v ./core 2>&1 | tee "$RUNNER_TEMP/etn-priority-rebinding.log"
+          go test -count=3 -timeout=8m -run '^TestIndependent(MainnetPrioritySignatureRebindingFullImport|PrioritySingleSignatureManyUnfundedSenders)$' -v ./core 2>&1 | tee "$RUNNER_TEMP/etn-priority-rebinding.log"
           grep -q 'ETN_P2_CANONICAL_ZERO_FEE_REPLAY_ACCEPTED' "$RUNNER_TEMP/etn-priority-rebinding.log"
           grep -q 'ETN_P2_POSTFORK_COUNTEREXAMPLE_REJECTS_REPLAY' "$RUNNER_TEMP/etn-priority-rebinding.log"
+          grep -q 'ETN_P2_SINGLE_PRIORITY_SIGNATURE_24_UNFUNDED_ACCOUNTS_ACCEPTED' "$RUNNER_TEMP/etn-priority-rebinding.log"
           echo ETN_REBINDING_FULL_IMPORT_CERTIFIED_PASS
       - name: Upload proof log
         if: always()
