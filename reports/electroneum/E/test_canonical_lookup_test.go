@@ -128,3 +128,53 @@ func FuzzWorkerEReorgLookup(f *testing.F) {
         }
     })
 }
+
+
+// TestWorkerEOrphanHeaderRetention checks the actual certified rawdb header
+// storage across canonical-hash transitions. This is a component-level
+// falsification of the premise that a canonical switch itself deletes headers;
+// it is NOT a consensus-valid imported-block reorganization or RPC exploit test.
+func TestWorkerEOrphanHeaderRetention(t *testing.T) {
+    db := NewMemoryDatabase()
+    defer db.Close()
+    const height uint64 = 52
+    a := &types.Header{Number: new(big.Int).SetUint64(height), Extra: []byte("worker-e-A")}
+    b := &types.Header{Number: new(big.Int).SetUint64(height), Extra: []byte("worker-e-B")}
+    ah, bh := a.Hash(), b.Hash()
+    if ah == bh { t.Fatal("independent header fixtures collided") }
+    WriteHeader(db, a)
+    WriteHeader(db, b)
+    WriteCanonicalHash(db, ah, height)
+
+    assertHeader := func(label string, hash common.Hash, want bool) {
+        t.Helper()
+        got := ReadHeader(db, hash, height)
+        if (got != nil) != want {
+            t.Fatalf("%s header availability mismatch hash=%s want=%v got=%v", label, hash, want, got != nil)
+        }
+        if want && got.Hash() != hash {
+            t.Fatalf("%s returned wrong header hash=%s expected=%s", label, got.Hash(), hash)
+        }
+    }
+    assertHeader("honest canonical A", ah, true)
+    assertHeader("honest stored sibling B", bh, true)
+
+    WriteCanonicalHash(db, bh, height)
+    if got := ReadCanonicalHash(db, height); got != bh {
+        t.Fatalf("canonical switch failed: got=%s expected=%s", got, bh)
+    }
+    assertHeader("orphan A after switch", ah, true)
+    assertHeader("canonical B after switch", bh, true)
+
+    WriteCanonicalHash(db, ah, height)
+    assertHeader("restored A", ah, true)
+    assertHeader("stored sibling B after restoration", bh, true)
+
+    // Mutation sensitivity: explicit scratch-only deletion is the negative
+    // control proving the read detects absent headers. This deletion is NOT
+    // an attacker-reachable reorg or a claimed target vulnerability.
+    DeleteHeader(db, ah, height)
+    assertHeader("deliberately deleted A", ah, false)
+    assertHeader("unmodified sibling B", bh, true)
+    t.Log("E_HEADER_RETENTION_SWITCH_RESTORE_AND_DELETION_CONTROL_PASS")
+}
