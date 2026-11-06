@@ -47,3 +47,9 @@
 - New boundary: `backend/backend.go:258-275` local pre-import `verifyCommitted` returns nil on snapshot lookup failure, but `Backend.verifyHeader` propagates the error; **not** proof of production bypass. Need actual import path and state fixture.
 - Independent expected N=4 transition controls: current A+B+C accepted; current A+B+previous E rejected; A+B+B and A+B+outsider rejected. No actual observations for these transition cases. Historical direct verifier controls are not transition proof. Local Git DNS exit 128; fresh bootstrap/test unavailable. Decision **BLOCKED**, E3/E4 absent; no CVSS or external report.
 - Internal assessment: `EVIDENCE_ASSESSMENT_2026-11-06_PARENT_SET_TRANSITION.md`. Next: one certified Backend.VerifyHeader and production import transition fixture, with scratch membership mutant.
+
+
+## B-BATCH-PARENT-SNAPSHOT — 2026-11-06 16:18 NPT
+- **Decision: DISPROVEN only for batch-specific bypass of parent-snapshot error propagation**, E1 source, not a general import-path disproof. Hypothetical P1 if actual invalid finalization, but none observed.
+- Certified `backend/engine.go:89-113` invokes `sb.verifyHeader` for each batch header, passing preceding headers; `backend/engine.go:69-82` returns snapshot errors before committed-seal verification. Following batch elements receive `ErrUnknownAncestor`. The preliminary `backend/backend.go:262-275` nil-on-snapshot-error behavior does not change that fact.
+- X1 authenticated faulty validator N=4 F=1. No Go execution or E2-E4, no CVSS. Assessment: `EVIDENCE_ASSESSMENT_2026-11-06_BATCH_HEADER_SNAPSHOT.md`. Next: real import path N=4 transition fixture, not another batch-only source review.
