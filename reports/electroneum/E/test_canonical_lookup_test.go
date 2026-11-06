@@ -178,3 +178,51 @@ func TestWorkerEOrphanHeaderRetention(t *testing.T) {
     assertHeader("unmodified sibling B", bh, true)
     t.Log("E_HEADER_RETENTION_SWITCH_RESTORE_AND_DELETION_CONTROL_PASS")
 }
+
+
+// TestWorkerESameTransactionAcrossCanonicalBranches checks a counterexample
+// to the simplistic rule that every transaction in an orphaned block must
+// disappear: the identical transaction can also be present in the replacement.
+// This uses shipped rawdb functions, not a mocked RPC backend.
+func TestWorkerESameTransactionAcrossCanonicalBranches(t *testing.T) {
+ db:=NewMemoryDatabase()
+ defer db.Close()
+ const height uint64=73
+ a:=common.HexToHash("0xaabb")
+ b:=common.HexToHash("0xccdd")
+ tx:=workerETx(77)
+ cfg:=&params.ChainConfig{ChainID:big.NewInt(52014)}
+ receipt:=func(status uint64)*types.Receipt{return &types.Receipt{
+  Type:types.LegacyTxType, Status:status, CumulativeGasUsed:21000,
+ }}
+ WriteBody(db,a,height,&types.Body{Transactions:types.Transactions{tx}})
+ WriteBody(db,b,height,&types.Body{Transactions:types.Transactions{tx}})
+ WriteReceipts(db,a,height,types.Receipts{receipt(types.ReceiptStatusSuccessful)})
+ WriteReceipts(db,b,height,types.Receipts{receipt(types.ReceiptStatusFailed)})
+ WriteTxLookupEntries(db,height,[]common.Hash{tx.Hash()})
+ for _,tc:=range []struct{name string;canonical common.Hash;status uint64}{
+  {"original",a,types.ReceiptStatusSuccessful},
+  {"replacement_same_tx",b,types.ReceiptStatusFailed},
+  {"restored",a,types.ReceiptStatusSuccessful},
+ } {
+  t.Run(tc.name,func(t *testing.T){
+   WriteCanonicalHash(db,tc.canonical,height)
+   got,hash,num,index:=ReadTransaction(db,tx.Hash())
+   if got==nil||got.Hash()!=tx.Hash()||hash!=tc.canonical||num!=height||index!=0 {
+    t.Fatalf("same-tx canonical lookup mismatch: hash=%s height=%d index=%d",hash,num,index)
+   }
+   rec,rhash,rnum,rindex:=ReadReceipt(db,tx.Hash(),cfg)
+   if rec==nil||rhash!=tc.canonical||rnum!=height||rindex!=0||rec.Status!=tc.status {
+    t.Fatalf("same-tx canonical receipt mismatch: receipt=%v hash=%s height=%d index=%d",rec,rhash,rnum,rindex)
+   }
+   t.Logf("E_SAME_TX_CANONICAL_BRANCH_PASS branch=%s status=%d",tc.canonical,tc.status)
+  })
+ }
+ // An actually absent transaction must still be rejected when its index
+ // points to a canonical body containing a different transaction.
+ WriteBody(db,b,height,&types.Body{Transactions:types.Transactions{workerETx(78)}})
+ WriteCanonicalHash(db,b,height)
+ if got,_,_,_:=ReadTransaction(db,tx.Hash());got!=nil {t.Fatal("orphaned transaction accepted")}
+ if got,_,_,_:=ReadReceipt(db,tx.Hash(),cfg);got!=nil {t.Fatal("orphaned receipt accepted")}
+ t.Log("E_SAME_TX_ABSENT_REPLACEMENT_REJECTED")
+}
