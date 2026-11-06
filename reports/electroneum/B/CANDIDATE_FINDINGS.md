@@ -92,3 +92,8 @@
 - New standalone Go 1.23.2 `GO111MODULE=off go test -count=1 -v ./...` **exit 0**, 4 named tests PASS (tie, r99/100/101, 2^64 narrowing, independent 3-of-4 quorum). This is copied arithmetic/oracle only, **NOT certified runtime**; E2–E4 missing. Git DNS exit 128; no new CI.
 - **Strongest counterexample:** each sender has an isolated backlog, outer loop proceeds to other validators, and 3 honest validators can finalize without the one Byzantine validator's eligible vote. Delaying one's own COMMIT is not necessarily a stronger attack than withholding it. No measured finalization delay or network harm.
 - Assessment: `EVIDENCE_ASSESSMENT_2026-11-06_PRIORITY_TIE_CURRENT_ROUND.md` commit `6af126c32eff8e65bc78c44073b202642d724b55`. Next one certified actual-prque/processBacklog test with both tie insertion orders and 3-honest finality control; close if no excess liveness effect.
+
+
+## 2026-11-07 00:17 NPT — B-PRIORITY-TIE-CURRENT-ROUND DEFERRED
+- Second successive invocation without certified-runtime E2. Source-inspected exact `prque/sstack.go:Less` strict `a>b` tie handling; no guaranteed FIFO or eligible-first tie ordering. `processBacklog` future-head break is sender-local. N=4 F=1 honest 3/4 quorum remains strongest counterexample; no measured stall or unauthorized finalization. P3–P4 only hypothetical, not reportable. Local Git DNS exit 128, no target Go tests. Assessment: `EVIDENCE_ASSESSMENT_2026-11-07_PRIORITY_TIE_DEFERRED.md`.
+- Rotation: select distinct authenticated stateful message-sequence hypothesis next, not another arithmetic collision. Reopen this lead only with certified signed actual-prque/handler fixture.
