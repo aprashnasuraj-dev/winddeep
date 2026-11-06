@@ -1,0 +1,62 @@
+name: ETN priority signature rebinding — certified import proof
+on:
+  push:
+    branches: [etn-priority-auth-bypass-proof-20261106]
+    paths:
+      - .github/workflows/etn-priority-rebinding-proof.yml
+      - reports/electroneum/C/test_priority_rebinding_import_test.go
+permissions:
+  contents: read
+concurrency:
+  group: etn-priority-rebinding
+  cancel-in-progress: false
+jobs:
+  signed-fee-waiver-import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Bootstrap pinned immutable ETN source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = "7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = "de7f3c75a2db7e87a89918f1257820703d5b731e"
+          test "$WINDEEP_ETN_PINNED_SOURCE_COMMIT" = "3aeb14db0d6384243302f3a025bdff904dc28bf6"
+          test "$WINDEEP_ETN_ARCHIVE_SHA256" = "3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b"
+          echo "ETN_PINNED_SOURCE=$WINDEEP_ETN_SOURCE" >> "$GITHUB_ENV"
+          echo ETN_REBINDING_CERTIFIED_SOURCE_PASS
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Copy test into isolated writable scratch checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$RUNNER_TEMP/etn-rebinding-src"
+          mkdir -p "$scratch"
+          cp -a "$ETN_PINNED_SOURCE"/. "$scratch"/
+          chmod u+w "$scratch/core"
+          cp "$GITHUB_WORKSPACE/reports/electroneum/C/test_priority_rebinding_import_test.go" "$scratch/core/etn_rebinding_import_test.go"
+          echo "ETN_SCRATCH=$scratch" >> "$GITHUB_ENV"
+      - name: Execute full import with real priority-contract ABI and sender change
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$ETN_SCRATCH"
+          go test -count=1 -timeout=8m -run '^TestIndependentMainnetPrioritySignatureRebindingFullImport$' -v ./core 2>&1 | tee "$RUNNER_TEMP/etn-priority-rebinding.log"
+          grep -q 'ETN_P2_CANONICAL_ZERO_FEE_REPLAY_ACCEPTED' "$RUNNER_TEMP/etn-priority-rebinding.log"
+          grep -q 'ETN_P2_POSTFORK_COUNTEREXAMPLE_REJECTS_REPLAY' "$RUNNER_TEMP/etn-priority-rebinding.log"
+          echo ETN_REBINDING_FULL_IMPORT_CERTIFIED_PASS
+      - name: Upload proof log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-priority-rebinding-proof
+          path: ${{ runner.temp }}/etn-priority-rebinding.log
+          if-no-files-found: ignore
