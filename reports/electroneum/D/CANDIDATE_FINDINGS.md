@@ -129,3 +129,10 @@
 - **BLOCKED E1; no confirmed finding.** The only source-demonstrated trigger is missing local state, ordinarily P5-only without an external trigger. A remote P3 availability chain remains speculative; no CVSS.
 - **Source:** certified immutable `core/blockchain.go:282-345,519-638` and `core/rawdb/chain_freezer.go:125-185`; historical source identity unchanged. Startup repair reconciles freezer length with recovered full/fast head and truncates excess ancients. **Strongest counterexample:** this is expected consistency repair after missing state, not evidence of peer-induced incorrect history.
 - **Missing:** peer-induced missing-state precondition, honest/sibling/invalid boundary tests, fresh bootstrap, runtime E2, oracle, three breaches, restarted canonical mismatch and quantified impact. No Go test executed. Assessment `ASSESSMENT_2026-11-07_0444_FREEZER_RECOVERY.md`. Reopen only for a real certified peer-ingress trigger; otherwise treat local-only hypothesis as P5 and drop.
+
+## HYP-D-008 — HeaderChain.Reorg canonical mapping boundary (2026-11-07 05:44 NPT)
+- **Status:** BLOCKED, E1 only; hypothetical P3 remote corruption/stall, unproven. No CVSS or external report.
+- **Source:** immutable certified 7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0 `core/headerchain.go:130-224`. Reorg stages canonical-map/head changes in a batch, aborts if an ancestor is missing, updates memory after successful batch write. `WriteHeaders` assumes headers previously validated. No remote-to-Reorg bypass established.
+- **Strongest counterexample:** caller header validation and fork choice, parent-existence rejection, and atomic batch. Legitimate sibling-chain reorg is not unauthorized history rewriting.
+- **Tests:** none executed this invocation; honest A/B, missing-parent B, genesis-adjacent and shorter sibling, restart oracle remain unexecuted. No certified bootstrap or Go exit code. See `ASSESSMENT_2026-11-07_0544_HEADER_REORG_ATOMICITY.md`.
+- **Next:** one bounded certified-runtime A/B control and independent reopened canonical-map oracle; only pursue peer-reachability if a real invariant breach appears.
