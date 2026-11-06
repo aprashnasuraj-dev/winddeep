@@ -115,3 +115,8 @@
 
 ### HYP-D-005 — 2026-11-07 01:46 NPT final bounded decision
 - **DEFERRED/BLOCKED E1**, repeated static-only work; conditional P3 not demonstrated, no CVSS/E4 or report. Exact certified source comparison confirms the local fetchHead head-hash equality is not explicit, but request tracking and downstream header/ancestry/seal validation remain strongest defenses. No runtime, independent oracle, three runs, production harm or CI dispatch. Evidence: `ASSESSMENT_2026-11-07_0146_HEADER_HASH_GATE.md`. Reopen only for certified peer-response A/B rejection test; otherwise prioritize a distinct candidate.
+
+## HYP-D-006 — Beacon skeleton contiguous stale-sibling restart (2026-11-07 02:45 NPT)
+- **BLOCKED / E1 / conditional P3 only; not reportable.** Distinct path after HYP-D-005 deferred. Source: immutable certified skeleton.go:~792-810 parent progression, :592-625 new-head parent match, :939-956 local body/receipt link existence. The checks are counterexamples; no exploit demonstrated.
+- **Actor:** hypothetical untrusted sync peer; no proof of bypassing beacon/header/finality trust boundary. **Missing:** certified-runtime honest A vs stale sibling B, malformed-parent boundary, interrupted restart and independent canonical/skeleton oracle, three reproductions and measurable harm. No Go execution this invocation.
+- **Next:** single bounded certified fixture, reject candidate if defense rejects or recovery is safe. Assessment ASSESSMENT_2026-11-07_0245_SKELETON_PROGRESS.md, initial commit 00eac90fb121670bbf45c590436f3a9dc4fd419b.
