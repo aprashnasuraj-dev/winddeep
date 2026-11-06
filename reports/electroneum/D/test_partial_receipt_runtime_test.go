@@ -20,6 +20,21 @@ type workerDReceiptQueueFixture struct {
 func workerDNewReceiptQueue(t *testing.T) workerDReceiptQueueFixture {
  t.Helper()
  blocks,receipts:=makeChain(6,0,genesis,false)
+ // Queue-level binding fixture: create distinct, internally matched receipt/header
+ // commitments. This does NOT produce a consensus-valid signed sibling chain.
+ // It isolates DeliverReceipts root validation; no canonical import claim follows.
+ for _,i:=range []int{1,2} {
+  if len(receipts[i])==0 {t.Fatalf("receipt list %d empty",i)}
+  copied:=make(types.Receipts,len(receipts[i]))
+  copy(copied,receipts[i])
+  item:=*copied[0]
+  if i==1 {item.Status ^= 1} else {item.CumulativeGasUsed++}
+  copied[0]=&item
+  receipts[i]=copied
+  header:=blocks[i].Header()
+  header.ReceiptHash=types.DeriveSha(copied,trie.NewStackTrie(nil))
+  blocks[i]=types.NewBlockWithHeader(header)
+ }
  headers:=make([]*types.Header,len(blocks))
  hashes:=make([]common.Hash,len(blocks))
  for i,b:=range blocks {
@@ -99,7 +114,7 @@ func TestWorkerDReceiptPartialDelivery(t *testing.T) {
   req,_,_:=f.q.ReserveReceipts(peer,3)
   if req==nil||len(req.Headers)!=3 {t.Fatal("expected three receipt tasks")}
   raw,hashes:=workerDEncodedReceipts(t,f,req.Headers)
-  if hashes[0]==hashes[1] {t.Skip("fixture has identical receipt roots; cannot establish swap sensitivity")}
+  if hashes[0]==hashes[1] {t.Fatal("fixture has identical receipt roots; swap coverage blind")}
   raw[0],raw[1]=raw[1],raw[0]
   hashes[0],hashes[1]=hashes[1],hashes[0]
   accepted,err:=f.q.DeliverReceipts(peer.id,raw,hashes)
@@ -114,7 +129,7 @@ func TestWorkerDReceiptPartialDelivery(t *testing.T) {
   req,_,_:=f.q.ReserveReceipts(peer,3)
   if req==nil||len(req.Headers)!=3 {t.Fatal("expected three receipt tasks")}
   raw,hashes:=workerDEncodedReceipts(t,f,req.Headers)
-  if hashes[1]==hashes[2] {t.Skip("fixture has identical suffix roots; cannot establish swap sensitivity")}
+  if hashes[1]==hashes[2] {t.Fatal("fixture has identical suffix roots; swap coverage blind")}
   raw[1],raw[2]=raw[2],raw[1]
   hashes[1],hashes[2]=hashes[2],hashes[1]
   accepted,err:=f.q.DeliverReceipts(peer.id,raw,hashes)
