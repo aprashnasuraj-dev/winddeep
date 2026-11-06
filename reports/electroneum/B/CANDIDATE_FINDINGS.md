@@ -72,3 +72,9 @@
 ## B-ROUNDCHANGE-HETEROGENEOUS-QUORUM — 2026-11-06 20:24 NPT
 - DISPROVEN within exact source path: one authenticated Byzantine validator cannot pool ROUND_CHANGE signatures from different rounds to meet same-round F+1 (N=4 F=1 requires two distinct validators for one round). Direct and backlog round-change ingress cap current+15. Seven new exact-source assertions passed; **no certified Go execution**, no E2–E4, no CVSS, no P1–P3 report.
 - Strongest unresolved counterexample: uint64/int64 narrowing at extreme rounds and actual signed message sequencing not tested. Evidence: EVIDENCE_ASSESSMENT_2026-11-06_ROUNDCHANGE_HETEROGENEOUS.md. Next: signed event-loop positive/negative/boundary Go fixture.
+
+
+## B-BACKLOG-PRIORITY-COLLISION — 2026-11-06 21:19 NPT
+- Decision SUSPECTED E1, no reportable P1–P3 weakness; hypothetical P3 only if measurable liveness harm. Exact certified source `vendor/electroneum-sc/consensus/istanbul/core/backlog.go:toPriority` at `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`, blob `e6089fcde59ae8810ea007f4fc5ead2419ca00ad`.
+- Fresh local standalone Go 1.23.2 arithmetic oracle (NOT ETN runtime) exit 0: priority(seq1,round100,code2) = priority(seq2,round0,code2) = -2002; round 2^64 aliases round 0 due Uint64 narrowing. No signed ingress or finalization tested; E2/E3/E4 absent.
+- Strongest counterexample: per-validator backlog isolation, authenticated admission, future-window and capacity limits; 3 honest validators can still reach quorum. No observed delay or safety breach. Assessment: `EVIDENCE_ASSESSMENT_2026-11-06_PRIORITY_COLLISION.md`. Next only one certified signed N4/F1 handler fixture at rounds 99/100/101; measure finalization latency versus honest control.
