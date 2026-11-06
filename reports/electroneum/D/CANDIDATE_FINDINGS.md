@@ -89,3 +89,9 @@
 
 ### HYP-D-003 decision — 2026-11-06 18:44 NPT
 - **DEFERRED/BLOCKED (not disproven in broader typed-persistence scope), E1 + historical queue-only E2; no E3/E4.** Repeated source-only runs and certified-source 404 make further speculative assessment unproductive. Narrow independently forged eth/66 metadata route is source-falsified by local derivation and header-root validation. No runtime or oracle executed this invocation; no CVSS or reportable impact. See ASSESSMENT_2026-11-06_1844_RECEIPT_RUNTIME_GATE.md. Reopen only with certified runner ingress-to-rawdb restart fixture; rotate investigation to a distinct lead.
+
+## HYP-D-004 — Height-correct but ancestry-unbound peer pivot (2026-11-06 19:44 NPT)
+- **Status:** SUSPECTED E1, not reportable; conditional P3 pending actual peer reachability and adverse impact. No CVSS or certified runtime execution.
+- **New certified-source observation:** `eth/downloader/downloader.go:693-739` checks pivot height offset; `syncWithPeer:465-545` executes `findAncestor` before persisting numeric pivot; `core/blockchain.go:535-625` uses pivot for missing-state rewind. The height check alone is not ancestry authentication.
+- **Strongest counterexample:** later header/skeleton validation and safe intentional resync; no proof that a malicious sibling can survive and trigger a damaging rewind.
+- **Evidence:** [ASSESSMENT_2026-11-06_1944_PIVOT_ANCESTRY_GATE.md](ASSESSMENT_2026-11-06_1944_PIVOT_ANCESTRY_GATE.md), commit 1138c0bcb94d623a189ef56a8cb63d56d9ed68cb. No tests, oracle, 3 runs, production ingress proof or quantified impact. Next one discriminating certified-runtime A/B sibling + restart fixture.
