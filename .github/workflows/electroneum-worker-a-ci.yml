@@ -145,6 +145,8 @@ jobs:
           cd "$WORKER_A_SCRATCH"
           go version
           go test -count=1 -timeout=10m -run '^TestWorkerASignedFee64Processing
+
+      - name: Publish class A final CI outcome
         if: always()
         continue-on-error: true
         env:
