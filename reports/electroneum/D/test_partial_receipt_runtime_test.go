@@ -19,37 +19,33 @@ type workerDReceiptQueueFixture struct {
 
 func workerDNewReceiptQueue(t *testing.T) workerDReceiptQueueFixture {
  t.Helper()
- blocks,receipts:=makeChain(6,0,genesis,false)
- // Queue-level binding fixture: create distinct, internally matched receipt/header
- // commitments. This does NOT produce a consensus-valid signed sibling chain.
- // It isolates DeliverReceipts root validation; no canonical import claim follows.
- // makeChain has empty receipt batches at some indices. Only mutate batches
- // that actually contain receipts; preserve empty batches and queue task count.
- // Each nonempty batch receives a unique cumulative gas commitment.
+ // makeChain(6,0,...) contains only ONE nonempty receipt batch in the
+ // certified runtime. Construct three independent queue tasks from that real
+ // receipt structure rather than assuming three blocks contain transactions.
+ blocks,baseReceipts:=makeChain(6,0,genesis,false)
+ var seed *types.Receipt
+ for _,batch:=range baseReceipts {
+  if len(batch)>0 {seed=batch[0];break}
+ }
+ if seed==nil {t.Fatal("no nonempty receipt seed in makeChain")}
+ headers:=make([]*types.Header,3)
+ receipts:=make([]types.Receipts,3)
+ hashes:=make([]common.Hash,3)
  distinct:=make(map[common.Hash]bool)
- nonempty:=0
- for i:=range receipts {
-  if len(receipts[i])==0 {continue}
-  copied:=make(types.Receipts,len(receipts[i]))
-  copy(copied,receipts[i])
-  item:=*copied[0]
+ for i:=0;i<3;i++ {
+  item:=*seed
   item.CumulativeGasUsed+=uint64(i+1)
-  copied[0]=&item
-  receipts[i]=copied
-  header:=blocks[i].Header()
-  header.ReceiptHash=types.DeriveSha(copied,trie.NewStackTrie(nil))
-  if distinct[header.ReceiptHash] {t.Fatalf("duplicate nonempty receipt root at index %d",i)}
+  receipts[i]=types.Receipts{&item}
+  header:=blocks[0].Header()
+  header.Number.SetUint64(uint64(i+1))
+  if i>0 {header.ParentHash=hashes[i-1]}
+  header.ReceiptHash=types.DeriveSha(receipts[i],trie.NewStackTrie(nil))
+  if distinct[header.ReceiptHash] {t.Fatalf("duplicate synthetic receipt root %d",i)}
   distinct[header.ReceiptHash]=true
-  nonempty++
-  blocks[i]=types.NewBlockWithHeader(header)
+  headers[i]=header
+  hashes[i]=header.Hash()
  }
- if nonempty!=3 {t.Fatalf("expected 3 nonempty receipt batches, got %d",nonempty)}
- headers:=make([]*types.Header,len(blocks))
- hashes:=make([]common.Hash,len(blocks))
- for i,b:=range blocks {
-  headers[i]=b.Header()
-  hashes[i]=headers[i].Hash()
- }
+ // Queue-only fixtures deliberately do not claim consensus-valid signatures.
  q:=newQueue(10,10)
  q.Prepare(1,SnapSync)
  q.Schedule(headers,hashes,1)
