@@ -121,3 +121,59 @@ func TestIndependentMainnetPrioritySignatureRebindingFullImport(t *testing.T) {
  if err==nil&&newPub==priorityPub {t.Fatal("post-fork sender binding not enforced")}
  t.Log("ETN_P2_POSTFORK_COUNTEREXAMPLE_REJECTS_REPLAY")
 }
+
+
+func TestIndependentPrioritySingleSignatureManyUnfundedSenders(t *testing.T) {
+ cfg:=*params.MainnetChainConfig
+ cfg.IBFT=nil
+ cfg.Ethash=new(params.EthashConfig)
+ signer:=types.MakeSigner(&cfg,big.NewInt(1))
+ priorityPrivate,_:=crypto.GenerateKey()
+ originalSender,_:=crypto.GenerateKey()
+ priorityPub:=crypto.ECDSAPubkeyToPublicKey(priorityPrivate.PublicKey)
+ to:=common.HexToAddress("0x000000000000000000000000000000000000cafe")
+ body:=&types.PriorityTx{ChainID:new(big.Int).Set(cfg.ChainID),Nonce:0,GasFeeCap:big.NewInt(0),GasTipCap:big.NewInt(0),Gas:params.TxGas,To:&to,Value:big.NewInt(0)}
+ original,err:=types.SignNewPriorityTx(originalSender,priorityPrivate,signer,body)
+ if err!=nil {t.Fatal(err)}
+ pv,pr,ps:=original.RawPrioritySignatureValues()
+ const n=24
+ forged:=make([]*types.Transaction,n)
+ addresses:=make([]common.Address,n)
+ for i:=0;i<n;i++{
+  key,err:=crypto.GenerateKey()
+  if err!=nil {t.Fatal(err)}
+  addresses[i]=crypto.PubkeyToAddress(key.PublicKey)
+  clone:=&types.PriorityTx{ChainID:new(big.Int).Set(cfg.ChainID),Nonce:0,GasFeeCap:big.NewInt(0),GasTipCap:big.NewInt(0),Gas:params.TxGas,To:&to,Value:big.NewInt(0),PriorityV:new(big.Int).Set(pv),PriorityR:new(big.Int).Set(pr),PriorityS:new(big.Int).Set(ps)}
+  forged[i],err=types.SignNewTx(key,signer,clone)
+  if err!=nil {t.Fatal(err)}
+  if p,err:=types.PrioritySender(signer,forged[i]);err!=nil||p!=priorityPub {t.Fatalf("index %d failed to recover copied priority signature: %v",i,err)}
+ }
+ alloc:=GenesisAlloc{
+  cfg.PriorityTransactorsContractAddress:{Balance:big.NewInt(0),Code:independentPriorityFixtureCode(t,priorityPub)},
+ }
+ for _,a:=range addresses {alloc[a]=GenesisAccount{Balance:big.NewInt(0)}}
+ g:=&Genesis{Config:&cfg,GasLimit:15000000,Alloc:alloc,BaseFee:big.NewInt(params.InitialBaseFee)}
+ db:=rawdb.NewMemoryDatabase()
+ genesis:=g.MustCommit(db)
+ engine:=ethash.NewFaker()
+ chain,err:=NewBlockChain(db,nil,&cfg,engine,vm.Config{},nil,nil)
+ if err!=nil {t.Fatal(err)}
+ defer chain.Stop()
+ blocks,_:=GenerateChain(&cfg,genesis,engine,db,1,func(_ int,b *BlockGen){
+  b.statedb.SetPriorityTransactors(common.PriorityTransactorMap{priorityPub:{IsGasPriceWaiver:true}})
+  for _,tx:=range forged {b.AddTx(tx)}
+ })
+ if i,err:=chain.InsertChain(blocks);err!=nil {t.Fatalf("replay burst import failed at index %d: %v",i,err)}
+ receipts:=chain.GetReceiptsByHash(blocks[0].Hash())
+ if len(receipts)!=n {t.Fatalf("receipt count=%d want=%d",len(receipts),n)}
+ state,err:=chain.State()
+ if err!=nil {t.Fatal(err)}
+ for i,a:=range addresses {
+  if state.GetNonce(a)!=1||state.GetBalance(a).Sign()!=0||receipts[i].Status!=types.ReceiptStatusSuccessful {
+   t.Fatalf("sender %d nonce=%d balance=%s receipt=%d",i,state.GetNonce(a),state.GetBalance(a),receipts[i].Status)
+  }
+ }
+ if blocks[0].GasUsed()!=n*params.TxGas {t.Fatalf("used gas=%d want=%d",blocks[0].GasUsed(),n*params.TxGas)}
+ savedFee:=new(big.Int).Mul(blocks[0].BaseFee(),new(big.Int).SetUint64(blocks[0].GasUsed()))
+ t.Logf("ETN_P2_SINGLE_PRIORITY_SIGNATURE_24_UNFUNDED_ACCOUNTS_ACCEPTED txs=%d gas_used=%d all_nonce_one=true all_balances_wei_zero=true effective_fee_wei=0 normal_base_fee_wei=%s base_fee_per_gas_wei=%s",n,blocks[0].GasUsed(),savedFee,blocks[0].BaseFee())
+}
