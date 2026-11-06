@@ -92,3 +92,10 @@
 
 ### 2026-11-06 15:00 NPT — HYP-E-003 executed same-tx competing-branch control
 - **DISPROVEN in rawdb canonical-pointer A/B/A scope only; broader HYP-E-003 remains DEFERRED / not reportable.** New `TestWorkerESameTransactionAcrossCanonicalBranches` committed `07240c45e824b5be02d3d75b55dca9d5477ccf35`; CI `42194008676` job `127812624834` completed bootstrap, rawdb baseline, deliberate mutation rejection, restored baseline and RPC steps successfully, overall run pending fuzz at inspection. Named stdout unavailable while running (log API 404). Positive same-tx A/B/A and negative absent-tx replacement oracle; no real chain reorg or economic exploit. See `EVIDENCE_HYP-E-003_2026-11-06_1500.md`. Next inspect completed CI logs, then full-chain reorg and N-1/N/N+1 credit oracle.
+
+
+## Completed CI log adjudication — same invocation
+- Run `42194008676` **completed success**, job `127812624834`, trigger `07240c45e824b5be02d3d75b55dca9d5477ccf35`. Full job log retrieved after completion.
+- Restored certified source: `TestWorkerESameTransactionAcrossCanonicalBranches` PASS, with subtests `original`, `replacement_same_tx`, `restored` all PASS. Oracle logged statuses 1 -> 0 -> 1 for A -> B -> A, plus `E_SAME_TX_ABSENT_REPLACEMENT_REJECTED`. Named test appeared in both baseline and restored rawdb executions.
+- Intentionally mutated scratch canonical lookup: the same named test and its subtests **FAIL** as expected; workflow confirms `WORKER_E_CANONICAL_MUTATION_REJECTED`. This FAIL is deliberately injected, NOT a target bug. After restore the named test PASSed; `WORKER_E_CANONICALITY_TESTS_PASS` logged. Baseline/restored Go command exit 0; expected mutant Go command nonzero; overall workflow exit 0.
+- This is E2 for component rawdb canonical branch lookup only. E3/E4 attacker-reachable RPC breach remains absent. No new external report.
