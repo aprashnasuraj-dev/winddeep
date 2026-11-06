@@ -53,3 +53,9 @@
 - **Decision: DISPROVEN only for batch-specific bypass of parent-snapshot error propagation**, E1 source, not a general import-path disproof. Hypothetical P1 if actual invalid finalization, but none observed.
 - Certified `backend/engine.go:89-113` invokes `sb.verifyHeader` for each batch header, passing preceding headers; `backend/engine.go:69-82` returns snapshot errors before committed-seal verification. Following batch elements receive `ErrUnknownAncestor`. The preliminary `backend/backend.go:262-275` nil-on-snapshot-error behavior does not change that fact.
 - X1 authenticated faulty validator N=4 F=1. No Go execution or E2-E4, no CVSS. Assessment: `EVIDENCE_ASSESSMENT_2026-11-06_BATCH_HEADER_SNAPSHOT.md`. Next: real import path N=4 transition fixture, not another batch-only source review.
+
+
+## B-COMMIT-PRECHECK-IMPORT — 2026-11-06 17:23 NPT
+- **Decision BLOCKED; no confirmed P1–P3 vulnerability.** Hypothetical P1 only if invalid finalization is shown; no E2–E4 or CVSS.
+- **New executed evidence:** 6/6 deterministic exact-source checks against immutable certified commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0` (JavaScript checks, NOT target-runtime Go). `Backend.Commit` sends matching proposed blocks to `commitCh` after `verifyCommitted`, which skips snapshot lookup failure; ordinary `Backend.verifyHeader` propagates snapshot failure. Distinct signer check consumes each validator once. This establishes a potentially interesting entry-point difference but no bypass.
+- **Strongest counterexample:** mandatory parent-snapshot lookup in normal header verification and signer deduplication. No proof that `commitCh` path imports without later verification. Real N=4 transition signature fixtures absent. Full internal assessment: `EVIDENCE_ASSESSMENT_2026-11-06_COMMIT_PRECHECK_IMPORT.md`. Next: trace miner `Seal` and execute certified import fixture; do not recycle source-only checks.
