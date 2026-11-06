@@ -1,0 +1,15 @@
+# Class A internal assessment — 2026-11-06 18:11 NPT
+## Lead A-FEE-01: signed EIP-1559 fee accounting around 2^64
+**Decision: BLOCKED at certified-runtime signed test; not reportable.** Hypothesized P1 only if externally spendable unauthorized credit can be demonstrated; no CVSS assigned because no breach is observed.
+
+### New observed evidence this invocation
+- GitHub Actions run 42209511744, trigger e0ffcfa7c8a898759212c1f8e924103c51ac2c47, completed FAILURE with **zero jobs** (jobs API). The class-owned workflow was read at branch head. Its signed-test shell command was split by an accidentally embedded duplicate YAML step fragment: the literal `go test ... -run '^TestWorkerASignedFee64Processing` lacked a closing quote, followed by misplaced `if: always()`, `env:`, `run:` and `-v ./core`. This is a concrete malformed workflow configuration, not target-runtime failure.
+- Repaired the exact malformed fragment and restored `go test -count=1 -timeout=10m -run '^TestWorkerASignedFee64Processing$' -v ./core`, preserving the existing final status step and all certified bootstrap identity checks. Workflow fix commit **d36435cc0402a371cff968ed18306dc418dab680**. This change is class-owned and scoped to the previously broken step.
+- Run 42209491174 (old workflow) completed SUCCESS; it did not contain the signed-test step. Multiple later zero-job Class A failures were visible; none is evidence of an ETN bug. No new certified Go execution was observed during this assessment.
+
+### Target, controls and limits
+Certified identity required for future actual target test: source 7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0; tree de7f3c75a2db7e87a89918f1257820703d5b731e; pinned 3aeb14db0d6384243302f3a025bdff904dc28bf6; archive 3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b. No fresh bootstrap was run in this assessment. Signed test source: `reports/electroneum/A/tests/signed_fee64_processing_test.go`; it signs, marshals, decodes, recovers sender, invokes ApplyTransaction, checks receipts, debit/tip/burn across q-1/q/q+1 and success/revert/unfunded. This is not canonical block import.
+Independent fee oracle: for 21000 gas and base fee 8/tip 2, sender debit 210000, miner tip 42000, burn 168000 wei. At q+1=878416384462360 wei/gas, escrow 18446744073709560000 wei > 2^64. Revert uses actual receipt gas. Unfunded rejection must leave state unchanged. Strongest counterexample: big.Int fee preflight and earlier certified direct ApplyMessage six-case PASS; crossing 2^64 does not itself create unauthorized credit.
+
+### Remaining proof and next single action
+Inspect the first job-bearing Actions run after workflow-fix commit d36435cc0402a371cff968ed18306dc418dab680; capture exact bootstrap SHA checks, named Go test stdout and exit. If it fails, distinguish compile/fixture defects from genuine target behavior. Do not launch a second overlapping Class A CI. E1 source and prior E2 direct EVM are historical; signed-test E2/E3/E4 remain absent. External report unchanged.
