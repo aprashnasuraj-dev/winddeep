@@ -1,0 +1,17 @@
+# A-REWARD-CAP-HALVING-01 — production-height reachability discriminator (2026-11-07)
+
+**Decision: BLOCKED for vulnerability confirmation; source arithmetic established, no E2–E4. Hypothesized P4 only if independent normative invariant and actual security effect are demonstrated.** No external report.
+
+## New independently executed evidence
+Read immutable certified-source `vendor/electroneum-sc/consensus/istanbul/backend/engine.go` lines 258–295 and `vendor/electroneum-sc/params/config.go` mainnet lines 72–74, stagenet lines 105–107, testnet lines 140 onward. Source identity used for read: commit `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`; no fresh bootstrap; expected tree `de7f3c75a2db7e87a89918f1257820703d5b731e`, pinned upstream `3aeb14db0d6384243302f3a025bdff904dc28bf6`, archive `3ca62ab9c6951ea26cb13615d67255940e176522126f2ca7a157bf4035329d7b` are NOT independently reverified this run.
+
+Executed isolated Python 3 arithmetic derivation in this investigation (exit code 0). Mainnet offset = 24 × (1,806,749 − 862,866) = **22,653,192**. First halving at SC block **2,575,608** (25,228,800 − offset). Pre-cap base reward is **4,000,000,000,000,000,000 wei** at heights 0, 1, 2,575,607; **2,000,000,000,000,000,000 wei** at 2,575,608 and 2,575,609. Genesis emission starts at **17,964,946,965,760,000,000,000,000,000 wei** from mainnet `GenesisETN` and `newEmission` in engine.go:417. Stagenet offset −20,708,784 and testnet offset 17,955,576; these are NOT mainnet substitutes. Python script calculations used integer arithmetic, not an ETN runtime.
+
+## Security invariant and reachability
+Source rule: `min(4e18, maxSupply−circulatingSupply) >> halvings`. Alternative `min(4e18 >> halvings, maxSupply−circulatingSupply)` is NOT a proven protocol requirement. Previous synthetic 2 ETN remaining-supply fixture is not a valid canonical state by itself. Crucially, block height, prior emissions and supply are coupled, and ordinary transaction senders do not select `GenesisETN`, `ETNMaxSupply`, the consensus halving offset, or the proposer reward. No credited-account balance, funds loss or unauthorized mint observed. The strongest counterexample is that cap-before-halving may be the intentional consensus rule; even at a reachable cap boundary, lower issuance is not automatically a security violation.
+
+## Execution distinction / missing proof
+New work: source-derived mainnet offset and exact halving transition, independent executed integer oracle (exit 0). **No certified Go runtime, block import, signed transaction, CI run, or production chain-state query this invocation.** Root audit-contract paths remained unavailable on branch (404); no complete contract reconciliation. `ETNMaxSupply` constant and canonical emission trajectory at the cap were not independently established here; do not claim reachability. Duplicate/public advisory assessment remains incomplete. Historical signed-fee nine-case runtime pass is unrelated and not repeated.
+
+## Next discriminating action
+Locate the certified `ETNMaxSupply` definition and derive the exact mainnet emission recurrence from `GenesisETN` through block 2,575,608, including remaining cap and recipient credits; if the divergent cap state is unreachable or normative rule absent, close this as non-vulnerability. If it is reachable and an independent rule conflicts, run one certified `Finalize` block test with fresh source identity and independent balance oracle. Do not dispatch broad fuzz.
