@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "owner": "A",
+  "probes": [
+    {
+      "id": "A-signed-import-restart",
+      "owner": "A",
+      "source": "reports/electroneum/A/tests/signed_import_restart_test.go",
+      "target": "core/adversarial_worker_a_import_restart_test.go",
+      "package": "./core",
+      "test": "TestWorkerASignedImportRestartLedger",
+      "markers": [
+        "A_IMPORT_RESTART_HONEST name=honest",
+        "A_IMPORT_RESTART_HONEST name=boundary_zero",
+        "A_IMPORT_RESTART_HONEST name=empty_control"
+      ],
+      "classification": "signed ethash-faker block InsertChain and restart ledger only; not QBFT consensus or reorg"
+    }
+  ]
+}
