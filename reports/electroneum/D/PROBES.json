@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "owner": "D",
+  "probes": [
+    {
+      "id": "D-short-sibling-restart",
+      "owner": "D",
+      "source": "reports/electroneum/D/test_short_sibling_restart_test.go",
+      "target": "core/adversarial_worker_d_short_sibling_test.go",
+      "package": "./core",
+      "test": "TestWorkerDShortSiblingRestartIntegrity",
+      "markers": [
+        "D_BRANCH_A_ACCEPTED",
+        "D_SHORT_SIBLING_NONCANONICAL",
+        "D_RESTART_CANONICAL_ORACLE_OK"
+      ],
+      "classification": "real InsertChain, fork-choice and persistent rawdb canonical-map oracle with valid shorter sibling; fake PoW; NOT QBFT finality or peer reachability"
+    }
+  ]
+}
