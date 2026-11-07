@@ -1,0 +1,84 @@
+name: ETN isolated one-off five-lane certified audit 2026-11-07
+on:
+  push:
+    branches:
+      - etn-on-demand-independent-20261107-1324npt
+    paths:
+      - .github/workflows/etn-independent-heavy-20261107.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: etn-isolated-heavy-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Evidence harness self-tests
+        run: python3 -m unittest discover -s tests/etn -v
+  five-independent-certified-lanes:
+    needs: plan
+    name: "Heavy isolated class ${{ matrix.audit }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        audit: [A, B, C, D, E]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Materialize and verify pinned certified Electroneum source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = "7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = "de7f3c75a2db7e87a89918f1257820703d5b731e"
+          test -f "$WINDEEP_ETN_SOURCE/go.mod"
+          echo "ISOLATED_CERTIFIED_TARGET class=${{ matrix.audit }} source=$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT tree=$WINDEEP_ETN_SOURCE_TREE_SHA run_sha=${{ github.sha }}"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Execute complete native-Go probe suite in three fresh isolated processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/shared/run_fresh_matrix.py \
+            --class "${{ matrix.audit }}" \
+            --matrix reports/electroneum/shared/adversarial_matrix.json \
+            --fresh-count 3 \
+            --timeout-sec 1200 \
+            --output "$RUNNER_TEMP/etn-heavy-${{ matrix.audit }}"
+      - name: Preserve dedicated Class B consensus patch comparison
+        if: matrix.audit == 'B'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/B/verify_sync_patch.py \
+            "$RUNNER_TEMP/etn-heavy-B/fresh-1/scratch" \
+            "$RUNNER_TEMP/etn-heavy-B"
+      - name: Upload full per-lane raw evidence regardless of failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "etn-heavy-${{ matrix.audit }}-${{ github.run_id }}"
+          path: |
+            ${{ runner.temp }}/etn-heavy-${{ matrix.audit }}/fresh-evidence.json
+            ${{ runner.temp }}/etn-heavy-${{ matrix.audit }}/fresh-*/result.json
+            ${{ runner.temp }}/etn-heavy-${{ matrix.audit }}/fresh-*/*.log
+            ${{ runner.temp }}/etn-heavy-${{ matrix.audit }}/B-sync-*.json
+            ${{ runner.temp }}/etn-heavy-${{ matrix.audit }}/B-sync-*.log
+          if-no-files-found: warn
+          retention-days: 14
