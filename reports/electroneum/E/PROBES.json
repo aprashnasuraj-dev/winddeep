@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "owner": "E",
+  "probes": [
+    {
+      "id": "E-RPC-007-OVERRIDE-BOUNDED",
+      "owner": "E",
+      "source": "reports/electroneum/E/test_override_budget_test.go",
+      "target": "internal/ethapi/api.go:StateOverride.Apply",
+      "package": "./internal/ethapi",
+      "test": "TestWorkerEOverride(BudgetBoundaries|ConflictingStateRejected|RejectedAccountNoStorageMutation)",
+      "markers": [
+        "E_OVERRIDE_BOUNDARY"
+      ],
+      "classification": "ENGINEERING_NOT_EXECUTED"
+    }
+  ]
+}
