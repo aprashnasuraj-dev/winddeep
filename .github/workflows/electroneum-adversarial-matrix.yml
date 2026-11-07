@@ -10,6 +10,7 @@ on:
       - 'reports/electroneum/shared/test_signed_sequence_test.go'
       - '.github/workflows/electroneum-adversarial-matrix.yml'
       - 'reports/electroneum/*/PROBES.json'
+      - 'reports/electroneum/B/verify_sync_patch.py'
       - 'reports/electroneum/*/*_test.go'
       - 'reports/electroneum/*/tests/*.go'
 permissions:
@@ -57,13 +58,21 @@ jobs:
             --matrix reports/electroneum/shared/adversarial_matrix.json \
             --repeat 3 \
             --output "$RUNNER_TEMP/etn-adversarial-${{ matrix.audit }}"
+      - name: Distinguish certified pre-fix miner pause from official repaired behavior
+        if: matrix.audit == 'B'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/B/verify_sync_patch.py \
+            "$RUNNER_TEMP/etn-adversarial-B/scratch" \
+            "$RUNNER_TEMP/etn-adversarial-B"
       - name: Publish machine-readable test evidence even on failures
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: "etn-adversarial-${{ matrix.audit }}-${{ github.run_id }}"
           path: |
-            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/result.json
+            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/*.json
             ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/*.log
           if-no-files-found: warn
           retention-days: 14
