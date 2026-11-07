@@ -5,6 +5,7 @@ package eth
 import (
     "math/big"
     "testing"
+    "strings"
 
     "github.com/electroneum/electroneum-sc/core/forkid"
     "github.com/electroneum/electroneum-sc/p2p"
@@ -36,10 +37,17 @@ func TestPeerStatusHighTDWithoutValidatorCredentials(t *testing.T) {
             defer peer.Close()
             advertised := StatusPacket{ProtocolVersion:uint32(ETH66),NetworkID:1,
                 TD:tc.offered,Head:head.Hash(),Genesis:genesis.Hash(),ForkID:fork}
-            go p2p.Send(app,StatusMsg,advertised)
+            // The full-duplex protocol pipe must consume the local status
+            // before sending the remote peer's status, or both writes block.
+            go func() {
+                msg, e := app.ReadMsg()
+                if e != nil {return}
+                msg.Discard()
+                _ = p2p.Send(app,StatusMsg,advertised)
+            }()
             err:=peer.Handshake(1,td,head.Hash(),genesis.Hash(),fork,forkid.NewFilter(backend.chain))
             if tc.accepted && err!=nil {t.Fatalf("valid public ETH status wrongly rejected: %v",err)}
-            if !tc.accepted && err==nil {t.Fatalf("oversized TD not rejected")}
+            if !tc.accepted && (err==nil || !strings.Contains(err.Error(),"too large total difficulty")) {t.Fatalf("expected TD limit rejection; got %v",err)}
             if tc.accepted {
                 gotHead, gotTD := peer.Head()
                 if gotHead!=head.Hash()||gotTD.Cmp(tc.offered)!=0 {
