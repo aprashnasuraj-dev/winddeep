@@ -27,6 +27,18 @@
         "E_FILTER_EXPIRY_POLL_BOUNDARY"
       ],
       "classification": "bounded expired-filter global mutex liveness probe; NOT vulnerability proof"
+    },
+    {
+      "id": "E-RPC-009-LOG-TOPIC-BUDGET",
+      "owner": "E",
+      "source": "reports/electroneum/E/test_log_topic_budget_test.go",
+      "target": "eth/filters/adversarial_e_log_topic_budget_test.go",
+      "package": "./eth/filters",
+      "test": "TestWorkerELogTopicBudget",
+      "markers": [
+        "E_LOG_TOPIC_GUARD"
+      ],
+      "classification": "per-position versus aggregate filter limit characterization; NOT resource exhaustion proof"
     }
   ]
 }
