@@ -16,9 +16,10 @@
         "C_AUTH_REJECT_INSUFFICIENT",
         "C_AUTH_REJECT_ALTERED_RECIPIENT",
         "C_AUTH_REJECT_ALTERED_VALUE",
-        "C_AUTH_LEDGER_ORACLE_PASS"
+        "C_AUTH_LEDGER_ORACLE_PASS",
+        "C_AUTH_EXACT_AFFORDABILITY_PASS"
       ],
-      "classification": "real signed ApplyTransaction and independent in-memory balance/nonce/burn oracle; no QBFT canonical import or remote RPC exposure"
+      "classification": "real signed ApplyTransaction, exact affordability and independent in-memory balance/nonce/burn oracle; no QBFT canonical import or remote RPC exposure"
     }
   ]
 }
