@@ -80,6 +80,33 @@ func TestWorkerCActualSpendAuthorization(t *testing.T) {
    sum:=new(big.Int).Add(st.GetBalance(owner),st.GetBalance(recipient));sum.Add(sum,st.GetBalance(other));sum.Add(sum,st.GetBalance(miner))
    if sum.Cmp(big.NewInt(initial-336000))!=0{t.Fatalf("gas burn conservation got %s",sum)}
    t.Logf("C_AUTH_LEDGER_ORACLE_PASS seed=%d ledger=%s burned=336000",seed,snapshot())
+   // Independent exact-affordability positive boundary: total funds exactly
+   // equal transfer value plus gas limit * fee cap. A one-wei excess is
+   // rejected above; this control must execute with zero owner balance.
+   boundaryState,be:=state.New(common.Hash{},state.NewDatabase(rawdb.NewMemoryDatabase()),nil)
+   if be!=nil{t.Fatal(be)}
+   boundaryState.SetBalance(owner,big.NewInt(initial))
+   boundaryHeader:=&types.Header{Number:big.NewInt(1),Difficulty:big.NewInt(1),GasLimit:1000000,BaseFee:big.NewInt(8)}
+   var boundaryUsed uint64
+   exactValue:=initial-int64(21000*10)
+   exactTx:=sign(0,1337,recipient,exactValue)
+   boundaryReceipt,be:=ApplyTransaction(cfg,nil,&miner,new(GasPool).AddGas(21000),boundaryState,boundaryHeader,exactTx,&boundaryUsed,vm.Config{})
+   if be!=nil||boundaryReceipt==nil||boundaryReceipt.Status!=types.ReceiptStatusSuccessful{
+    t.Fatalf("exact affordability rejected seed=%d receipt=%v err=%v",seed,boundaryReceipt,be)
+   }
+   if boundaryState.GetBalance(owner).Sign()!=0||
+    boundaryState.GetBalance(recipient).Cmp(big.NewInt(exactValue))!=0||
+    boundaryState.GetBalance(miner).Cmp(big.NewInt(42000))!=0||
+    boundaryState.GetNonce(owner)!=1||boundaryUsed!=21000{
+    t.Fatalf("exact affordability ledger mismatch seed=%d owner=%s recipient=%s miner=%s nonce=%d gas=%d",
+     seed,boundaryState.GetBalance(owner),boundaryState.GetBalance(recipient),
+     boundaryState.GetBalance(miner),boundaryState.GetNonce(owner),boundaryUsed)
+   }
+   boundarySum:=new(big.Int).Add(boundaryState.GetBalance(owner),boundaryState.GetBalance(recipient))
+   boundarySum.Add(boundarySum,boundaryState.GetBalance(miner))
+   if boundarySum.Cmp(big.NewInt(initial-168000))!=0{t.Fatalf("exact affordability burn mismatch seed=%d sum=%s",seed,boundarySum)}
+   t.Logf("C_AUTH_EXACT_AFFORDABILITY_PASS seed=%d recipient=%d burned=168000",seed,exactValue)
+
   })
  }
 }
