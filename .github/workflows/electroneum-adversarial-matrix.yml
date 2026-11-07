@@ -13,6 +13,8 @@ on:
     paths:
       - 'reports/electroneum/shared/adversarial_matrix.json'
       - 'reports/electroneum/shared/run_adversarial_matrix.py'
+      - 'reports/electroneum/shared/run_fresh_matrix.py'
+      - 'tests/etn/test_run_fresh_matrix.py'
       - 'reports/electroneum/shared/test_signed_sequence_test.go'
       - '.github/workflows/electroneum-adversarial-matrix.yml'
       - 'reports/electroneum/*/PROBES.json'
@@ -38,6 +40,9 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Validate evidence harness without network
+        shell: bash
+        run: python3 -m unittest discover -s tests/etn -v
       - name: Select only the class touched by a push; all on shared changes
         id: selection
         shell: bash
@@ -81,7 +86,7 @@ jobs:
     needs: plan
     name: "Class ${{ matrix.audit }}: certified synthetic adversarial regression"
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -111,10 +116,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 reports/electroneum/shared/run_adversarial_matrix.py \
+          python3 reports/electroneum/shared/run_fresh_matrix.py \
             --class "${{ matrix.audit }}" \
             --matrix reports/electroneum/shared/adversarial_matrix.json \
-            --repeat 3 \
+            --fresh-count 3 \
+            --timeout-sec 1200 \
             --output "$RUNNER_TEMP/etn-adversarial-${{ matrix.audit }}"
       - name: Distinguish certified pre-fix miner pause from official repaired behavior
         if: matrix.audit == 'B'
@@ -122,7 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 reports/electroneum/B/verify_sync_patch.py \
-            "$RUNNER_TEMP/etn-adversarial-B/scratch" \
+            "$RUNNER_TEMP/etn-adversarial-B/fresh-1/scratch" \
             "$RUNNER_TEMP/etn-adversarial-B"
       - name: Publish machine-readable test evidence even on failures
         if: always()
@@ -130,7 +136,10 @@ jobs:
         with:
           name: "etn-adversarial-${{ matrix.audit }}-${{ github.run_id }}"
           path: |
-            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/*.json
-            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/*.log
+            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/fresh-evidence.json
+            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/fresh-*/result.json
+            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/fresh-*/*.log
+            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/B-sync-*.json
+            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/B-sync-*.log
           if-no-files-found: warn
           retention-days: 14
