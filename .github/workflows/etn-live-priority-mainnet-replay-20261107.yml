@@ -1,0 +1,57 @@
+name: ETN mainnet-config priority fee-waiver bypass 3x
+on:
+  push:
+    branches: [etn-live-fivelane-priority-replay-20261107]
+    paths: [.github/workflows/etn-live-priority-mainnet-replay-20261107.yml]
+permissions:
+  contents: read
+jobs:
+  clean-room-3-replays:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Prepare independently reproducible public source fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence/PoC
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          cp reports/electroneum/independent/prio_replay_waiver_live_test.go etn-target/core/adversarial_live_priority_waiver_test.go
+          gofmt -w etn-target/core/adversarial_live_priority_waiver_test.go
+          cp etn-target/core/adversarial_live_priority_waiver_test.go evidence/PoC/adversarial_live_priority_waiver_test.go
+          echo "target=electroneum/electroneum-sc" > evidence/source_identity.txt
+          echo "commit=db0eb8792dd57304fbc66a60377c7663e1bd44d2" >> evidence/source_identity.txt
+          echo "go=1.24.0" >> evidence/source_identity.txt
+          echo "worktree_sha=${{ github.sha }}" >> evidence/source_identity.txt
+      - name: Execute both tests in three separate clean Go processes
+        working-directory: etn-target
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            echo "FRESH_PROCESS_ATTEMPT=$attempt"
+            go test ./core -run '^TestIndependentPriorityReplay' -count=1 -v 2>&1 | tee "../evidence/fresh-$attempt.log"
+          done
+          (cd ../evidence && sha256sum fresh-*.log PoC/adversarial_live_priority_waiver_test.go source_identity.txt > MANIFEST.sha256)
+      - name: Package independent raw logs and source even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "etn-priority-mainnet-${{ github.run_id }}"
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 14
