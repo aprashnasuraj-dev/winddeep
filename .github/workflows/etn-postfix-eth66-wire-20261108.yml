@@ -1,4 +1,4 @@
-name: ETN post-fix real ETH66 handshake head-only test (teardown retry)
+name: ETN post-fix real ETH66 handshake head-only test (ingress proof)
 on:
   push:
     branches: [etn-postfix-natural-timeout-20261108]
