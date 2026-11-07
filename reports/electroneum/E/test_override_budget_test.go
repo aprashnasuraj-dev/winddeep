@@ -39,6 +39,8 @@ func TestWorkerEOverrideBudgetBoundaries(t *testing.T) {
    t.Logf("E_OVERRIDE_BOUNDARY entries=%d wire_bytes=%d elapsed_ns=%d", count, len(wire), duration.Nanoseconds())
   })
  }
+ t.Run("conflict_rejection", TestWorkerEOverrideConflictingStateRejected)
+ t.Run("rejected_storage_integrity", TestWorkerEOverrideRejectedAccountNoStorageMutation)
 }
 
 func TestWorkerEOverrideConflictingStateRejected(t *testing.T) {
@@ -61,8 +63,8 @@ func TestWorkerEOverrideRejectedAccountNoStorageMutation(t *testing.T) {
  replacement := map[common.Hash]common.Hash{key: common.HexToHash("0x03")}
  override := StateOverride{addr: OverrideAccount{State: &replacement, StateDiff: &replacement}}
  if err := override.Apply(st); err == nil { t.Fatal("expected rejection") }
- t.Log("E_OVERRIDE_REJECTED_STATE_INTACT")
  if got := st.GetState(addr, key); got != original {
   t.Fatalf("rejected override changed storage: got %x expected %x", got, original)
  }
+ t.Log("E_OVERRIDE_REJECTED_STATE_INTACT")
 }
