@@ -1,5 +1,14 @@
 # Worker B — Latest
 
+## 2026-11-07 — architecture reboot: real upstream patch-gap E2 evidence (NOT P2/P3 yet)
+
+- **Finding status:** B-SYNC-PROGRESS-20261105, E2 component behavior VERIFIED; E3/E4 and real attacker reachability NOT proven. No Bugcrowd-ready report or quantified network halt.
+- **Source gap:** public upstream 3aeb14d -> db0eb879 (Nov 5 official PR #94) adds `ProgressEvent` after fetched valid chain head and defers miner pause. Pinned `syncWithPeer` posts bare `StartEvent` before `fetchHead`, while `miner.update` stops on bare StartEvent.
+- **Executed proof:** certified Actions [42317769502](https://github.com/aprashnasuraj-dev/winddeep/actions/runs/42317769502), B job 128234543061. Genuine miner baseline event-pause and FailedEvent resume 3x, and independent secure invariant FAILS with precise marker on pre-fix pinned code, then patched scratch controls PASS 3x for bare Start no-pause and verified ProgressEvent stop/resume. All other A–E shared regression lanes succeeded. Raw stdout and hashes retained as CI artifact. No public peer or actual QBFT finality tested.
+- **Evidence:** [INTERNAL detailed assessment](ASSESSMENT_2026-11-07_SYNC_PROGRESS_PATCH_GAP.md); class-owned Go fixture `test_unverified_sync_pause_test.go`, `PROBES.json`, patch oracle `verify_sync_patch.py`. New shared CI matrix and `shared/RESEARCH_ARCHITECTURE.md` are active; old class CI fuzz workflows now manual-only. Never retry local Git/DNS.
+- **Strongest counterexamples:** `nextSyncOp` minimum peers/TTD gate, real peer handshake, prompt fail/recovery, miner-to-validator role and intact quorum. Next ONE discriminator: isolated ETH high-TD peer/no-header -> actual downloader events + measured miner pause, then 4-validator signed liveness oracle. **Zero confirmed E4 P1–P3.**
+
+
 2026-11-03 17:17 NPT: [RUN_20261103_1717.md](RUN_20261103_1717.md) — committed-seal empty/oversized admission ordering mutation oracle and certified CI integration committed; execution WAITING_CI, no confirmed vulnerability. Evidence commits `234e0f60`, `1028aeaf`, `e1ab0d11`.
 
 2026-11-03 16:15 NPT: [RUN_20261103_1615.md](RUN_20261103_1615.md) — Added certified-source committed-seal pre-recovery bound regression and four mutation controls; CI outcome pending inspection. No confirmed vulnerability.
