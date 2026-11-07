@@ -1,0 +1,72 @@
+name: ETN certified adversarial matrix (A-E)
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - electroneum-sc-master-audit
+    paths:
+      - 'reports/electroneum/shared/adversarial_matrix.json'
+      - 'reports/electroneum/shared/run_adversarial_matrix.py'
+      - 'reports/electroneum/shared/test_signed_sequence_test.go'
+      - '.github/workflows/electroneum-adversarial-matrix.yml'
+      - 'reports/electroneum/A/tests/*.go'
+      - 'reports/electroneum/B/tests/*.go'
+      - 'reports/electroneum/C/test_signing_domain_test.go'
+      - 'reports/electroneum/D/test_historical_import_test.go'
+      - 'reports/electroneum/E/test_rpc_receipt_cases_test.go'
+      - 'reports/electroneum/E/test_signed_effective_fee_test.go'
+permissions:
+  contents: read
+concurrency:
+  group: etn-adversarial-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  certified-adversarial-regressions:
+    name: "Class ${{ matrix.audit }}: certified synthetic adversarial regression"
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        audit: [A, B, C, D, E]
+    steps:
+      - name: Checkout exact audit branch for pinned Git source object
+        uses: actions/checkout@v4
+        with:
+          ref: electroneum-sc-master-audit
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Materialize immutable certified Electroneum Git tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = "7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = "de7f3c75a2db7e87a89918f1257820703d5b731e"
+          test -f "$WINDEEP_ETN_SOURCE/go.mod"
+          echo "CERTIFIED_TARGET_READY class=${{ matrix.audit }} commit=$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT tree=$WINDEEP_ETN_SOURCE_TREE_SHA"
+      - name: Install pinned Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Execute class probes and hash independent controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/shared/run_adversarial_matrix.py \
+            --class "${{ matrix.audit }}" \
+            --matrix reports/electroneum/shared/adversarial_matrix.json \
+            --repeat 3 \
+            --output "$RUNNER_TEMP/etn-adversarial-${{ matrix.audit }}"
+      - name: Publish machine-readable test evidence even on failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "etn-adversarial-${{ matrix.audit }}-${{ github.run_id }}"
+          path: |
+            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/result.json
+            ${{ runner.temp }}/etn-adversarial-${{ matrix.audit }}/*.log
+          if-no-files-found: warn
+          retention-days: 14
