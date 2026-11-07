@@ -24,9 +24,11 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
             defer tester.terminate()
             chain:=testChainBase.shorten(8)
             peer:=tester.newPeer("worker-b-synthetic-eth66",eth.ETH66,chain.blocks[1:])
-            head,_:=peer.Head()
+            head,realTD:=peer.Head()
+            claimedTD:=new(big.Int).Set(realTD)
             if tc.withhold {
                 peer.withholdHeaders[head] = struct{}{}
+                claimedTD.SetInt64(999999999)
             }
             sub:=tester.downloader.mux.Subscribe(StartEvent{},DoneEvent{},FailedEvent{})
             defer sub.Unsubscribe()
@@ -34,7 +36,7 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
             // The caller supplies a claimed remote TD through the same
             // downloader API invoked by eth/chainSyncer. Here the connection
             // itself is an existing test peer, not a real p2p handshake.
-            err:=tester.sync(peer.id,big.NewInt(999999999),FullSync)
+            err:=tester.sync(peer.id,claimedTD,FullSync)
             observed:=make([]string,0,2)
             for len(observed)<2 {
                 select {
