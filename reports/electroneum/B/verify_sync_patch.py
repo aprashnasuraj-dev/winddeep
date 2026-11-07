@@ -88,8 +88,8 @@ def main() -> int:
                   "case downloader.StartEvent:\n\t\t\t\twasMining := miner.Mining()",
                   "case downloader.StartEvent:\n\t\t\t\t// Do not pause before verified head progress.\n\t\t\tcase downloader.ProgressEvent:\n\t\t\t\twasMining := miner.Mining()")
         edit_once(scratch / "eth/downloader/downloader.go",
-                  "height := latest.Number.Uint64()",
-                  "height := latest.Number.Uint64()\n\t// Verified peer head is now available; notify consensus clients.\n\td.mux.Post(ProgressEvent{})")
+                  "\theight := latest.Number.Uint64()\n\n\tvar origin uint64",
+                  "\theight := latest.Number.Uint64()\n\t// Verified peer head is now available; notify consensus clients.\n\td.mux.Post(ProgressEvent{})\n\n\tvar origin uint64")
 
         controls = '''package miner
 import (
