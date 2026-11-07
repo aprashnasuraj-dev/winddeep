@@ -17,9 +17,11 @@
         "A_IMPORT_RESTART_ORACLE name=two_block_replay",
         "A_IMPORT_RESTART_HONEST name=fee_boundary",
         "A_IMPORT_RESTART_ORACLE name=fee_boundary",
-        "A_IMPORT_RESTART_ORACLE name=fee_boundary miner_fee_delta="
+        "A_IMPORT_RESTART_ORACLE name=fee_boundary miner_fee_delta=",
+        "A_IMPORT_RESTART_SUPPLY name=zero_fee_boundary",
+        "A_IMPORT_RESTART_DEFENSE name=unsigned_rejected"
       ],
-      "classification": "signed ethash-faker InsertChain and restart ledger, including two sequential signed blocks; not QBFT consensus or reorg; independent sender+recipient conservation oracle for paid gas; two-block 2-wei gas-price boundary and restart nonce check; independent fresh empty-block chain cancels miner reward to isolate exact fee credit"
+      "classification": "signed ethash-faker InsertChain and restart ledger, including two sequential signed blocks; not QBFT consensus or reorg; independent sender+recipient conservation oracle for paid gas; two-block 2-wei gas-price boundary and restart nonce check; independent fresh empty-block chain cancels miner reward to isolate exact fee credit; zero-fee signed two-block boundary, independent observed issuance balance oracle and unsigned-signature pre-admission defense (not QBFT)"
     }
   ]
 }
