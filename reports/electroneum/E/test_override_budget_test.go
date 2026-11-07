@@ -48,6 +48,7 @@ func TestWorkerEOverrideConflictingStateRejected(t *testing.T) {
  address := common.HexToAddress("0x100")
  override := StateOverride{address: OverrideAccount{State: &entries, StateDiff: &entries}}
  if err := override.Apply(st); err == nil { t.Fatal("expected conflicting state/stateDiff rejection") }
+ t.Log("E_OVERRIDE_CONFLICT_REJECTED")
 }
 
 func TestWorkerEOverrideRejectedAccountNoStorageMutation(t *testing.T) {
@@ -60,6 +61,7 @@ func TestWorkerEOverrideRejectedAccountNoStorageMutation(t *testing.T) {
  replacement := map[common.Hash]common.Hash{key: common.HexToHash("0x03")}
  override := StateOverride{addr: OverrideAccount{State: &replacement, StateDiff: &replacement}}
  if err := override.Apply(st); err == nil { t.Fatal("expected rejection") }
+ t.Log("E_OVERRIDE_REJECTED_STATE_INTACT")
  if got := st.GetState(addr, key); got != original {
   t.Fatalf("rejected override changed storage: got %x expected %x", got, original)
  }
