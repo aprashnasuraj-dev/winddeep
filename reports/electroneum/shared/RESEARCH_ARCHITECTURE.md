@@ -23,6 +23,9 @@ Five hourly investigators A–E share **one certified immutable Electroneum sour
 
 The shared matrix is a **regression harness**, not a vulnerability finder by itself. Its coverage establishes E2 at best. Even if all tests pass three times, nothing E3/E4 is proven: no attack succeeded. This distinction is mandatory.
 
+
+**Class-owned live probe registration:** a worker can create or update `reports/electroneum/<CLASS>/PROBES.json` with `{"schema":1,"owner":"A","probes":[...]}` (replace `A` with its class). The shared runner merges up to **three active probes per class** after validating ownership and source paths, so no worker needs to modify shared infrastructure or another class to execute new tests. A `probes[]` entry requires `id`, `owner`, `source` (class-owned Go test file), `target` (scratch package's `*_test.go`), `package` (e.g. `./core`), `test` (exact `Test...` name), `markers` (observed honest/malicious control messages), and `classification` (the maximal claim allowed). Adding a class `PROBES.json` or `*_test.go` triggers the central workflow; do not treat a queued workflow as a passing test. Preserve old tests in Git; remove stale entries from the 0..3 ACTIVE list rather than cyclically rerunning them.
+
 ### Attack exploration (not repeated exhaustive fuzzing)
 
 1. **Map reachable boundary:** public version/config, real default exposure, trust boundary, attacker privileges, relevant upstream patch differential.
