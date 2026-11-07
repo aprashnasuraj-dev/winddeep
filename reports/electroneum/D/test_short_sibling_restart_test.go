@@ -53,3 +53,41 @@ func TestWorkerDShortSiblingRestartIntegrity(t *testing.T) {
   })
  }
 }
+
+
+// Invalid-root sibling must never modify canonical mappings or persisted head.
+// This is an import admission boundary, not a QBFT finality or P2P test.
+func TestWorkerDInvalidSiblingRootRestartIntegrity(t *testing.T) {
+ for _, tc := range []struct{name string; corruptReceipt bool}{
+  {"transaction_root",false},{"receipt_root",true},
+ } {
+  t.Run(tc.name,func(t *testing.T){
+   engine:=ethash.NewFaker()
+   db,bc,err:=newCanonical(engine,0,true)
+   if err!=nil {t.Fatal(err)}
+   genesis:=bc.CurrentBlock()
+   chainA:=makeBlockChain(genesis,3,engine,db,canonicalSeed)
+   sibling:=makeBlockChain(genesis,1,engine,db,forkSeed)
+   if _,err=bc.InsertChain(chainA);err!=nil{bc.Stop();t.Fatal(err)}
+   head:=chainA[2].Hash()
+   header:=sibling[0].Header()
+   if tc.corruptReceipt {header.ReceiptHash[0]^=1} else {header.TxHash[0]^=1}
+   invalid:=types.NewBlockWithHeader(header).WithBody(sibling[0].Transactions(),sibling[0].Uncles())
+   if _,err=bc.InsertChain(types.Blocks{invalid});err==nil{bc.Stop();t.Fatal("invalid sibling root admitted")}
+   t.Logf("D_INVALID_SIBLING_ROOT_REJECTED case=%s error=%v",tc.name,err)
+   for height:=uint64(1);height<=3;height++{
+    if got:=rawdb.ReadCanonicalHash(db,height);got!=chainA[height-1].Hash(){bc.Stop();t.Fatalf("canonical drift height=%d",height)}
+   }
+   if rawdb.ReadHeadBlockHash(db)!=head || rawdb.ReadHeadHeaderHash(db)!=head {bc.Stop();t.Fatal("persisted head drift before restart")}
+   bc.Stop()
+   reopened,err:=NewBlockChain(db,nil,params.AllEthashProtocolChanges,ethash.NewFaker(),vm.Config{},nil,nil)
+   if err!=nil{t.Fatal(err)}
+   defer reopened.Stop()
+   if reopened.CurrentBlock().Hash()!=head || rawdb.ReadHeadBlockHash(db)!=head || rawdb.ReadHeadHeaderHash(db)!=head {t.Fatal("restart head drift")}
+   for height:=uint64(1);height<=3;height++{
+    if rawdb.ReadCanonicalHash(db,height)!=chainA[height-1].Hash(){t.Fatalf("restart canonical drift height=%d",height)}
+   }
+   t.Logf("D_INVALID_SIBLING_RESTART_ORACLE_OK case=%s",tc.name)
+  })
+ }
+}
