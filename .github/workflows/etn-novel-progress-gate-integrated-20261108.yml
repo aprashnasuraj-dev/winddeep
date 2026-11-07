@@ -1,0 +1,54 @@
+name: ETN post-fix integrated downloader-to-miner security experiment
+on:
+  push:
+    branches: [etn-novel-progress-gate-20261108]
+    paths: [.github/workflows/etn-novel-progress-gate-integrated-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  full-signal-chain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Verify upstream and stage direct miner integration probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/current_upstream_integrated_miner_gate_test.go etn-target/miner/adversarial_integrated_postfix_test.go
+          gofmt -w etn-target/miner/adversarial_integrated_postfix_test.go
+          cp etn-target/miner/adversarial_integrated_postfix_test.go evidence/PoC/
+          echo "target=db0eb8792dd57304fbc66a60377c7663e1bd44d2" > evidence/identity.txt
+          echo "worktree=${{ github.sha }}" >> evidence/identity.txt
+          echo "no_public_p2p_traffic=true" >> evidence/identity.txt
+      - name: Repeat real integrated miner stop and guard controls
+        shell: bash
+        working-directory: etn-target
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            go test ./miner -run '^TestIndependentCurrentUpstreamHeadOnlyCausesActualMinerPause$' -count=1 -v 2>&1 | tee "../evidence/integrated-$n.log"
+          done
+          (cd ../evidence && sha256sum integrated-*.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-postfix-integrated-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
