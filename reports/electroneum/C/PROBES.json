@@ -23,20 +23,6 @@
       "classification": "real signed ApplyTransaction with funded alternate-signer isolation, exact affordability and independent balance/nonce/burn oracle; no canonical QBFT import or remote RPC exposure"
     },
     {
-      "id": "C-rpc-namespace-isolation",
-      "owner": "C",
-      "source": "reports/electroneum/C/test_rpc_namespace_isolation_test.go",
-      "target": "rpc/adversarial_worker_c_rpc_namespace_test.go",
-      "package": "./rpc",
-      "test": "TestWorkerCRPCNamespaceIsolation",
-      "markers": [
-        "C_RPC_PUBLIC_SIGNER_REJECTED",
-        "C_RPC_PRIVILEGED_CONTROL",
-        "C_RPC_CROSS_SERVER_ISOLATION"
-      ],
-      "classification": "synthetic native RPC HTTP namespace-isolation control; NOT default production exposure or unauthorized signing"
-    },
-    {
       "id": "C-rpc-batch-namespace-boundary",
       "owner": "C",
       "source": "reports/electroneum/C/test_rpc_namespace_isolation_test.go",
