@@ -14,6 +14,19 @@
         "B_FAILURE_RECOVERED_MINER"
       ],
       "classification": "component E2: real Miner stops on unverified StartEvent; peer-trigger reachability, validator finality and severity are unverified"
+    },
+    {
+      "id": "B-peer-withheld-head-lifecycle",
+      "owner": "B",
+      "source": "reports/electroneum/B/test_peer_withheld_head_test.go",
+      "target": "eth/downloader/adversarial_worker_b_peer_header_test.go",
+      "package": "./eth/downloader",
+      "test": "TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart",
+      "markers": [
+        "B_WITHHELD_HEAD_TRIGGERED_START_BEFORE_FAILURE",
+        "B_HONEST_PEER_COMPLETED_SYNC"
+      ],
+      "classification": "real downloader + synthetic ETH66 serving/withholding peer; actual network handshake and IBFT liveness not established"
     }
   ]
 }
