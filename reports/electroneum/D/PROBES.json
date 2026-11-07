@@ -12,9 +12,11 @@
       "markers": [
         "D_BRANCH_A_ACCEPTED",
         "D_SHORT_SIBLING_NONCANONICAL",
-        "D_RESTART_CANONICAL_ORACLE_OK"
+        "D_RESTART_CANONICAL_ORACLE_OK",
+        "D_PERSISTED_HEAD_POINTERS_OK",
+        "D_RESTART_HEAD_POINTERS_OK"
       ],
-      "classification": "real InsertChain, fork-choice and persistent rawdb canonical-map oracle with valid shorter sibling; fake PoW; NOT QBFT finality or peer reachability"
+      "classification": "real InsertChain, fork-choice and persistent rawdb canonical-map oracle with valid shorter sibling; fake PoW; NOT QBFT finality or peer reachability; rawdb persisted head block/header pointers checked before and after restart"
     }
   ]
 }
