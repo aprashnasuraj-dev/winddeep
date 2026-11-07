@@ -33,7 +33,6 @@ def execute(scratch: Path, path: Path, regex: str, count: int) -> tuple[int, str
     command = ["go", "test", f"-count={count}", "-timeout=6m", "-run", regex, "-v", "./miner"]
     try:
         completed = subprocess.run(command, cwd=scratch, capture_output=True,
-                                   stderr=subprocess.STDOUT if False else subprocess.PIPE,
                                    text=True, timeout=450)
         content = completed.stdout + "\n" + completed.stderr
         exit_code = completed.returncode
