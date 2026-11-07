@@ -1,8 +1,10 @@
 name: ETN upstream PR94 boundary revalidation
 on:
   push:
-    branches: [etn-on-demand-independent-20261107-1324npt]
-    paths: [.github/workflows/etn-patched-boundary-20261107.yml]
+    branches:
+      - etn-on-demand-independent-20261107-1324npt
+    paths:
+      - .github/workflows/etn-patched-boundary-20261107.yml
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,33 +13,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
-      - name: Checkout isolated audit test only
+      - name: Checkout isolated tests
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           path: audit
           persist-credentials: false
-      - name: Checkout patched PUBLIC upstream exact commit
+      - name: Checkout official patched upstream source
         uses: actions/checkout@v4
         with:
           repository: electroneum/electroneum-sc
           ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
           path: official
           persist-credentials: false
-      - name: Verify upstream and copy standalone test
+      - name: Verify exact upstream and install two isolated tests
         shell: bash
         run: |
           set -euo pipefail
           test "$(git -C official rev-parse HEAD)" = "db0eb8792dd57304fbc66a60377c7663e1bd44d2"
           cp audit/reports/electroneum/B/tests/test_patched_progress_ancestor_test.go official/eth/downloader/independent_proof_gap_test.go
           cp audit/reports/electroneum/B/tests/test_patched_miner_progress_pause_test.go official/miner/independent_progress_pause_test.go
-          echo "PR94_UPSTREAM=db0eb8792dd57304fbc66a60377c7663e1bd44d2"
-          sha256sum official/eth/downloader/independent_proof_gap_test.go
+          sha256sum official/eth/downloader/independent_proof_gap_test.go official/miner/independent_progress_pause_test.go
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24.0'
           cache: false
-      - name: Run clean upstream regression controls and bounded adversarial attempt
+      - name: Run fresh adversarial downloader and real miner behavior
         shell: bash
         working-directory: official
         run: |
@@ -45,39 +46,17 @@ jobs:
           mkdir -p ../evidence
           for n in 1 2 3; do
             echo "FRESH_STATE=$n" | tee -a ../evidence/summary.log
-            GOMAXPROCS=2 go test ./eth/downloader -run '^TestPatchedProgressIsBeforeAncestorValidation$' -count=1 -v -timeout 90s 2>&1 | tee "../evidence/attempt-${n}.log"
-            echo "ATTEMPT_${n}_RESULT=PASS" | tee -a ../evidence/summary.log
+            GOMAXPROCS=2 go test ./eth/downloader -run '^TestPatchedProgressIsBeforeAncestorValidation$' -count=1 -v -timeout 90s 2>&1 | tee "../evidence/downloader-$n.log"
+            GOMAXPROCS=2 go test ./miner -run '^TestPatchedMinerPausesForHeadOnlyUnverifiedProgress$' -count=1 -v -timeout 90s 2>&1 | tee "../evidence/miner-$n.log"
+            echo "ATTEMPT_$n=PASS" | tee -a ../evidence/summary.log
           done
-          go test ./miner -run '^TestMinerBareStartEventDoesNotStop
+          go test ./miner -run '^TestMinerBareStartEventDoesNotStop$' -count=1 -v -timeout 90s 2>&1 | tee ../evidence/official-miner-control.log
           sha256sum ../evidence/*.log | tee ../evidence/SHA256SUMS
-      - name: Preserve evidence whether pass or fail
+      - name: Upload raw evidence on success or failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: etn-pr94-gap-${{ github.run_id }}
-          path: evidence/
-          retention-days: 14
-          if-no-files-found: warn
- -count=1 -v -timeout 90s 2>&1 | tee ../evidence/miner-patched-control.log
-          for n in 1 2 3; do
-            GOMAXPROCS=2 go test ./miner -run '^TestPatchedMinerPausesForHeadOnlyUnverifiedProgress
-          sha256sum ../evidence/*.log | tee ../evidence/SHA256SUMS
-      - name: Preserve evidence whether pass or fail
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: etn-pr94-gap-${{ github.run_id }}
-          path: evidence/
-          retention-days: 14
-          if-no-files-found: warn
- -count=1 -v -timeout 90s 2>&1 | tee "../evidence/miner-pause-\${n}.log"
-          done
-          sha256sum ../evidence/*.log | tee ../evidence/SHA256SUMS
-      - name: Preserve evidence whether pass or fail
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: etn-pr94-gap-${{ github.run_id }}
+          name: etn-pr94-miner-path-${{ github.run_id }}
           path: evidence/
           retention-days: 14
           if-no-files-found: warn
