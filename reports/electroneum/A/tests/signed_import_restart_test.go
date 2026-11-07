@@ -53,6 +53,23 @@ func TestWorkerASignedImportRestartLedger(t *testing.T) {
    expectedPair:=new(big.Int).Sub(new(big.Int).Set(start),gasSpent)
    if pairTotal.Cmp(expectedPair)!=0 {t.Fatalf("independent pair conservation mismatch got=%s expected=%s",pairTotal,expectedPair)}
    if variation.include && st.GetBalance(miner).Cmp(gasSpent)<0 {t.Fatalf("miner below paid gas: got=%s minimum=%s",st.GetBalance(miner),gasSpent)}
+   // Independent differential oracle: compare the fee recipient with a fresh
+   // canonical empty-block sequence of identical length and consensus settings.
+   // This cancels ordinary block rewards rather than assuming their magnitude.
+   controlDB:=rawdb.NewMemoryDatabase()
+   controlGenesis:=genesisSpec.MustCommit(controlDB)
+   controlBlocks,_:=GenerateChain(cfg,controlGenesis,ethash.NewFaker(),controlDB,variation.blocks,func(_ int,g *BlockGen){g.SetCoinbase(miner)})
+   controlChain,controlErr:=NewBlockChain(controlDB,nil,cfg,ethash.NewFaker(),vm.Config{},nil,nil)
+   if controlErr!=nil {t.Fatal(controlErr)}
+   controlIndex,controlErr:=controlChain.InsertChain(controlBlocks)
+   if controlErr!=nil {controlChain.Stop();t.Fatalf("empty control insert %d: %v",controlIndex,controlErr)}
+   controlState,controlErr:=controlChain.State()
+   if controlErr!=nil {controlChain.Stop();t.Fatal(controlErr)}
+   minerFeeDelta:=new(big.Int).Sub(new(big.Int).Set(st.GetBalance(miner)),controlState.GetBalance(miner))
+   controlChain.Stop()
+   if minerFeeDelta.Cmp(gasSpent)!=0 {t.Fatalf("miner fee differential mismatch got=%s expected=%s",minerFeeDelta,gasSpent)}
+   t.Logf("A_IMPORT_RESTART_ORACLE name=%s miner_fee_delta=%s empty_block_control=true",variation.name,minerFeeDelta)
+
    t.Logf("A_IMPORT_RESTART_ORACLE name=%s pair=%s gas=%s",variation.name,pairTotal,gasSpent)
    if st.GetNonce(sender)!=func()uint64{if variation.include{return uint64(variation.blocks)};return 0}(){t.Fatal("nonce mismatch")}
    preSender:=new(big.Int).Set(st.GetBalance(sender))
