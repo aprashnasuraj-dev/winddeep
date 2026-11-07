@@ -32,6 +32,21 @@
         "B_HONEST_PEER_HEAD_MATCH"
       ],
       "classification": "certified downloader ETH66 offline: compare exact canonical peer head after honest sync and after withheld-head failure/recovery; validator liveness and production ingress unverified"
+    },
+    {
+      "id": "B-single-validator-equivocation",
+      "owner": "B",
+      "source": "reports/electroneum/B/tests/test_single_validator_equivocation_test.go",
+      "target": "consensus/istanbul/engine/adversarial_worker_b_equivocation_test.go",
+      "package": "./consensus/istanbul/engine",
+      "test": "TestWorkerBSingleValidatorEquivocationIsolation",
+      "markers": [
+        "B_EQUIVOCATION_HONEST_QUORUM",
+        "B_EQUIVOCATION_SINGLE_SIGNER_REJECTED",
+        "B_EQUIVOCATION_DUPLICATE_REJECTED",
+        "B_EQUIVOCATION_CROSS_HEADER_REJECTED"
+      ],
+      "classification": "signed certified QBFT engine 4-validator equivocation/quorum component check; not full consensus network or default external ingress"
     }
   ]
 }
