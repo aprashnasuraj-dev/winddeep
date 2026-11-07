@@ -1,0 +1,59 @@
+name: ETN post-fix head-only natural timeout liveness test
+on:
+  push:
+    branches: [etn-postfix-natural-timeout-20261108]
+    paths: [.github/workflows/etn-postfix-natural-timeout-20261108.yml]
+permissions:
+  contents: read
+concurrency:
+  group: etn-postfix-natural-20261108-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  natural-timeout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Pin target and stage 2 independent miner fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/current_upstream_integrated_miner_gate_test.go etn-target/miner/adversarial_integrated_postfix_test.go
+          cp reports/electroneum/B/tests/current_upstream_postfix_natural_hold_test.go etn-target/miner/adversarial_postfix_natural_hold_test.go
+          gofmt -w etn-target/miner/adversarial_integrated_postfix_test.go etn-target/miner/adversarial_postfix_natural_hold_test.go
+          cp etn-target/miner/adversarial_*postfix*test.go evidence/PoC/
+          echo 'target_sha=db0eb8792dd57304fbc66a60377c7663e1bd44d2' > evidence/identity.txt
+          echo 'runner_sha=${{ github.sha }}' >> evidence/identity.txt
+          echo 'ordinary_peer_directly_registered_in_synthetic_test=true' >> evidence/identity.txt
+          echo 'no_public_network_traffic=true' >> evidence/identity.txt
+      - name: Three independent real source processes (natural timeout and guards)
+        shell: bash
+        working-directory: etn-target
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            go test ./miner -run '^TestIndependent(PostFixNaturalMinerPauseDuration|CurrentUpstreamHeadOnlyCausesActualMinerPause)$' -count=1 -v -timeout=130s 2>&1 | tee "../evidence/natural-$n.log"
+          done
+          (cd ../evidence && sha256sum natural-*.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-postfix-natural-timeout-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
