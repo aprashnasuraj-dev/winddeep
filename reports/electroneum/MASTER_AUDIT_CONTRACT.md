@@ -1,5 +1,8 @@
 # Electroneum A–E Continuous Audit — Master Contract
 
+> **2026-11-07 operational architecture supersession:** `reports/electroneum/shared/RESEARCH_ARCHITECTURE.md` and `shared/adversarial_matrix.json` define the five coordinated synthetic adversarial research lanes. Any earlier instruction below to run local Git or bootstrap inside an hourly worker is superseded: workers use the authorized GitHub connector; only CI Actions runners execute `tools/electroneum_target_bootstrap.sh`, git checkout, and actual target Go tests. Preserve all existing immutable source certification, security boundaries, provenance, and reporting requirements. Old per-class fuzz campaigns are manual-only; shared adversarial gate is the automatic regression path. A clean regression PASS never constitutes a confirmed vulnerability. Real E4 P1–P3 proof still requires production-reachable attacker input, invariant breach, three independent fresh-state reproductions, and independently reproducible public-source steps.
+
+
 ## Canonical target and workspace
 
 - Audit framework repository: `aprashnasuraj-dev/winddeep`
