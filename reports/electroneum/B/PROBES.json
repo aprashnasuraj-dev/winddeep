@@ -27,9 +27,11 @@
         "B_HONEST_PEER_COMPLETED_SYNC",
         "B_WITHHELD_HEAD_NO_CANONICAL_PROGRESS",
         "B_HONEST_PEER_CANONICAL_PROGRESS",
-        "B_WITHHELD_HEAD_HONEST_RECOVERY"
+        "B_WITHHELD_HEAD_HONEST_RECOVERY",
+        "B_WITHHELD_HEAD_RECOVERY_HEAD_MATCH",
+        "B_HONEST_PEER_HEAD_MATCH"
       ],
-      "classification": "certified downloader synthetic ETH66: failed withheld-header sync, canonical height oracle and subsequent honest-peer recovery; live peer ingress and QBFT validator finality not established"
+      "classification": "certified downloader ETH66 offline: compare exact canonical peer head after honest sync and after withheld-head failure/recovery; validator liveness and production ingress unverified"
     }
   ]
 }
