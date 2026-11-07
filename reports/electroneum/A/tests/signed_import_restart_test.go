@@ -22,8 +22,8 @@ func TestWorkerASignedImportRestartLedger(t *testing.T) {
  miner:=common.Address{0xa2}
  start:=big.NewInt(1000000000)
  cfg:=&params.ChainConfig{HomesteadBlock:big.NewInt(0)}
- for _,variation:=range []struct{name string; amount int64; include bool; blocks int}{
-  {"honest",7,true,1},{"boundary_zero",0,true,1},{"empty_control",0,false,1},{"two_block_replay",7,true,2},
+ for _,variation:=range []struct{name string; amount int64; gasPrice int64; include bool; blocks int}{
+  {"honest",7,1,true,1},{"boundary_zero",0,1,true,1},{"empty_control",0,1,false,1},{"two_block_replay",7,1,true,2},{"fee_boundary",7,2,true,2},
  } {
   t.Run(variation.name,func(t *testing.T){
    db:=rawdb.NewMemoryDatabase()
@@ -33,7 +33,7 @@ func TestWorkerASignedImportRestartLedger(t *testing.T) {
    blocks,_:=GenerateChain(cfg,genesis,engine,db,variation.blocks,func(i int,g *BlockGen){
     g.SetCoinbase(miner)
     if variation.include {
-     tx:=types.NewTransaction(uint64(i),recipient,big.NewInt(variation.amount),params.TxGas,big.NewInt(1),nil)
+     tx:=types.NewTransaction(uint64(i),recipient,big.NewInt(variation.amount),params.TxGas,big.NewInt(variation.gasPrice),nil)
      signed,e:=types.SignTx(tx,types.HomesteadSigner{},key);if e!=nil{t.Fatal(e)}
      g.AddTx(signed)
     }
@@ -42,14 +42,14 @@ func TestWorkerASignedImportRestartLedger(t *testing.T) {
    index,e:=chain.InsertChain(blocks);if e!=nil{t.Fatalf("insert %d: %v",index,e)}
    st,e:=chain.State();if e!=nil{t.Fatal(e)}
    expectedSender:=new(big.Int).Set(start)
-   if variation.include {expectedSender.Sub(expectedSender,big.NewInt(int64(variation.blocks)*(variation.amount+21000)))}
+   if variation.include {expectedSender.Sub(expectedSender,big.NewInt(int64(variation.blocks)*(variation.amount+21000*variation.gasPrice)))}
    if st.GetBalance(sender).Cmp(expectedSender)!=0 {t.Fatalf("sender mismatch got=%s expected=%s",st.GetBalance(sender),expectedSender)}
    if st.GetBalance(recipient).Cmp(big.NewInt(int64(variation.blocks)*variation.amount))!=0 {t.Fatalf("recipient mismatch %s",st.GetBalance(recipient))}
    // Independent conservation oracle: the sender/recipient pair must lose only
    // the transaction gas; the recipient may never gain unbacked spendable wei.
    pairTotal:=new(big.Int).Add(new(big.Int).Set(st.GetBalance(sender)),st.GetBalance(recipient))
    gasSpent:=big.NewInt(0)
-   if variation.include {gasSpent.Mul(big.NewInt(int64(variation.blocks)),big.NewInt(21000))}
+   if variation.include {gasSpent.Mul(big.NewInt(int64(variation.blocks)),big.NewInt(21000*variation.gasPrice))}
    expectedPair:=new(big.Int).Sub(new(big.Int).Set(start),gasSpent)
    if pairTotal.Cmp(expectedPair)!=0 {t.Fatalf("independent pair conservation mismatch got=%s expected=%s",pairTotal,expectedPair)}
    if variation.include && st.GetBalance(miner).Cmp(gasSpent)<0 {t.Fatalf("miner below paid gas: got=%s minimum=%s",st.GetBalance(miner),gasSpent)}
@@ -63,6 +63,7 @@ func TestWorkerASignedImportRestartLedger(t *testing.T) {
    defer reopened.Stop()
    if reopened.CurrentBlock().Hash()!=blocks[len(blocks)-1].Hash(){t.Fatal("canonical head changed on restart")}
    after,e:=reopened.State();if e!=nil{t.Fatal(e)}
+   if after.GetNonce(sender)!=st.GetNonce(sender) {t.Fatal("restart changed sender nonce")}
    if after.GetBalance(sender).Cmp(preSender)!=0 || after.GetBalance(recipient).Cmp(preRecipient)!=0 || after.GetBalance(miner).Cmp(preMiner)!=0 {t.Fatal("restart changed spendable ledger")}
    t.Logf("A_IMPORT_RESTART_HONEST name=%s sender=%s recipient=%s miner=%s blocks=%d",variation.name,preSender,preRecipient,preMiner,variation.blocks)
   })
