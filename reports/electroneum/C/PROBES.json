@@ -35,6 +35,19 @@
         "C_RPC_CROSS_SERVER_ISOLATION"
       ],
       "classification": "synthetic native RPC HTTP namespace-isolation control; NOT default production exposure or unauthorized signing"
+    },
+    {
+      "id": "C-rpc-batch-namespace-boundary",
+      "owner": "C",
+      "source": "reports/electroneum/C/test_rpc_namespace_isolation_test.go",
+      "target": "rpc/adversarial_worker_c_rpc_batch_namespace_test.go",
+      "package": "./rpc",
+      "test": "TestWorkerCRPCBatchNamespaceBoundary",
+      "markers": [
+        "C_RPC_BATCH_SIGNER_REJECTED",
+        "C_RPC_BATCH_PRIVILEGED_CONTROL"
+      ],
+      "classification": "native RPC mixed-batch namespace dispatch adversarial test; synthetic separate servers, not evidence of shipped-default signing exposure"
     }
   ]
 }
