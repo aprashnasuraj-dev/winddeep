@@ -14,9 +14,11 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
     cases := []struct {
         name     string
         withhold bool
+        inflateTD bool
     }{
-        {"honest_peer_control", false},
-        {"nonserving_head_peer", true},
+        {"honest_peer_control", false, false},
+        {"withheld_head_real_td", true, false},
+        {"withheld_head_inflated_td", true, true},
     }
     for _, tc := range cases {
         t.Run(tc.name, func(t *testing.T) {
@@ -31,7 +33,9 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
             claimedTD := new(big.Int).Set(realTD)
             if tc.withhold {
                 peer.withholdHeaders[head] = struct{}{}
-                claimedTD.SetInt64(999999999)
+                if tc.inflateTD {
+                    claimedTD.SetInt64(999999999)
+                }
             }
 
             sub := tester.downloader.mux.Subscribe(StartEvent{}, DoneEvent{}, FailedEvent{})
@@ -85,8 +89,8 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
                 if err == nil || observed[1] != "FAILED" {
                     t.Fatalf("withholding peer unexpectedly admitted: err=%v events=%v", err, observed)
                 }
-                t.Logf("B_WITHHELD_HEAD_TRIGGERED_START_BEFORE_FAILURE duration_ms=%d err=%v",
-                    time.Since(started).Milliseconds(), err)
+                t.Logf("B_WITHHELD_HEAD_TRIGGERED_START_BEFORE_FAILURE case=%s inflated_td=%t duration_ms=%d err=%v",
+                    tc.name, tc.inflateTD, time.Since(started).Milliseconds(), err)
             } else {
                 if err != nil || observed[1] != "DONE" {
                     t.Fatalf("honest peer failed: err=%v events=%v", err, observed)
