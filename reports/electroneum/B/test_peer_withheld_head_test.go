@@ -86,6 +86,7 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
                 t.Fatalf("missing unverified downloader StartEvent: %v", observed)
             }
 
+            failureOrCompletionMs := time.Since(started).Milliseconds()
             finalHeight := tester.chain.CurrentBlock().NumberU64()
             if tc.withhold {
                 if finalHeight != initialHeight {
@@ -100,6 +101,7 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
                 // Recovery counterexample: after the malicious peer fails, a new
                 // honest peer must still permit this downloader to advance.
                 // This is a local downloader recovery oracle, not QBFT finality.
+                recoveryStarted := time.Now()
                 recoveryPeer := tester.newPeer("worker-b-recovery-peer", eth.ETH66, chain.blocks[1:])
                 _, recoveryTD := recoveryPeer.Head()
                 recoveryResult := make(chan error, 1)
@@ -140,7 +142,7 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
                 if recoveryErr != nil || recoveryEvents[0] != "START" || recoveryEvents[1] != "DONE" || recoveredHeight <= finalHeight {
                     t.Fatalf("honest recovery failed: err=%v events=%v height=%d previous=%d", recoveryErr, recoveryEvents, recoveredHeight, finalHeight)
                 }
-                t.Logf("B_WITHHELD_HEAD_HONEST_RECOVERY case=%s from=%d to=%d", tc.name, finalHeight, recoveredHeight)
+                t.Logf("B_WITHHELD_HEAD_HONEST_RECOVERY case=%s from=%d to=%d failure_ms=%d recovery_ms=%d", tc.name, finalHeight, recoveredHeight, failureOrCompletionMs, time.Since(recoveryStarted).Milliseconds())
             } else {
                 if finalHeight <= initialHeight {
                     t.Fatalf("honest peer completed without canonical height progress: initial=%d final=%d", initialHeight, finalHeight)
@@ -149,7 +151,7 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
                 if err != nil || observed[1] != "DONE" {
                     t.Fatalf("honest peer failed: err=%v events=%v", err, observed)
                 }
-                t.Log("B_HONEST_PEER_COMPLETED_SYNC")
+                t.Logf("B_HONEST_PEER_COMPLETED_SYNC duration_ms=%d", failureOrCompletionMs)
             }
         })
     }
