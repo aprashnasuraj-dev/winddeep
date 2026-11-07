@@ -154,6 +154,22 @@ def main() -> int:
     }
     try:
         matrix = json.loads(contained(repo, args.matrix).read_text(encoding="utf-8"))
+        # Each scheduled worker may register up to three ACTIVE new probes
+        # in its own class-owned manifest; no concurrent shared-file writes.
+        extension_path = contained(repo, f"reports/electroneum/{args.owner}/PROBES.json")
+        if extension_path.exists():
+            extension = json.loads(extension_path.read_text(encoding="utf-8"))
+            if extension.get("schema") != 1 or extension.get("owner") != args.owner:
+                raise ValueError(f"invalid owner/schema in {extension_path}")
+            extra = extension.get("probes", [])
+            if not isinstance(extra, list) or len(extra) > 3:
+                raise ValueError("class probe extension requires 0..3 bounded active probes")
+            for probe in extra:
+                if probe.get("owner") != args.owner or not probe.get("source", "").startswith(
+                    f"reports/electroneum/{args.owner}/"
+                ):
+                    raise ValueError("class-owned probe cannot read or overwrite peer fixtures")
+            matrix["probes"].extend(extra)
         validate_matrix(matrix, repo)
         validate_identity(matrix)
         run["certified_source_commit"] = matrix["source"]["certified_commit"]
