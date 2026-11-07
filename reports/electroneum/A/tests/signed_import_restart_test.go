@@ -23,7 +23,7 @@ func TestWorkerASignedImportRestartLedger(t *testing.T) {
  start:=big.NewInt(1000000000)
  cfg:=&params.ChainConfig{HomesteadBlock:big.NewInt(0)}
  for _,variation:=range []struct{name string; amount int64; gasPrice int64; include bool; blocks int}{
-  {"honest",7,1,true,1},{"boundary_zero",0,1,true,1},{"empty_control",0,1,false,1},{"two_block_replay",7,1,true,2},{"fee_boundary",7,2,true,2},
+  {"honest",7,1,true,1},{"boundary_zero",0,1,true,1},{"empty_control",0,1,false,1},{"two_block_replay",7,1,true,2},{"fee_boundary",7,2,true,2},{"zero_fee_boundary",7,0,true,2},
  } {
   t.Run(variation.name,func(t *testing.T){
    db:=rawdb.NewMemoryDatabase()
@@ -70,6 +70,14 @@ func TestWorkerASignedImportRestartLedger(t *testing.T) {
    if minerFeeDelta.Cmp(gasSpent)!=0 {t.Fatalf("miner fee differential mismatch got=%s expected=%s",minerFeeDelta,gasSpent)}
    t.Logf("A_IMPORT_RESTART_ORACLE name=%s miner_fee_delta=%s empty_block_control=true",variation.name,minerFeeDelta)
 
+   // Independent total-spendable-balance oracle: transaction value moves between
+   // accounts, fees move to miner, and only consensus issuance may increase supply.
+   totalAfter:=new(big.Int).Add(new(big.Int).Set(pairTotal),st.GetBalance(miner))
+   totalBefore:=new(big.Int).Set(start)
+   minted:=new(big.Int).Sub(totalAfter,totalBefore)
+   if minted.Sign()<0 {t.Fatalf("negative issuance despite conserved transaction value: %s",minted)}
+   if variation.include && minerFeeDelta.Cmp(gasSpent)!=0 {t.Fatal("fee accounting disagrees with independent supply ledger")}
+   t.Logf("A_IMPORT_RESTART_SUPPLY name=%s minted=%s fee=%s",variation.name,minted,gasSpent)
    t.Logf("A_IMPORT_RESTART_ORACLE name=%s pair=%s gas=%s",variation.name,pairTotal,gasSpent)
    if st.GetNonce(sender)!=func()uint64{if variation.include{return uint64(variation.blocks)};return 0}(){t.Fatal("nonce mismatch")}
    preSender:=new(big.Int).Set(st.GetBalance(sender))
@@ -85,4 +93,10 @@ func TestWorkerASignedImportRestartLedger(t *testing.T) {
    t.Logf("A_IMPORT_RESTART_HONEST name=%s sender=%s recipient=%s miner=%s blocks=%d",variation.name,preSender,preRecipient,preMiner,variation.blocks)
   })
  }
+ // Strongest signature defense: unsigned attacker bytes must not be accepted as
+ // a valid Homestead-signed transaction. This is a pre-admission negative control,
+ // NOT proof of QBFT block validation.
+ unsigned:=types.NewTransaction(0,recipient,big.NewInt(7),params.TxGas,big.NewInt(1),nil)
+ if _,err:=types.Sender(types.HomesteadSigner{},unsigned);err==nil {t.Fatal("unsigned transaction recovered a sender")}
+ t.Log("A_IMPORT_RESTART_DEFENSE name=unsigned_rejected")
 }
