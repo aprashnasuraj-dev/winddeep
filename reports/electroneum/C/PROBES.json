@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "owner": "C",
+  "probes": [
+    {
+      "id": "C-actual-spend-auth",
+      "owner": "C",
+      "source": "reports/electroneum/C/test_actual_spend_authorization_test.go",
+      "target": "core/adversarial_worker_c_spend_auth_test.go",
+      "package": "./core",
+      "test": "TestWorkerCActualSpendAuthorization",
+      "markers": [
+        "C_AUTH_HONEST_ACCEPTED",
+        "C_AUTH_REJECT_DUPLICATE_NONCE",
+        "C_AUTH_REJECT_CROSS_CHAIN",
+        "C_AUTH_REJECT_INSUFFICIENT",
+        "C_AUTH_REJECT_ALTERED_RECIPIENT",
+        "C_AUTH_REJECT_ALTERED_VALUE",
+        "C_AUTH_LEDGER_ORACLE_PASS"
+      ],
+      "classification": "real signed ApplyTransaction and independent in-memory balance/nonce/burn oracle; no QBFT canonical import or remote RPC exposure"
+    }
+  ]
+}
