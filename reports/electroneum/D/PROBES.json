@@ -17,6 +17,19 @@
         "D_RESTART_HEAD_POINTERS_OK"
       ],
       "classification": "real InsertChain, fork-choice and persistent rawdb canonical-map oracle with valid shorter sibling; fake PoW; NOT QBFT finality or peer reachability; rawdb persisted head block/header pointers checked before and after restart"
+    },
+    {
+      "id": "D-invalid-sibling-root-restart",
+      "owner": "D",
+      "source": "reports/electroneum/D/test_short_sibling_restart_test.go",
+      "target": "core/adversarial_worker_d_invalid_sibling_test.go",
+      "package": "./core",
+      "test": "TestWorkerDInvalidSiblingRootRestartIntegrity",
+      "markers": [
+        "D_INVALID_SIBLING_ROOT_REJECTED",
+        "D_INVALID_SIBLING_RESTART_ORACLE_OK"
+      ],
+      "classification": "real InsertChain invalid sibling tx/receipt root rejection, canonical rawdb/head persistence before/after restart; synthetic faker, NOT QBFT finality or peer reachability"
     }
   ]
 }
