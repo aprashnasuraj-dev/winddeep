@@ -1,0 +1,55 @@
+name: ETN post-fix real ETH66 handshake head-only test
+on:
+  push:
+    branches: [etn-postfix-natural-timeout-20261108]
+    paths: [.github/workflows/etn-postfix-eth66-wire-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  bounded-wire-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Verify immutable official target and stage independent protocol test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/current_upstream_eth66_wire_headonly_test.go etn-target/eth/adversarial_postfix_wire_test.go
+          gofmt -w etn-target/eth/adversarial_postfix_wire_test.go
+          cp etn-target/eth/adversarial_postfix_wire_test.go evidence/PoC/
+          echo 'target=db0eb8792dd57304fbc66a60377c7663e1bd44d2' > evidence/identity.txt
+          echo 'run=${{ github.run_id }} sha=${{ github.sha }}' >> evidence/identity.txt
+          echo 'wire=local_Eth66_MsgPipe_with_real_status_handshake' >> evidence/identity.txt
+          echo 'full_p2p_tcp_and_qbft=false' >> evidence/identity.txt
+      - name: Three independent genuine wire-protocol attempts
+        shell: bash
+        working-directory: etn-target
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            go test ./eth -run '^TestIndependentPostFixRealEth66HeadOnlyProtocol$' -count=1 -v -timeout=45s 2>&1 | tee "../evidence/wire-$n.log"
+          done
+          (cd ../evidence && sha256sum wire-*.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-postfix-eth66-wire-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
