@@ -30,6 +30,7 @@ jobs:
           set -euo pipefail
           test "$(git -C official rev-parse HEAD)" = "db0eb8792dd57304fbc66a60377c7663e1bd44d2"
           cp audit/reports/electroneum/B/tests/test_patched_progress_ancestor_test.go official/eth/downloader/independent_proof_gap_test.go
+          cp audit/reports/electroneum/B/tests/test_patched_miner_progress_pause_test.go official/miner/independent_progress_pause_test.go
           echo "PR94_UPSTREAM=db0eb8792dd57304fbc66a60377c7663e1bd44d2"
           sha256sum official/eth/downloader/independent_proof_gap_test.go
       - uses: actions/setup-go@v5
@@ -47,7 +48,30 @@ jobs:
             GOMAXPROCS=2 go test ./eth/downloader -run '^TestPatchedProgressIsBeforeAncestorValidation$' -count=1 -v -timeout 90s 2>&1 | tee "../evidence/attempt-${n}.log"
             echo "ATTEMPT_${n}_RESULT=PASS" | tee -a ../evidence/summary.log
           done
-          go test ./miner -run '^TestMinerBareStartEventDoesNotStop$' -count=1 -v -timeout 90s 2>&1 | tee ../evidence/miner-patched-control.log
+          go test ./miner -run '^TestMinerBareStartEventDoesNotStop
+          sha256sum ../evidence/*.log | tee ../evidence/SHA256SUMS
+      - name: Preserve evidence whether pass or fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-pr94-gap-${{ github.run_id }}
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: warn
+ -count=1 -v -timeout 90s 2>&1 | tee ../evidence/miner-patched-control.log
+          for n in 1 2 3; do
+            GOMAXPROCS=2 go test ./miner -run '^TestPatchedMinerPausesForHeadOnlyUnverifiedProgress
+          sha256sum ../evidence/*.log | tee ../evidence/SHA256SUMS
+      - name: Preserve evidence whether pass or fail
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-pr94-gap-${{ github.run_id }}
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: warn
+ -count=1 -v -timeout 90s 2>&1 | tee "../evidence/miner-pause-\${n}.log"
+          done
           sha256sum ../evidence/*.log | tee ../evidence/SHA256SUMS
       - name: Preserve evidence whether pass or fail
         if: always()
