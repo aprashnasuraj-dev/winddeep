@@ -1,0 +1,91 @@
+name: ETN 2026-11-07 independent five-lane security impact audit
+on:
+  push:
+    branches:
+      - etn-live-fivelane-priority-replay-20261107
+    paths:
+      - .github/workflows/etn-live-priority-replay-fivelane-20261107.yml
+permissions:
+  contents: read
+concurrency:
+  group: etn-live-five-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  five-independent-lanes:
+    name: "Live current-upstream security lane ${{ matrix.lane }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    strategy:
+      fail-fast: false
+      max-parallel: 5
+      matrix:
+        lane: [A,B,C,D,E]
+    steps:
+      - name: Checkout isolated audit fixtures
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Checkout CURRENT official Electroneum source at exact immutable SHA
+        uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Source / branch / production fork precondition
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          test -f etn-target/go.mod
+          grep -F 'FutureForkBlock:     big.NewInt(math.MaxInt64)' etn-target/params/config.go
+          mkdir -p evidence
+          echo "OFFICIAL_SOURCE=db0eb8792dd57304fbc66a60377c7663e1bd44d2" | tee evidence/identity.txt
+          echo "AUDIT_SHA=${{ github.sha }}" | tee -a evidence/identity.txt
+          echo "LANE=${{ matrix.lane }}" | tee -a evidence/identity.txt
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Execute discriminating native target tests
+        shell: bash
+        working-directory: etn-target
+        run: |
+          set -euo pipefail
+          mkdir -p ../evidence
+          case "${{ matrix.lane }}" in
+            A)
+              go test ./consensus/istanbul/backend -run '^(TestEmissionSaveAndLoad|TestQBFTValidVoteBlockStillImports)$' -count=1 -v 2>&1 | tee ../evidence/A.log
+              ;;
+            B)
+              go test ./eth/downloader -run '^TestHighTDStarvationAttack66Full$' -count=1 -v 2>&1 | tee ../evidence/B-downloader.log
+              go test ./consensus/istanbul/core -run '^TestHandleRoundChange_DropsHugeRoundWithoutTruncation$' -count=1 -v 2>&1 | tee ../evidence/B-qbft.log
+              ;;
+            C)
+              cp ../reports/electroneum/independent/prio_replay_waiver_live_test.go core/adversarial_live_priority_waiver_test.go
+              gofmt -w core/adversarial_live_priority_waiver_test.go
+              go test ./core -run '^TestIndependentPriorityReplayWaiverPoolAndExecution$' -count=1 -v 2>&1 | tee ../evidence/C-priority-execution.log
+              go test ./core/types -run '^TestPrioritySignatureReplay_(PreFork|PostFork)$' -count=1 -v 2>&1 | tee ../evidence/C-signature-control.log
+              ;;
+            D)
+              go test ./core -run '^TestReorgToShorterRemovesCanonMapping$' -count=1 -v 2>&1 | tee ../evidence/D.log
+              ;;
+            E)
+              cp ../reports/electroneum/E/test_rpc_receipt_cases_test.go internal/ethapi/adversarial_live_rpc_fee_test.go
+              gofmt -w internal/ethapi/adversarial_live_rpc_fee_test.go
+              go test ./internal/ethapi -run '^TestWorkerEReceiptFeeWidthBoundary$' -count=1 -v 2>&1 | tee ../evidence/E-fee-width.log
+              go test ./rpc -run '^TestHTTPErrorResponseWithMaxContentLength$' -count=1 -v 2>&1 | tee ../evidence/E-http-guard.log
+              ;;
+          esac
+          (cd ../evidence && sha256sum *.log identity.txt > MANIFEST.sha256)
+      - name: Upload complete reproducible source-specific raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "etn-live-${{ matrix.lane }}-${{ github.run_id }}"
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 14
