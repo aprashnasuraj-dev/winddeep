@@ -9,12 +9,9 @@ on:
       - 'reports/electroneum/shared/run_adversarial_matrix.py'
       - 'reports/electroneum/shared/test_signed_sequence_test.go'
       - '.github/workflows/electroneum-adversarial-matrix.yml'
-      - 'reports/electroneum/A/tests/*.go'
-      - 'reports/electroneum/B/tests/*.go'
-      - 'reports/electroneum/C/test_signing_domain_test.go'
-      - 'reports/electroneum/D/test_historical_import_test.go'
-      - 'reports/electroneum/E/test_rpc_receipt_cases_test.go'
-      - 'reports/electroneum/E/test_signed_effective_fee_test.go'
+      - 'reports/electroneum/*/PROBES.json'
+      - 'reports/electroneum/*/*_test.go'
+      - 'reports/electroneum/*/tests/*.go'
 permissions:
   contents: read
 concurrency:
