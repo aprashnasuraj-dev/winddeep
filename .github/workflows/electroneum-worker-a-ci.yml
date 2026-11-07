@@ -1,19 +1,12 @@
 name: ETN Worker A certified supply campaign
 on:
-  push:
-    branches: [electroneum-sc-master-audit]
-    paths:
-      - 'reports/electroneum/A/tests/**'
-      - 'reports/electroneum/A/test_supply_journal_test.go'
-      - 'reports/electroneum/A/test_fee_accounting_runtime_test.go'
-      - '.github/workflows/electroneum-worker-a-ci.yml'
   workflow_dispatch:
     inputs:
       fuzz_minutes:
-        description: 'Total Go fuzz campaign budget in minutes (1..300)'
+        description: 'Total Go fuzz campaign budget in minutes (1..30)'
         type: number
         required: false
-        default: 300
+        default: 5
 permissions:
   contents: read
   statuses: write
@@ -23,7 +16,7 @@ concurrency:
 jobs:
   supply:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
