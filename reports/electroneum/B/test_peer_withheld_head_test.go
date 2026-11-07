@@ -41,6 +41,7 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
             sub := tester.downloader.mux.Subscribe(StartEvent{}, DoneEvent{}, FailedEvent{})
             defer sub.Unsubscribe()
             started := time.Now()
+            initialHeight := tester.chain.CurrentBlock().NumberU64()
 
             // CRITICAL: TypeMux.Post waits for subscribers. Calling sync in the
             // test goroutine deadlocks at StartEvent before the first receive.
@@ -85,13 +86,22 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
                 t.Fatalf("missing unverified downloader StartEvent: %v", observed)
             }
 
+            finalHeight := tester.chain.CurrentBlock().NumberU64()
             if tc.withhold {
+                if finalHeight != initialHeight {
+                    t.Fatalf("withheld-header peer unexpectedly advanced canonical height: initial=%d final=%d", initialHeight, finalHeight)
+                }
+                t.Logf("B_WITHHELD_HEAD_NO_CANONICAL_PROGRESS case=%s height=%d", tc.name, finalHeight)
                 if err == nil || observed[1] != "FAILED" {
                     t.Fatalf("withholding peer unexpectedly admitted: err=%v events=%v", err, observed)
                 }
                 t.Logf("B_WITHHELD_HEAD_TRIGGERED_START_BEFORE_FAILURE case=%s inflated_td=%t duration_ms=%d err=%v",
                     tc.name, tc.inflateTD, time.Since(started).Milliseconds(), err)
             } else {
+                if finalHeight <= initialHeight {
+                    t.Fatalf("honest peer completed without canonical height progress: initial=%d final=%d", initialHeight, finalHeight)
+                }
+                t.Logf("B_HONEST_PEER_CANONICAL_PROGRESS initial=%d final=%d", initialHeight, finalHeight)
                 if err != nil || observed[1] != "DONE" {
                     t.Fatalf("honest peer failed: err=%v events=%v", err, observed)
                 }
