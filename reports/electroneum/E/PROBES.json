@@ -3,40 +3,18 @@
   "owner": "E",
   "probes": [
     {
-      "id": "E-RPC-007-BUDGETBOUNDARIES",
+      "id": "E-RPC-007-OVERRIDE-BOUNDED",
       "owner": "E",
       "source": "reports/electroneum/E/test_override_budget_test.go",
-      "target": "internal/ethapi/adversarial_e_override_budgetboundaries_test.go",
+      "target": "internal/ethapi/adversarial_e_override_budget_test.go",
       "package": "./internal/ethapi",
       "test": "TestWorkerEOverrideBudgetBoundaries",
       "markers": [
-        "E_OVERRIDE_BOUNDARY"
-      ],
-      "classification": "bounded certified override regression; NOT remote P2 evidence"
-    },
-    {
-      "id": "E-RPC-007-CONFLICTINGSTATEREJECTED",
-      "owner": "E",
-      "source": "reports/electroneum/E/test_override_budget_test.go",
-      "target": "internal/ethapi/adversarial_e_override_conflictingstaterejected_test.go",
-      "package": "./internal/ethapi",
-      "test": "TestWorkerEOverrideConflictingStateRejected",
-      "markers": [
-        "E_OVERRIDE_CONFLICT_REJECTED"
-      ],
-      "classification": "bounded certified override regression; NOT remote P2 evidence"
-    },
-    {
-      "id": "E-RPC-007-REJECTEDACCOUNTNOSTORAGEMUTATION",
-      "owner": "E",
-      "source": "reports/electroneum/E/test_override_budget_test.go",
-      "target": "internal/ethapi/adversarial_e_override_rejectedaccountnostoragemutation_test.go",
-      "package": "./internal/ethapi",
-      "test": "TestWorkerEOverrideRejectedAccountNoStorageMutation",
-      "markers": [
+        "E_OVERRIDE_BOUNDARY",
+        "E_OVERRIDE_CONFLICT_REJECTED",
         "E_OVERRIDE_REJECTED_STATE_INTACT"
       ],
-      "classification": "bounded certified override regression; NOT remote P2 evidence"
+      "classification": "bounded certified state override and defensive controls; NOT P2 proof"
     }
   ]
 }
