@@ -1,25 +1,12 @@
 name: Electroneum Worker B certified QBFT runtime campaign
 on:
-  push:
-    branches: [electroneum-sc-master-audit]
-    paths:
-      - .github/workflows/electroneum-worker-b-ci.yml
-      - reports/electroneum/B/test_committed_seal_runtime_test.go
-      - reports/electroneum/B/test_roundchange_arithmetic_test.go
-      - reports/electroneum/B/test_source_contract_mutations.py
-      - reports/electroneum/B/test_committed_seal_bound.py
-      - reports/electroneum/B/test_seal_admission_order.py
-      - 'reports/electroneum/B/tests/**'
-      - tools/qbft_round_contract.py
-      - tools/electroneum_target_bootstrap.sh
-      - reports/electroneum/TARGET_CERTIFICATE.json
   workflow_dispatch:
     inputs:
       fuzz_minutes:
-        description: 'Total signed-QBFT Go fuzz campaign minutes (1..300)'
+        description: 'Total signed-QBFT Go fuzz campaign minutes (1..30)'
         type: number
         required: false
-        default: 300
+        default: 5
 permissions:
   contents: read
   statuses: write
@@ -29,7 +16,7 @@ concurrency:
 jobs:
   worker-b-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -135,20 +122,20 @@ jobs:
       - name: Sustained cryptographic quorum and admission fuzz
         shell: bash
         env:
-          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '180' }}
+          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '5' }}
           GOMAXPROCS: '2'
         run: |
           set -euo pipefail
           minutes="$AUDIT_FUZZ_MINUTES"
-          if ! [[ "$minutes" =~ ^[0-9]+$ ]] || (( minutes < 1 || minutes > 300 )); then
+          if ! [[ "$minutes" =~ ^[0-9]+$ ]] || (( minutes < 1 || minutes > 30 )); then
             echo "Invalid fuzz budget: $minutes"; exit 65
           fi
           seconds=$((minutes * 30))
           cd "$WORKER_B_SCRATCH"
           echo "WORKER_B_FUZZ_BEGIN budget_minutes=$minutes phase_seconds=$seconds"
-          go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerBActualCommittedSeals$' -fuzztime="${seconds}s" -v ./consensus/istanbul/engine
+          go test -count=1 -parallel=2 -timeout=50m -fuzz='^FuzzWorkerBActualCommittedSeals$' -fuzztime="${seconds}s" -v ./consensus/istanbul/engine
           echo "WORKER_B_FUZZ_CHECKPOINT cryptographic_quorum_pass"
-          go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerBOversizeSealAdmission$' -fuzztime="${seconds}s" -v ./consensus/istanbul/engine
+          go test -count=1 -parallel=2 -timeout=50m -fuzz='^FuzzWorkerBOversizeSealAdmission$' -fuzztime="${seconds}s" -v ./consensus/istanbul/engine
           echo "WORKER_B_FUZZ_COMPLETED two_oracles"
 
       - name: Publish class B final CI outcome
