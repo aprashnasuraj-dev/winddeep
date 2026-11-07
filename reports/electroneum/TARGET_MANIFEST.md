@@ -1,5 +1,8 @@
 # Electroneum Audit Target Manifest
 
+> **2026-11-07 execution clarification:** The canonical bootstrap below now runs **inside the GitHub Actions runner**, not inside the hourly research agent's local environment. The agents must inspect source through the GitHub connector and execute certified target tests via `.github/workflows/electroneum-adversarial-matrix.yml` or another approved bounded Actions job. Do not use local Git/DNS failures as a work-blocker or relax the immutable tree identity checks. See `shared/RESEARCH_ARCHITECTURE.md`.
+
+
 - Canonical certified source path: `vendor/electroneum-sc/`.
 - Immutable Windeep source commit: `7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0`.
 - Canonical Git subtree SHA: `de7f3c75a2db7e87a89918f1257820703d5b731e`.
