@@ -74,6 +74,25 @@ func TestWorkerCActualSpendAuthorization(t *testing.T) {
     if e==nil&&from==owner{t.Fatalf("%s recovered owner after mutation",tc.name)}
     reject(tc.name,forged)
    }
+   // Strongest signature-binding counterexample: a changed payload may have a
+   // mathematically valid signature for a DIFFERENT address. Even when that
+   // address is funded, the original owner's balance and nonce must not move.
+   alienTx:=types.NewTx(&types.DynamicFeeTx{ChainID:big.NewInt(1337),Nonce:0,GasTipCap:big.NewInt(2),GasFeeCap:big.NewInt(10),Gas:21000,To:&other,Value:big.NewInt(1000),V:new(big.Int).Set(v),R:new(big.Int).Set(r),S:new(big.Int).Set(s)})
+   alien,e:=types.Sender(signer,alienTx)
+   if e!=nil||alien==owner{t.Fatalf("altered payload did not recover independent alien sender: %s %v",alien,e)}
+   alienState,ae:=state.New(common.Hash{},state.NewDatabase(rawdb.NewMemoryDatabase()),nil)
+   if ae!=nil{t.Fatal(ae)}
+   alienState.SetBalance(owner,big.NewInt(initial))
+   alienState.SetBalance(alien,big.NewInt(1000000))
+   var alienUsed uint64
+   alienReceipt,ae:=ApplyTransaction(cfg,nil,&miner,new(GasPool).AddGas(21000),alienState,header,alienTx,&alienUsed,vm.Config{})
+   if ae!=nil||alienReceipt==nil||alienReceipt.Status!=types.ReceiptStatusSuccessful{t.Fatalf("funded alien control failed: receipt=%v err=%v",alienReceipt,ae)}
+   if alienState.GetBalance(owner).Cmp(big.NewInt(initial))!=0||alienState.GetNonce(owner)!=0||
+      alienState.GetBalance(alien).Cmp(big.NewInt(789000))!=0||alienState.GetNonce(alien)!=1||
+      alienState.GetBalance(other).Cmp(big.NewInt(1000))!=0||alienState.GetBalance(miner).Cmp(big.NewInt(42000))!=0||alienUsed!=21000{
+      t.Fatalf("funded alien isolation failed: owner=%s ownerNonce=%d alien=%s alienNonce=%d other=%s miner=%s gas=%d",alienState.GetBalance(owner),alienState.GetNonce(owner),alienState.GetBalance(alien),alienState.GetNonce(alien),alienState.GetBalance(other),alienState.GetBalance(miner),alienUsed)
+   }
+   t.Logf("C_AUTH_FUNDED_ALIEN_ISOLATED seed=%d owner_unchanged=true alien_nonce=1 gas=%d",seed,alienUsed)
    receipt,e=apply(sign(1,1337,recipient,2000))
    if e!=nil||receipt==nil||receipt.Status!=types.ReceiptStatusSuccessful{t.Fatalf("second honest transfer %v %v",receipt,e)}
    if st.GetNonce(owner)!=2||used!=42000||st.GetBalance(owner).Cmp(big.NewInt(initial-423000))!=0||st.GetBalance(recipient).Cmp(big.NewInt(3000))!=0||st.GetBalance(other).Sign()!=0||st.GetBalance(miner).Cmp(big.NewInt(84000))!=0{t.Fatalf("independent final accounting mismatch: %s",snapshot())}
