@@ -1,0 +1,65 @@
+name: ETN novel post-fix ProgressEvent trust-boundary experiment
+on:
+  push:
+    branches: [etn-novel-progress-gate-20261108]
+    paths: [.github/workflows/etn-novel-progress-gate-isolated-20261108.yml]
+permissions:
+  contents: read
+concurrency:
+  group: etn-postfix-b-20261108-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  live-current-upstream-reproduce:
+    name: B - head-only untrusted ETH66 peer vs current upstream
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout isolated research only
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Checkout current official Electroneum immutable target
+        uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Verify source and stage bounded tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/current_upstream_progress_gate_test.go etn-target/eth/downloader/adversarial_postfix_progress_gate_test.go
+          gofmt -w etn-target/eth/downloader/adversarial_postfix_progress_gate_test.go
+          cp etn-target/eth/downloader/adversarial_postfix_progress_gate_test.go evidence/PoC/
+          echo "current_upstream=db0eb8792dd57304fbc66a60377c7663e1bd44d2" > evidence/identity.txt
+          echo "research_commit=${{ github.sha }}" >> evidence/identity.txt
+          echo "scope=offline synthetic ETH66 downloader only; NO mainnet peer traffic" >> evidence/identity.txt
+          sha256sum evidence/PoC/*.go > evidence/fixture_hash.txt
+      - name: Run separate fresh target processes and real miner event controls
+        shell: bash
+        working-directory: etn-target
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            echo "FRESH_RUN=$i"
+            go test ./eth/downloader -run '^TestIndependentPostFix' -count=1 -v 2>&1 | tee "../evidence/fresh-B-$i.log"
+          done
+          go test ./miner -run '^(TestMinerBareStartEventDoesNotStop|TestMinerDownloaderFirstFails)$' -count=1 -v 2>&1 | tee ../evidence/miner-event-control.log
+          (cd ../evidence && sha256sum fresh-B-*.log miner-event-control.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - name: Save even failed raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "etn-postfix-progress-gate-${{ github.run_id }}"
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn
