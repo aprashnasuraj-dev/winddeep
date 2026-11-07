@@ -22,7 +22,9 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
         t.Run(tc.name,func(t *testing.T){
             tester:=newTester(t)
             defer tester.terminate()
-            chain:=testChainBase.shorten(8)
+            // The downloader test suite pre-generates this exact chain in init;
+            // ad-hoc shorten(8) panics by design after pregenerated=true.
+            chain:=testChainBase.shorten(800/8)
             peer:=tester.newPeer("worker-b-synthetic-eth66",eth.ETH66,chain.blocks[1:])
             head,realTD:=peer.Head()
             claimedTD:=new(big.Int).Set(realTD)
