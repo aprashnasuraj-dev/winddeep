@@ -17,16 +17,16 @@
       "classification": "bounded certified state override and defensive controls; NOT P2 proof"
     },
     {
-      "id": "E-RPC-007-HTTP-CAP",
+      "id": "E-RPC-008-FILTER-EXPIRY",
       "owner": "E",
-      "source": "reports/electroneum/E/test_http_override_limit_test.go",
-      "target": "rpc/adversarial_e_http_cap_test.go",
-      "package": "./rpc",
-      "test": "TestWorkerEHTTPOverrideRequestCap",
+      "source": "reports/electroneum/E/test_filter_expiry_poll_test.go",
+      "target": "eth/filters/adversarial_e_filter_expiry_poll_test.go",
+      "package": "./eth/filters",
+      "test": "TestWorkerEExpiredFilterPollDoesNotBlock",
       "markers": [
-        "E_HTTP_REQUEST_CAP"
+        "E_FILTER_EXPIRY_POLL_BOUNDARY"
       ],
-      "classification": "bounded HTTP ingress defense, not P2 proof"
+      "classification": "bounded expired-filter global mutex liveness probe; NOT vulnerability proof"
     }
   ]
 }
