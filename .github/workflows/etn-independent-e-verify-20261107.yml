@@ -1,0 +1,55 @@
+name: ETN isolated Class E repair verification 2026-11-07
+on:
+  push:
+    branches:
+      - etn-on-demand-independent-20261107-1324npt
+    paths:
+      - .github/workflows/etn-independent-e-verify-20261107.yml
+permissions:
+  contents: read
+concurrency:
+  group: etn-isolated-e-fix-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  class-e:
+    name: Verified E fixture independently, three fresh processes
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = "7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = "de7f3c75a2db7e87a89918f1257820703d5b731e"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Run full E class, three distinct scratch processes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/shared/run_fresh_matrix.py \
+            --class E \
+            --matrix reports/electroneum/shared/adversarial_matrix.json \
+            --fresh-count 3 \
+            --timeout-sec 1200 \
+            --output "$RUNNER_TEMP/etn-e-repair"
+      - name: Preserve E raw logs on success or failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "etn-e-repair-${{ github.run_id }}"
+          path: |
+            ${{ runner.temp }}/etn-e-repair/fresh-evidence.json
+            ${{ runner.temp }}/etn-e-repair/fresh-*/result.json
+            ${{ runner.temp }}/etn-e-repair/fresh-*/*.log
+          if-no-files-found: warn
+          retention-days: 14
