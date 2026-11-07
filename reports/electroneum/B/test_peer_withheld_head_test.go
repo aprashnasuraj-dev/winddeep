@@ -97,6 +97,50 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
                 }
                 t.Logf("B_WITHHELD_HEAD_TRIGGERED_START_BEFORE_FAILURE case=%s inflated_td=%t duration_ms=%d err=%v",
                     tc.name, tc.inflateTD, time.Since(started).Milliseconds(), err)
+                // Recovery counterexample: after the malicious peer fails, a new
+                // honest peer must still permit this downloader to advance.
+                // This is a local downloader recovery oracle, not QBFT finality.
+                recoveryPeer := tester.newPeer("worker-b-recovery-peer", eth.ETH66, chain.blocks[1:])
+                _, recoveryTD := recoveryPeer.Head()
+                recoveryResult := make(chan error, 1)
+                go func() {
+                    recoveryResult <- tester.sync(recoveryPeer.id, recoveryTD, FullSync)
+                }()
+                recoveryEvents := make([]string, 0, 2)
+                recoveryDeadline := time.NewTimer(25 * time.Second)
+                defer recoveryDeadline.Stop()
+                for len(recoveryEvents) < 2 {
+                    select {
+                    case ev, ok := <-sub.Chan():
+                        if !ok || ev == nil {
+                            tester.downloader.Cancel()
+                            t.Fatal("recovery event subscription terminated")
+                        }
+                        switch ev.Data.(type) {
+                        case StartEvent:
+                            recoveryEvents = append(recoveryEvents, "START")
+                        case DoneEvent:
+                            recoveryEvents = append(recoveryEvents, "DONE")
+                        case FailedEvent:
+                            recoveryEvents = append(recoveryEvents, "FAILED")
+                        }
+                    case <-recoveryDeadline.C:
+                        tester.downloader.Cancel()
+                        t.Fatalf("recovery did not complete: events=%v", recoveryEvents)
+                    }
+                }
+                var recoveryErr error
+                select {
+                case recoveryErr = <-recoveryResult:
+                case <-time.After(10 * time.Second):
+                    tester.downloader.Cancel()
+                    t.Fatal("recovery sync did not return")
+                }
+                recoveredHeight := tester.chain.CurrentBlock().NumberU64()
+                if recoveryErr != nil || recoveryEvents[0] != "START" || recoveryEvents[1] != "DONE" || recoveredHeight <= finalHeight {
+                    t.Fatalf("honest recovery failed: err=%v events=%v height=%d previous=%d", recoveryErr, recoveryEvents, recoveredHeight, finalHeight)
+                }
+                t.Logf("B_WITHHELD_HEAD_HONEST_RECOVERY case=%s from=%d to=%d", tc.name, finalHeight, recoveredHeight)
             } else {
                 if finalHeight <= initialHeight {
                     t.Fatalf("honest peer completed without canonical height progress: initial=%d final=%d", initialHeight, finalHeight)
