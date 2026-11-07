@@ -11,6 +11,7 @@ import (
  "github.com/electroneum/electroneum-sc/core/vm"
  "github.com/electroneum/electroneum-sc/crypto"
  "github.com/electroneum/electroneum-sc/event"
+ "github.com/electroneum/electroneum-sc/params"
 )
 
 // Independent end-to-end negative security invariant: an unauthorised sender
@@ -18,9 +19,10 @@ import (
 // valid priority transaction. No public nodes or live funds are contacted.
 // The victim, attacker and privilege-bearing test key are all synthetic.
 func TestIndependentPriorityReplayWaiverPoolAndExecution(t *testing.T) {
-  cfg := eip1559Config // test's London-at-genesis fork config
+  cfg := params.MainnetChainConfig // shipped chainId 52014 and London at block zero
   height := big.NewInt(1)
   if cfg.IsFutureFork(height) { t.Fatal("requires production-like pre-FutureFork config") }
+  if cfg.ChainID.Cmp(big.NewInt(52014))!=0 || !cfg.IsLondon(height) || cfg.IsFutureFork(height){t.Fatal("mainnet config mismatch")}
   signer := types.MakeSigner(cfg, height)
   authorizedPublicKey := crypto.ECDSAPubkeyToPublicKey(priorityPrivateKeys[0].PublicKey)
   const baseFee = int64(1000000000)
@@ -115,7 +117,7 @@ func TestIndependentPriorityReplayWaiverPoolAndExecution(t *testing.T) {
 // synthetic sender keys. This isolates privilege-amplification and charged-vs-
 // consumed gas; it does NOT claim a live-network availability incident.
 func TestIndependentPriorityReplayAmplification(t *testing.T) {
-  cfg:=eip1559Config
+  cfg:=params.MainnetChainConfig
   signer:=types.MakeSigner(cfg,big.NewInt(1))
   originalSender,err:=crypto.GenerateKey()
   if err!=nil{t.Fatal(err)}
