@@ -34,6 +34,19 @@
         "C_RPC_BATCH_PRIVILEGED_CONTROL"
       ],
       "classification": "native RPC mixed-batch namespace dispatch adversarial test; synthetic separate servers, not evidence of shipped-default signing exposure"
+    },
+    {
+      "id": "C-signer-domain-boundary",
+      "owner": "C",
+      "source": "reports/electroneum/C/test_signer_domain_boundary_test.go",
+      "target": "core/adversarial_worker_c_signer_domain_test.go",
+      "package": "./core",
+      "test": "TestWorkerCSignerDomainBoundary",
+      "markers": [
+        "C_DOMAIN_VALID_OWNER",
+        "C_DOMAIN_REJECTED"
+      ],
+      "classification": "certified runtime signer-domain differential only; no txpool or canonical execution, not an exploit"
     }
   ]
 }
