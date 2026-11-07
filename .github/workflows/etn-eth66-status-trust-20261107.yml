@@ -28,6 +28,7 @@ jobs:
           test "$(git -C official rev-parse HEAD)" = "db0eb8792dd57304fbc66a60377c7663e1bd44d2"
           cp audit/reports/electroneum/B/tests/test_public_eth_status_high_td_test.go official/eth/protocols/eth/independent_status_trust_test.go
           sha256sum official/eth/protocols/eth/independent_status_trust_test.go
+          echo 'CORRECTED_P2P_DUPLEX_STATUS_PIPE=enabled'
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24.0"
