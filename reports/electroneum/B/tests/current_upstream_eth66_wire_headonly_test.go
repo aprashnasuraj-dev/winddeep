@@ -123,13 +123,18 @@ func TestIndependentPostFixRealEth66HeadOnlyProtocol(t *testing.T) {
     }
     t.Logf("WIRE_ETN66_HEADONLY_PROGRESS_WITH_UNVERIFIED_ANCESTRY header_messages=%d canonical_height=%d progress_before_ancestor_valid=true",
         filtered.headerResponses.Load(),empty.chain.CurrentBlock().NumberU64())
+    // Model a remote peer disconnect after the withheld reply. Closing the
+    // actual protocol pipes is necessary to release outstanding request
+    // tracking; merely canceling the downloader is not always enough.
+    _ = emptyRW.Close()
+    _ = fullRW.Close()
     empty.handler.downloader.Cancel()
     select {
     case err:=<-result:
         if err==nil{t.Fatal("cancelled downloader returned success")}
-        t.Logf("WIRE_ETN66_CANCELLED_RECOVERED error=%v",err)
+        t.Logf("WIRE_ETN66_PEER_DISCONNECT_RECOVERED error=%v",err)
     case <-time.After(10*time.Second):
-        t.Fatal("wire downloader failed to terminate after bounded cancel")
+        t.Fatal("wire downloader failed to terminate after real message pipes closed")
     }
     select {
     case err:=<-errors:
