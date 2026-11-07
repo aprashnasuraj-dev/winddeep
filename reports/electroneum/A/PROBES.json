@@ -22,6 +22,20 @@
         "A_IMPORT_RESTART_DEFENSE name=unsigned_rejected"
       ],
       "classification": "signed ethash-faker InsertChain and restart ledger, including two sequential signed blocks; not QBFT consensus or reorg; independent sender+recipient conservation oracle for paid gas; two-block 2-wei gas-price boundary and restart nonce check; independent fresh empty-block chain cancels miner reward to isolate exact fee credit; zero-fee signed two-block boundary, independent observed issuance balance oracle and unsigned-signature pre-admission defense (not QBFT)"
+    },
+    {
+      "id": "A-qbft-import-admission",
+      "owner": "A",
+      "source": "reports/electroneum/A/tests/qbft_import_admission_test.go",
+      "target": "consensus/istanbul/backend/adversarial_worker_a_qbft_import_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestWorkerAQBFTImportAdmission",
+      "markers": [
+        "A_QBFT_IMPORT_BASELINE blocks=1",
+        "A_QBFT_IMPORT_BASELINE blocks=2",
+        "A_QBFT_IMPORT_BASELINE blocks=3"
+      ],
+      "classification": "QBFT backend makeBlock and InsertChain canonical import prerequisite only; no signed transfer, fee invariant, or attack proof"
     }
   ]
 }
