@@ -45,6 +45,15 @@ func TestWorkerASignedImportRestartLedger(t *testing.T) {
    if variation.include {expectedSender.Sub(expectedSender,big.NewInt(int64(variation.blocks)*(variation.amount+21000)))}
    if st.GetBalance(sender).Cmp(expectedSender)!=0 {t.Fatalf("sender mismatch got=%s expected=%s",st.GetBalance(sender),expectedSender)}
    if st.GetBalance(recipient).Cmp(big.NewInt(int64(variation.blocks)*variation.amount))!=0 {t.Fatalf("recipient mismatch %s",st.GetBalance(recipient))}
+   // Independent conservation oracle: the sender/recipient pair must lose only
+   // the transaction gas; the recipient may never gain unbacked spendable wei.
+   pairTotal:=new(big.Int).Add(new(big.Int).Set(st.GetBalance(sender)),st.GetBalance(recipient))
+   gasSpent:=big.NewInt(0)
+   if variation.include {gasSpent.Mul(big.NewInt(int64(variation.blocks)),big.NewInt(21000))}
+   expectedPair:=new(big.Int).Sub(new(big.Int).Set(start),gasSpent)
+   if pairTotal.Cmp(expectedPair)!=0 {t.Fatalf("independent pair conservation mismatch got=%s expected=%s",pairTotal,expectedPair)}
+   if variation.include && st.GetBalance(miner).Cmp(gasSpent)<0 {t.Fatalf("miner below paid gas: got=%s minimum=%s",st.GetBalance(miner),gasSpent)}
+   t.Logf("A_IMPORT_RESTART_ORACLE name=%s pair=%s gas=%s",variation.name,pairTotal,gasSpent)
    if st.GetNonce(sender)!=func()uint64{if variation.include{return uint64(variation.blocks)};return 0}(){t.Fatal("nonce mismatch")}
    preSender:=new(big.Int).Set(st.GetBalance(sender))
    preRecipient:=new(big.Int).Set(st.GetBalance(recipient))
