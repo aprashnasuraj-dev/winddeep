@@ -31,7 +31,10 @@ func TestWorkerEHTTPOverrideRequestCap(t *testing.T) {
    }
    recorder := httptest.NewRecorder()
    new(Server).ServeHTTP(recorder, req)
-   // Unknown-length requests are bounded by newHTTPServerConn io.LimitReader,\n   // rather than validateRequest returning 413. A non-413 status is not\n   // evidence that the complete oversized payload was parsed or executed.\n   gotTooLarge := recorder.Code == http.StatusRequestEntityTooLarge
+   // Unknown-length requests are bounded by newHTTPServerConn's
+   // io.LimitReader, rather than validateRequest returning 413.
+   // A non-413 status does not imply the entire body was parsed.
+   gotTooLarge := recorder.Code == http.StatusRequestEntityTooLarge
    if gotTooLarge != tc.wantTooLarge {
     t.Fatalf("HTTP ingress cap: bytes=%d status=%d expected_413=%t", tc.size, recorder.Code, tc.wantTooLarge)
    }
