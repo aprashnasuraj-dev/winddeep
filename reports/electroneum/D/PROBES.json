@@ -22,7 +22,7 @@
       "id": "D-invalid-sibling-root-restart",
       "owner": "D",
       "source": "reports/electroneum/D/test_short_sibling_restart_test.go",
-      "target": "core/adversarial_worker_d_invalid_sibling_test.go",
+      "target": "core/adversarial_worker_d_short_sibling_test.go",
       "package": "./core",
       "test": "TestWorkerDInvalidSiblingRootRestartIntegrity",
       "markers": [
