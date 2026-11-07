@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "owner": "B",
+  "probes": [
+    {
+      "id": "B-sync-progress-prepatch",
+      "owner": "B",
+      "source": "reports/electroneum/B/test_unverified_sync_pause_test.go",
+      "target": "miner/adversarial_worker_b_sync_pause_test.go",
+      "package": "./miner",
+      "test": "TestWorkerBUnverifiedSyncPauseCharacterization",
+      "markers": [
+        "B_BARE_START_PAUSED_MINER",
+        "B_FAILURE_RECOVERED_MINER"
+      ],
+      "classification": "component E2: real Miner stops on unverified StartEvent; peer-trigger reachability, validator finality and severity are unverified"
+    }
+  ]
+}
