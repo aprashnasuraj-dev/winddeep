@@ -1,0 +1,51 @@
+name: ETN public ETH66 TD trust-boundary proof
+on:
+  push:
+    branches: [etn-on-demand-independent-20261107-1324npt]
+    paths: [.github/workflows/etn-eth66-status-trust-20261107.yml]
+permissions:
+  contents: read
+jobs:
+  status-trust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: audit
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: official
+          persist-credentials: false
+      - name: Install clean official-source P2P boundary test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C official rev-parse HEAD)" = "db0eb8792dd57304fbc66a60377c7663e1bd44d2"
+          cp audit/reports/electroneum/B/tests/test_public_eth_status_high_td_test.go official/eth/protocols/eth/independent_status_trust_test.go
+          sha256sum official/eth/protocols/eth/independent_status_trust_test.go
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.0"
+          cache: false
+      - name: Run three fresh handshakes from independent processes
+        shell: bash
+        working-directory: official
+        run: |
+          set -euo pipefail
+          mkdir -p ../evidence
+          for n in 1 2 3; do
+            GOMAXPROCS=2 go test ./eth/protocols/eth -run '^TestPeerStatusHighTDWithoutValidatorCredentials$' -count=1 -v -timeout 90s 2>&1 | tee "../evidence/handshake-$n.log"
+          done
+          sha256sum ../evidence/*.log | tee ../evidence/SHA256SUMS
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-eth66-handshake-${{ github.run_id }}
+          path: evidence/
+          retention-days: 14
+          if-no-files-found: warn
