@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "purpose": "Certified Electroneum adversarial regression matrix. Evidence is component/integration coverage, NOT proof of E4 or live exploit.",
+  "source": {
+    "certified_commit": "7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0",
+    "tree": "de7f3c75a2db7e87a89918f1257820703d5b731e",
+    "public_repository": "electroneum/electroneum-sc",
+    "public_commit": "3aeb14db0d6384243302f3a025bdff904dc28bf6"
+  },
+  "contracts": {
+    "repeat": 3,
+    "scope": "synthetic only",
+    "prohibited": "public network traffic, externally exposed signing, deliberate resource exhaustion",
+    "reportability": "E1 source -> E2 certified real code -> E3 repeated invariant breach -> E4 public, attacker-reachable material impact"
+  },
+  "probes": [
+    {
+      "id": "A-state-sequence",
+      "owner": "A",
+      "source": "reports/electroneum/shared/test_signed_sequence_test.go",
+      "target": "core/adversarial_signed_sequence_test.go",
+      "package": "./core",
+      "test": "TestAdversarialSignedStateMachine",
+      "markers": [
+        "ADVERSARIAL_SEQUENCE_VALID_PASS",
+        "ADVERSARIAL_REPLAY_REJECTED",
+        "ADVERSARIAL_WRONG_CHAIN_REJECTED",
+        "ADVERSARIAL_INSUFFICIENT_REJECTED"
+      ],
+      "classification": "cross-component state transition; no QBFT block inclusion"
+    },
+    {
+      "id": "A-fee-boundary",
+      "owner": "A",
+      "source": "reports/electroneum/A/tests/signed_fee64_processing_test.go",
+      "target": "core/adversarial_worker_a_fee_test.go",
+      "package": "./core",
+      "test": "TestWorkerASignedFee64Processing",
+      "markers": [
+        "PASS signed mode=success",
+        "REJECT signed"
+      ],
+      "classification": "signed state transition; no canonical block inclusion"
+    },
+    {
+      "id": "B-qbft-quorum",
+      "owner": "B",
+      "source": "reports/electroneum/B/tests/test_qbft_seals_test.go",
+      "target": "consensus/istanbul/engine/adversarial_worker_b_qbft_test.go",
+      "package": "./consensus/istanbul/engine",
+      "test": "TestWorkerBActualCommittedSeals",
+      "markers": [
+        "QBFT_RUNTIME completed"
+      ],
+      "classification": "real QBFT engine signature/quorum verification; not N-node liveness"
+    },
+    {
+      "id": "C-signature-binding",
+      "owner": "C",
+      "source": "reports/electroneum/C/test_signing_domain_test.go",
+      "target": "core/types/adversarial_worker_c_signing_test.go",
+      "package": "./core/types",
+      "test": "TestWorkerCChainDomainAndAuthorization",
+      "markers": [
+        "WORKER_C_AUTHORIZED_BASELINE_PASS",
+        "WORKER_C_WRONG_CHAIN_REJECTED",
+        "WORKER_C_MALFORMED_SIGNATURE_REJECTED"
+      ],
+      "classification": "real signed transaction sender binding; not canonical block import"
+    },
+    {
+      "id": "D-import-restart",
+      "owner": "D",
+      "source": "reports/electroneum/D/test_historical_import_test.go",
+      "target": "core/adversarial_worker_d_import_test.go",
+      "package": "./core",
+      "test": "TestWorkerDHistoricalImportAdmission",
+      "markers": [
+        "WORKER_D_FULL_IMPORT_HONEST_ACCEPTED",
+        "WORKER_D_FULL_IMPORT_REJECTED",
+        "WORKER_D_RESTART_CANONICALITY_OK"
+      ],
+      "classification": "real InsertChain and restart using fake PoW; NOT active QBFT finality"
+    },
+    {
+      "id": "E-receipt-fee",
+      "owner": "E",
+      "source": "reports/electroneum/E/test_rpc_receipt_cases_test.go",
+      "target": "internal/ethapi/adversarial_worker_e_rpc_test.go",
+      "package": "./internal/ethapi",
+      "test": "TestWorkerEReceiptFeeWidthBoundary",
+      "markers": [
+        "E_FEE_WIDTH_CASE price="
+      ],
+      "classification": "shipped RPC adapter with synthetic backend; NOT canonical receipt"
+    },
+    {
+      "id": "E-signed-fee",
+      "owner": "E",
+      "source": "reports/electroneum/E/test_signed_effective_fee_test.go",
+      "target": "core/adversarial_worker_e_signed_fee_test.go",
+      "package": "./core",
+      "test": "TestWorkerEActualEffectiveFeeWidth",
+      "markers": [
+        "SIGNED_EFFECTIVE_FEE price=",
+        "REJECT price="
+      ],
+      "classification": "real signed state transition; NOT consensus-admitted block"
+    }
+  ]
+}
