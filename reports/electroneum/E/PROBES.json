@@ -15,6 +15,18 @@
         "E_OVERRIDE_REJECTED_STATE_INTACT"
       ],
       "classification": "bounded certified state override and defensive controls; NOT P2 proof"
+    },
+    {
+      "id": "E-RPC-007-HTTP-CAP",
+      "owner": "E",
+      "source": "reports/electroneum/E/test_http_override_limit_test.go",
+      "target": "rpc/adversarial_e_http_cap_test.go",
+      "package": "./rpc",
+      "test": "TestWorkerEHTTPOverrideRequestCap",
+      "markers": [
+        "E_HTTP_REQUEST_CAP"
+      ],
+      "classification": "bounded HTTP ingress defense, not P2 proof"
     }
   ]
 }
