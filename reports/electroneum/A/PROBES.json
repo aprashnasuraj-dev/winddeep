@@ -13,9 +13,10 @@
         "A_IMPORT_RESTART_HONEST name=honest",
         "A_IMPORT_RESTART_HONEST name=boundary_zero",
         "A_IMPORT_RESTART_HONEST name=empty_control",
-        "A_IMPORT_RESTART_HONEST name=two_block_replay"
+        "A_IMPORT_RESTART_HONEST name=two_block_replay",
+        "A_IMPORT_RESTART_ORACLE name=two_block_replay"
       ],
-      "classification": "signed ethash-faker InsertChain and restart ledger, including two sequential signed blocks; not QBFT consensus or reorg"
+      "classification": "signed ethash-faker InsertChain and restart ledger, including two sequential signed blocks; not QBFT consensus or reorg; independent sender+recipient conservation oracle for paid gas"
     }
   ]
 }
