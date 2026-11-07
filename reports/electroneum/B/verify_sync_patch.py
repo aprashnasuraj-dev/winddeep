@@ -16,6 +16,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -55,6 +56,17 @@ def main() -> int:
     if not (scratch / "miner/miner.go").is_file():
         raise RuntimeError("missing certified scratch miner/miner.go")
     output.mkdir(parents=True, exist_ok=True)
+    # The matrix scratch tree only installs registered probes. This independent
+    # verifier must install its own fixture explicitly, or go test reports
+    # "no tests to run" and the differential cannot measure the invariant.
+    fixture = Path(__file__).resolve().parent / "test_unverified_sync_pause_test.go"
+    if not fixture.is_file():
+        raise RuntimeError(f"missing B-owned miner fixture: {fixture}")
+    miner_fixture = scratch / "miner/adversarial_worker_b_sync_progress_test.go"
+    miner_fixture.parent.chmod(miner_fixture.parent.stat().st_mode | 0o200)
+    shutil.copyfile(fixture, miner_fixture)
+    if "func TestWorkerBUnverifiedSyncMustKeepMinerRunning(" not in miner_fixture.read_text():
+        raise RuntimeError("miner fixture lacks exact differential test")
     proof = {
         "hypothesis": "B-SYNC-PROGRESS-UPSTREAM-2026-11-05",
         "scope": "isolated in-process real miner and downloader event bus; no remote peer or QBFT finality proven",
@@ -67,7 +79,7 @@ def main() -> int:
         before_rc, before = execute(scratch, original_path,
                     r"^TestWorkerBUnverifiedSyncMustKeepMinerRunning$", 1)
         required = "B_UNVERIFIED_START_INVARIANT_BROKEN"
-        if before_rc == 0 or required not in before or "build failed" in before.lower():
+        if before_rc == 0 or required not in before or "build failed" in before.lower() or "no tests to run" in before.lower():
             raise RuntimeError("baseline did not fail specifically on expected secure invariant")
         proof["prefixed_secure_invariant"] = {
             "exit_code": before_rc,
