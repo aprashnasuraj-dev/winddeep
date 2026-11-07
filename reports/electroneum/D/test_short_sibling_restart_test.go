@@ -34,6 +34,9 @@ func TestWorkerDShortSiblingRestartIntegrity(t *testing.T) {
    for height:=uint64(1);height<=3;height++{
     if got:=rawdb.ReadCanonicalHash(db,height);got!=chainA[height-1].Hash(){bc.Stop();t.Fatalf("short sibling changed canonical height=%d",height)}
    }
+   if got:=rawdb.ReadHeadBlockHash(db);got!=expected{bc.Stop();t.Fatalf("persisted head block hash before restart got=%s want=%s",got,expected)}
+   if got:=rawdb.ReadHeadHeaderHash(db);got!=expected{bc.Stop();t.Fatalf("persisted head header hash before restart got=%s want=%s",got,expected)}
+   t.Logf("D_PERSISTED_HEAD_POINTERS_OK length=%d",tc.siblingLength)
    t.Logf("D_SHORT_SIBLING_NONCANONICAL length=%d",tc.siblingLength)
    bc.Stop()
    reopened,err:=NewBlockChain(db,nil,params.AllEthashProtocolChanges,ethash.NewFaker(),vm.Config{},nil,nil)
@@ -43,6 +46,9 @@ func TestWorkerDShortSiblingRestartIntegrity(t *testing.T) {
    for height:=uint64(1);height<=3;height++{
     if got:=rawdb.ReadCanonicalHash(db,height);got!=chainA[height-1].Hash(){t.Fatalf("restart canonical mismatch height=%d",height)}
    }
+   if got:=rawdb.ReadHeadBlockHash(db);got!=expected{t.Fatalf("restart persisted block head got=%s want=%s",got,expected)}
+   if got:=rawdb.ReadHeadHeaderHash(db);got!=expected{t.Fatalf("restart persisted header head got=%s want=%s",got,expected)}
+   t.Logf("D_RESTART_HEAD_POINTERS_OK length=%d",tc.siblingLength)
    t.Logf("D_RESTART_CANONICAL_ORACLE_OK length=%d",tc.siblingLength)
   })
  }
