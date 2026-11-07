@@ -29,7 +29,7 @@
         "D_INVALID_SIBLING_ROOT_REJECTED",
         "D_INVALID_SIBLING_RESTART_ORACLE_OK"
       ],
-      "classification": "real InsertChain invalid sibling tx/receipt root rejection, canonical rawdb/head persistence before/after restart; synthetic faker, NOT QBFT finality or peer reachability"
+      "classification": "real InsertChain invalid sibling tx/receipt/state root rejection, canonical rawdb/head persistence before/after restart; synthetic faker, NOT QBFT finality or peer reachability"
     }
   ]
 }
