@@ -103,7 +103,7 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
                 // This is a local downloader recovery oracle, not QBFT finality.
                 recoveryStarted := time.Now()
                 recoveryPeer := tester.newPeer("worker-b-recovery-peer", eth.ETH66, chain.blocks[1:])
-                _, recoveryTD := recoveryPeer.Head()
+                recoveryHead, recoveryTD := recoveryPeer.Head()
                 recoveryResult := make(chan error, 1)
                 go func() {
                     recoveryResult <- tester.sync(recoveryPeer.id, recoveryTD, FullSync)
@@ -142,11 +142,19 @@ func TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart(t *testing.T) {
                 if recoveryErr != nil || recoveryEvents[0] != "START" || recoveryEvents[1] != "DONE" || recoveredHeight <= finalHeight {
                     t.Fatalf("honest recovery failed: err=%v events=%v height=%d previous=%d", recoveryErr, recoveryEvents, recoveredHeight, finalHeight)
                 }
+                if tester.chain.CurrentBlock().Hash() != recoveryHead {
+                    t.Fatalf("recovery completed at non-peer canonical head: local=%s peer=%s height=%d", tester.chain.CurrentBlock().Hash(), recoveryHead, recoveredHeight)
+                }
+                t.Logf("B_WITHHELD_HEAD_RECOVERY_HEAD_MATCH case=%s head=%s", tc.name, recoveryHead)
                 t.Logf("B_WITHHELD_HEAD_HONEST_RECOVERY case=%s from=%d to=%d failure_ms=%d recovery_ms=%d", tc.name, finalHeight, recoveredHeight, failureOrCompletionMs, time.Since(recoveryStarted).Milliseconds())
             } else {
                 if finalHeight <= initialHeight {
                     t.Fatalf("honest peer completed without canonical height progress: initial=%d final=%d", initialHeight, finalHeight)
                 }
+                if tester.chain.CurrentBlock().Hash() != head {
+                    t.Fatalf("honest sync completed at non-peer canonical head: local=%s peer=%s", tester.chain.CurrentBlock().Hash(), head)
+                }
+                t.Logf("B_HONEST_PEER_HEAD_MATCH head=%s", head)
                 t.Logf("B_HONEST_PEER_CANONICAL_PROGRESS initial=%d final=%d", initialHeight, finalHeight)
                 if err != nil || observed[1] != "DONE" {
                     t.Fatalf("honest peer failed: err=%v events=%v", err, observed)
