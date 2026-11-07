@@ -1,6 +1,12 @@
 name: ETN certified adversarial matrix (A-E)
 on:
   workflow_dispatch:
+    inputs:
+      audit_class:
+        description: 'Select one class or all five for a full verification'
+        type: choice
+        options: [ALL, A, B, C, D, E]
+        default: ALL
   push:
     branches:
       - electroneum-sc-master-audit
@@ -20,19 +26,71 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      audit_matrix: ${{ steps.selection.outputs.audit_matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select only the class touched by a push; all on shared changes
+        id: selection
+        shell: bash
+        env:
+          RUN_EVENT: ${{ github.event_name }}
+          BEFORE_SHA: ${{ github.event.before }}
+          TRIGGER_SHA: ${{ github.sha }}
+          REQUESTED_CLASS: ${{ inputs.audit_class || 'ALL' }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, subprocess
+          owners = set("ABCDE")
+          if os.environ["RUN_EVENT"] == "workflow_dispatch":
+              requested = os.environ["REQUESTED_CLASS"]
+              chosen = sorted(owners) if requested == "ALL" else [requested]
+          else:
+              before, head = os.environ["BEFORE_SHA"], os.environ["TRIGGER_SHA"]
+              if not before or before == "0"*40:
+                  chosen = sorted(owners)
+              else:
+                  paths = subprocess.check_output(
+                      ["git", "diff", "--name-only", before, head],
+                      text=True).splitlines()
+                  global_change = any(
+                      p.startswith("reports/electroneum/shared/") or
+                      p == ".github/workflows/electroneum-adversarial-matrix.yml"
+                      for p in paths)
+                  touched = {p.split("/")[2] for p in paths
+                             if p.startswith("reports/electroneum/") and
+                             len(p.split("/")) > 3 and p.split("/")[2] in owners}
+                  chosen = sorted(owners) if global_change or not touched else sorted(touched)
+          assert chosen and all(c in owners for c in chosen)
+          encoded = json.dumps(chosen, separators=(",", ":"))
+          with open(os.environ["GITHUB_OUTPUT"],"a",encoding="utf-8") as f:
+              f.write("audit_matrix=" + encoded + "\n")
+          print("ADVERSARIAL_SELECTED_LANES=" + encoded)
+          PY
+
   certified-adversarial-regressions:
+    needs: plan
     name: "Class ${{ matrix.audit }}: certified synthetic adversarial regression"
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        audit: [A, B, C, D, E]
+        audit: ${{ fromJSON(needs.plan.outputs.audit_matrix) }}
     steps:
       - name: Checkout exact audit branch for pinned Git source object
         uses: actions/checkout@v4
         with:
-          ref: electroneum-sc-master-audit
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Materialize immutable certified Electroneum Git tree
