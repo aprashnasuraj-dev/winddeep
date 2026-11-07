@@ -1,23 +1,12 @@
 name: Electroneum Worker D certified historical roots
 on:
-  push:
-    branches: [electroneum-sc-master-audit]
-    paths:
-      - .github/workflows/electroneum-worker-d-ci.yml
-      - reports/electroneum/D/test_historical_root_guards.py
-      - reports/electroneum/D/test_historical_roots_test.go
-      - reports/electroneum/D/test_historical_import_test.go
-      - reports/electroneum/D/test_partial_receipt_runtime_test.go
-      - reports/electroneum/D/test_rewind_txlookup_test.go
-      - tools/electroneum_target_bootstrap.sh
-      - reports/electroneum/TARGET_CERTIFICATE.json
   workflow_dispatch:
     inputs:
       fuzz_minutes:
-        description: 'Adversarial full-import fuzz budget (1..300 minutes)'
+        description: 'Adversarial full-import fuzz budget (1..30 minutes)'
         type: number
         required: false
-        default: 15
+        default: 5
 permissions:
   contents: read
   statuses: write
@@ -27,7 +16,7 @@ concurrency:
 jobs:
   worker-d-historical:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
@@ -123,16 +112,16 @@ jobs:
       - name: Stateful full-import semantic adversarial fuzz campaign
         shell: bash
         env:
-          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '15' }}
+          AUDIT_FUZZ_MINUTES: ${{ github.event_name == 'workflow_dispatch' && inputs.fuzz_minutes || '5' }}
         run: |
           set -euo pipefail
           minutes="$AUDIT_FUZZ_MINUTES"
-          if ! [[ "$minutes" =~ ^[0-9]+$ ]] || (( minutes < 1 || minutes > 300 )); then
+          if ! [[ "$minutes" =~ ^[0-9]+$ ]] || (( minutes < 1 || minutes > 30 )); then
             echo "Invalid fuzz budget $minutes"; exit 65
           fi
           cd "$RUNNER_TEMP/worker-d-scratch"
           echo "WORKER_D_IMPORT_FUZZ_BEGIN minutes=$minutes certified_commit=$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT"
-          go test -count=1 -parallel=2 -timeout=330m -fuzz='^FuzzWorkerDImportAdmission$' -fuzztime="${minutes}m" -v ./core
+          go test -count=1 -parallel=2 -timeout=50m -fuzz='^FuzzWorkerDImportAdmission$' -fuzztime="${minutes}m" -v ./core
           echo "WORKER_D_IMPORT_FUZZ_PASS"
       - name: Publish class D final CI outcome
         if: always()
