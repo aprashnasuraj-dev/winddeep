@@ -58,8 +58,8 @@ func TestWorkerDShortSiblingRestartIntegrity(t *testing.T) {
 // Invalid-root sibling must never modify canonical mappings or persisted head.
 // This is an import admission boundary, not a QBFT finality or P2P test.
 func TestWorkerDInvalidSiblingRootRestartIntegrity(t *testing.T) {
- for _, tc := range []struct{name string; corruptReceipt bool}{
-  {"transaction_root",false},{"receipt_root",true},
+ for _, tc := range []struct{name string; corruptRoot string}{
+  {"transaction_root","tx"},{"receipt_root","receipt"},{"state_root","state"},
  } {
   t.Run(tc.name,func(t *testing.T){
    engine:=ethash.NewFaker()
@@ -71,7 +71,11 @@ func TestWorkerDInvalidSiblingRootRestartIntegrity(t *testing.T) {
    if _,err=bc.InsertChain(chainA);err!=nil{bc.Stop();t.Fatal(err)}
    head:=chainA[2].Hash()
    header:=sibling[0].Header()
-   if tc.corruptReceipt {header.ReceiptHash[0]^=1} else {header.TxHash[0]^=1}
+   switch tc.corruptRoot {
+   case "receipt": header.ReceiptHash[0]^=1
+   case "state": header.Root[0]^=1
+   default: header.TxHash[0]^=1
+   }
    invalid:=types.NewBlockWithHeader(header).WithBody(sibling[0].Transactions(),sibling[0].Uncles())
    if _,err=bc.InsertChain(types.Blocks{invalid});err==nil{bc.Stop();t.Fatal("invalid sibling root admitted")}
    t.Logf("D_INVALID_SIBLING_ROOT_REJECTED case=%s error=%v",tc.name,err)
