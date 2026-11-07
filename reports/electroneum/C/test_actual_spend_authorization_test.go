@@ -56,6 +56,12 @@ func TestWorkerCActualSpendAuthorization(t *testing.T) {
    if st.GetNonce(owner)!=1||st.GetBalance(owner).Cmp(big.NewInt(initial-211000))!=0||st.GetBalance(recipient).Cmp(big.NewInt(1000))!=0||st.GetBalance(miner).Cmp(big.NewInt(42000))!=0{t.Fatalf("independent honest accounting mismatch: %s",snapshot())}
    t.Logf("C_AUTH_HONEST_ACCEPTED seed=%d ledger=%s",seed,snapshot())
    reject("DUPLICATE_NONCE",valid)
+   // Future nonce is not executable even if a txpool could queue it.
+   reject("FUTURE_NONCE",sign(2,1337,recipient,1000))
+   // After the first transfer the owner has 9,789,000. The next
+   // transaction must reserve 210,000 gas before transferring value.
+   // 9,579,001 exceeds the exact affordability boundary by one wei.
+   reject("INSUFFICIENT_BOUNDARY",sign(1,1337,recipient,9579001))
    reject("CROSS_CHAIN",sign(1,1338,recipient,1000))
    reject("INSUFFICIENT",sign(1,1337,recipient,initial+1))
    // Valid ECDSA bytes from original tx but signed payload changes: recovery must
