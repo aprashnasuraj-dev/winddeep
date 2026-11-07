@@ -23,8 +23,10 @@ on:
       - 'reports/electroneum/*/tests/*.go'
 permissions:
   contents: read
+# Each SHA needs its own evidence record. Branch-only groups replace older queued
+# runs when another worker commits, even with cancel-in-progress set to false.
 concurrency:
-  group: etn-adversarial-gate-${{ github.ref }}
+  group: etn-adversarial-gate-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
