@@ -36,18 +36,18 @@
       "classification": "signed certified QBFT engine 4-validator equivocation/quorum component check; not full consensus network or default external ingress"
     },
     {
-      "id": "B-expanded-validator-quorum",
+      "id": "B-live-outsider-signed-qbft-p2p",
       "owner": "B",
-      "source": "reports/electroneum/B/tests/test_expanded_validator_quorum_test.go",
-      "target": "consensus/istanbul/engine/adversarial_worker_b_expanded_quorum_test.go",
-      "package": "./consensus/istanbul/engine",
-      "test": "TestWorkerBExpandedValidatorQuorumBoundary",
+      "source": "reports/electroneum/B/tests/live_outsider_qbft_p2p_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_b_outsider_qbft_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestLiveBOutsiderSignedQBFTIngress",
       "markers": [
-        "B_EXPANDED_FIVE_VALIDATOR_FOUR_ACCEPTED",
-        "B_EXPANDED_FIVE_VALIDATOR_THREE_REJECTED",
-        "B_EXPANDED_FIVE_VALIDATOR_TWO_REJECTED"
+        "B_LIVE_OUTSIDER_REJECTED",
+        "B_LIVE_HONEST_CONTROL",
+        "B_LIVE_EVENT_HEALTH"
       ],
-      "classification": "five-validator membership expansion distinct quorum boundary; certified engine component only; canonical transition and default outsider ingress unverified"
+      "classification": "four/five/seven synthetic validator set real QBFT HandleMsg input, signed outsider vs known-validator control, event-loop health and canonical nonprogress; no distributed quorum demonstrated"
     }
   ]
 }
