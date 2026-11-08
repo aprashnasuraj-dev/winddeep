@@ -325,7 +325,7 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int,autoSync 
   if n.miner!=nil&&n.miner.Mining(){t.Fatal("attacker-stopped miner resumed before parent sync verified")}
  }
 }
-func TestIndependentThreeEth66WirePeersHaltNineQBFTSignerQuorum(t *testing.T) {
+func TestIndependentFourEth66WirePeersHaltNineQBFTSignerQuorum(t *testing.T) {
  t.Run("three_untrusted_peers_six_live_signed_quorum",func(t *testing.T){
   independentRunEth66WireQBFTThreshold(t,3,false)
  })
@@ -338,6 +338,6 @@ func TestIndependentThreeEth66WirePeersHaltNineQBFTSignerQuorum(t *testing.T) {
 // Unlike the base fixture this test DOES NOT call handler.doSync; it waits
 // for the shipped ten-second forceSyncCycle to discover the peer and begin
 // the downloader autonomously. It tests the shipped scheduler boundary.
-func TestIndependentAutomaticEth66QBFTThreePeerOutage(t *testing.T) {
+func TestIndependentAutomaticEth66QBFTFourPeerOutage(t *testing.T) {
  independentRunEth66WireQBFTThreshold(t,4,true)
 }
