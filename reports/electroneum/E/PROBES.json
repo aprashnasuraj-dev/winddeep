@@ -17,19 +17,6 @@
       "classification": "bounded certified state override and defensive controls; NOT P2 proof"
     },
     {
-      "id": "E-RPC-011-SELECTOR-CONFLICT",
-      "owner": "E",
-      "source": "reports/electroneum/E/test_selector_conflict_test.go",
-      "target": "eth/filters/adversarial_e_selector_conflict_test.go",
-      "package": "./eth/filters",
-      "test": "TestWorkerEConflictingBlockSelectors",
-      "markers": [
-        "E_SELECTOR_CONFLICT",
-        "E_SELECTOR_INVARIANT"
-      ],
-      "classification": "public eth_getLogs blockHash/range selector conflict validation; guard characterization only, not vulnerability proof"
-    },
-    {
       "id": "E-RPC-017-EXPIRY-POLL-RACE",
       "owner": "E",
       "source": "reports/electroneum/E/test_filter_expiry_poll_race_test.go",
@@ -42,6 +29,19 @@
         "E_EXPIRY_STUCK"
       ],
       "classification": "bounded public filter expiry/poll race, timeout invariant only; not demonstrated availability exploit"
+    },
+    {
+      "id": "E-RPC-018-ORPHAN-BLOCKHASH",
+      "owner": "E",
+      "source": "reports/electroneum/E/test_orphan_blockhash_log_test.go",
+      "target": "eth/filters/adversarial_e_orphan_blockhash_log_test.go",
+      "package": "./eth/filters",
+      "test": "TestWorkerEOrphanBlockHashLogBoundary",
+      "markers": [
+        "E_ORPHAN_DIFFERENTIAL",
+        "E_ORPHAN_CANONICAL_ORACLE"
+      ],
+      "classification": "bounded historical block-hash vs canonical log behavioral test; no signed-QBFT or security impact proof"
     }
   ]
 }
