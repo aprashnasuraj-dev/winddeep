@@ -3,22 +3,24 @@
   "owner": "C",
   "probes": [
     {
-      "id": "C-eip712-clef-consent-e2e",
+      "id": "C-actual-spend-auth",
       "owner": "C",
-      "source": "reports/electroneum/C/test_eip712_clef_consent_endtoend_test.go",
-      "target": "signer/core/adversarial_worker_c_eip712_consent_test.go",
-      "package": "./signer/core",
-      "test": "TestWorkerCClefApprovalMismatchEndToEnd",
+      "source": "reports/electroneum/C/test_actual_spend_authorization_test.go",
+      "target": "core/adversarial_worker_c_spend_auth_test.go",
+      "package": "./core",
+      "test": "TestWorkerCActualSpendAuthorization",
       "markers": [
-        "C_E2E_SIGNER_BASELINE_ACCEPTED",
-        "C_E2E_UI_IDENTICAL_APPROVAL",
-        "C_E2E_SIGNED_HIDDEN_PAYEE_CHANGE",
-        "C_E2E_SIGNATURE_RECOVERED_OWNER",
-        "C_E2E_VISIBLE_CHANGE_DENIED",
-        "C_E2E_THREE_DISTINCT_TEMP_KEYSTORES_COMPLETE",
-        "C_E2E_NO_BLOCKCHAIN_STATE_OR_SPEND_ASSERTED"
+        "C_AUTH_HONEST_ACCEPTED",
+        "C_AUTH_REJECT_DUPLICATE_NONCE",
+        "C_AUTH_REJECT_CROSS_CHAIN",
+        "C_AUTH_REJECT_INSUFFICIENT",
+        "C_AUTH_REJECT_ALTERED_RECIPIENT",
+        "C_AUTH_REJECT_ALTERED_VALUE",
+        "C_AUTH_LEDGER_ORACLE_PASS",
+        "C_AUTH_EXACT_AFFORDABILITY_PASS",
+        "C_AUTH_FUNDED_ALIEN_ISOLATED"
       ],
-      "classification": "Real certified Clef signer SignTypedData + approval UI + three distinct temporary keystores + recovered signatures; operator-visible approval omits signed instructions; no onchain spend or external default port claim"
+      "classification": "real signed ApplyTransaction with funded alternate-signer isolation, exact affordability and independent balance/nonce/burn oracle; no canonical QBFT import or remote RPC exposure"
     },
     {
       "id": "C-conflicting-nonce-order",
