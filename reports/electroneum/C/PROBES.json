@@ -35,16 +35,16 @@
       "classification": "three distinct in-memory funded states; signed competing nonce-zero transfers in different orders; ApplyTransaction state oracle, not txpool or QBFT canonical import"
     },
     {
-      "id": "C-raw-tx-trailing-bytes",
+      "id": "C-noncanonical-nonce-rlp",
       "owner": "C",
-      "source": "reports/electroneum/C/test_raw_transaction_trailing_bytes_test.go",
-      "target": "core/adversarial_worker_c_raw_transaction_trailing_bytes_test.go",
+      "source": "reports/electroneum/C/test_noncanonical_nonce_rlp_test.go",
+      "target": "core/adversarial_worker_c_noncanonical_nonce_rlp_test.go",
       "package": "./core",
-      "test": "TestWorkerCRawTransactionTrailingBytes",
+      "test": "TestWorkerCNoncanonicalNonceRLP",
       "markers": [
-        "C_RAW_TRAILING_REJECT"
+        "C_RLP_NONCANONICAL_REJECT"
       ],
-      "classification": "valid signed legacy/EIP-1559 raw transaction plus RLP trailing item; 3 keys and chain IDs; framing oracle only, default RPC/txpool/canonical impact unverified"
+      "classification": "untrusted RPC intermediary rewrites signed legacy nonce-zero RLP integer 0x80 to noncanonical 0x00; signed honest baseline and 3 synthetic chain domains; parser-only test, RPC/txpool and canonical impact unverified"
     }
   ]
 }
