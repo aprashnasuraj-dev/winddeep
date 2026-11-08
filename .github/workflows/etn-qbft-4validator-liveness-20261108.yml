@@ -1,0 +1,54 @@
+name: ETN real four-validator signed-QBFT finality experiment
+on:
+  push:
+    branches: [etn-qbft-4validator-liveness-20261108]
+    paths: [.github/workflows/etn-qbft-4validator-liveness-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  four-validator-qbft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Pin immutable current upstream and stage independent four-validator test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/independent_real_qbft_4validator_quorum_test.go etn-target/consensus/istanbul/backend/adversarial_four_validator_network_test.go
+          gofmt -w etn-target/consensus/istanbul/backend/adversarial_four_validator_network_test.go
+          cp etn-target/consensus/istanbul/backend/adversarial_four_validator_network_test.go evidence/PoC/
+          echo 'official_upstream=db0eb8792dd57304fbc66a60377c7663e1bd44d2' > evidence/identity.txt
+          echo 'test_commit=${{ github.sha }}' >> evidence/identity.txt
+          echo 'scope=four independently keyed QBFT validators; local consensus transport; no mainnet access; no ETH66 mesh or full production-miner integration' >> evidence/identity.txt
+      - name: Test signed QBFT 4-of-4, 3-of-4, and 2-of-4 separately
+        shell: bash
+        working-directory: etn-target
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            go test ./consensus/istanbul/backend -run '^TestIndependentRealQBFTQuorumFourValidators$' -count=1 -v -timeout=90s 2>&1 | tee "../evidence/four-validator-$n.log"
+          done
+          (cd ../evidence && sha256sum four-validator-*.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-qbft-four-validator-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
