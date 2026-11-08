@@ -19,17 +19,17 @@
       "classification": "real InsertChain, fork-choice and persistent rawdb canonical-map oracle with valid shorter sibling; fake PoW; NOT QBFT finality or peer reachability; rawdb persisted head block/header pointers checked before and after restart"
     },
     {
-      "id": "D-invalid-sibling-root-restart",
+      "id": "D-sidechain-hash-lookup-restart",
       "owner": "D",
-      "source": "reports/electroneum/D/test_short_sibling_restart_test.go",
-      "target": "core/adversarial_worker_d_short_sibling_test.go",
+      "source": "reports/electroneum/D/test_sidechain_hash_lookup_test.go",
+      "target": "core/adversarial_worker_d_sidechain_lookup_test.go",
       "package": "./core",
-      "test": "TestWorkerDInvalidSiblingRootRestartIntegrity",
+      "test": "TestWorkerDSidechainHashLookupRestart",
       "markers": [
-        "D_INVALID_SIBLING_ROOT_REJECTED",
-        "D_INVALID_SIBLING_RESTART_ORACLE_OK"
+        "D_SIDECHAIN_HASH_LOOKUP_PRE_RESTART_OK",
+        "D_SIDECHAIN_HASH_LOOKUP_POST_RESTART_OK"
       ],
-      "classification": "real InsertChain invalid sibling tx/receipt/state root rejection, canonical rawdb/head persistence before/after restart; synthetic faker, NOT QBFT finality or peer reachability"
+      "classification": "new native InsertChain hash-addressed sidechain block versus canonical number mapping before/after restart, three distinct chain lengths; fake PoW; no QBFT, no peer ingress, not a vulnerability claim"
     }
   ]
 }
