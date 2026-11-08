@@ -3,24 +3,6 @@
   "owner": "B",
   "probes": [
     {
-      "id": "B-peer-withheld-head-lifecycle",
-      "owner": "B",
-      "source": "reports/electroneum/B/test_peer_withheld_head_test.go",
-      "target": "eth/downloader/adversarial_worker_b_peer_header_test.go",
-      "package": "./eth/downloader",
-      "test": "TestWorkerBWithheldPeerHeadTriggersUnverifiedSyncStart",
-      "markers": [
-        "B_WITHHELD_HEAD_TRIGGERED_START_BEFORE_FAILURE",
-        "B_HONEST_PEER_COMPLETED_SYNC",
-        "B_WITHHELD_HEAD_NO_CANONICAL_PROGRESS",
-        "B_HONEST_PEER_CANONICAL_PROGRESS",
-        "B_WITHHELD_HEAD_HONEST_RECOVERY",
-        "B_WITHHELD_HEAD_RECOVERY_HEAD_MATCH",
-        "B_HONEST_PEER_HEAD_MATCH"
-      ],
-      "classification": "certified downloader ETH66 offline: compare exact canonical peer head after honest sync and after withheld-head failure/recovery; validator liveness and production ingress unverified"
-    },
-    {
       "id": "B-single-validator-equivocation",
       "owner": "B",
       "source": "reports/electroneum/B/tests/test_single_validator_equivocation_test.go",
@@ -48,6 +30,19 @@
         "B_LIVE_EVENT_HEALTH"
       ],
       "classification": "four/five/seven synthetic validator set real QBFT HandleMsg input, signed outsider vs known-validator control, event-loop health and canonical nonprogress; no distributed quorum demonstrated"
+    },
+    {
+      "id": "B-cross-code-dedup-signed-prepare",
+      "owner": "B",
+      "source": "reports/electroneum/B/tests/live_cross_code_message_poison_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_b_cross_code_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestLiveBCrossCodeSignedPrepareSuppression",
+      "markers": [
+        "B_CROSS_CODE_POISON_FIRED",
+        "B_CROSS_CODE_ORACLE"
+      ],
+      "classification": "live-chat signed honest-validator PREPARE payload delivered first under mismatched COMMIT code by synthetic Byzantine validator; instrument event dispatch from backend HandleMsg; compare clean fresh genesis; G0 default P2P and 4-node network liveness unproven"
     }
   ]
 }
