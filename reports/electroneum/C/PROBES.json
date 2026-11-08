@@ -3,24 +3,28 @@
   "owner": "C",
   "probes": [
     {
-      "id": "C-actual-spend-auth",
+      "id": "C-eip712-approval-omission",
       "owner": "C",
-      "source": "reports/electroneum/C/test_actual_spend_authorization_test.go",
-      "target": "core/adversarial_worker_c_spend_auth_test.go",
-      "package": "./core",
-      "test": "TestWorkerCActualSpendAuthorization",
+      "source": "reports/electroneum/C/test_eip712_approval_integrity_test.go",
+      "target": "signer/core/apitypes/adversarial_worker_c_eip712_approval_test.go",
+      "package": "./signer/core/apitypes",
+      "test": "TestWorkerCApprovalRenderingVsSignature",
       "markers": [
-        "C_AUTH_HONEST_ACCEPTED",
-        "C_AUTH_REJECT_DUPLICATE_NONCE",
-        "C_AUTH_REJECT_CROSS_CHAIN",
-        "C_AUTH_REJECT_INSUFFICIENT",
-        "C_AUTH_REJECT_ALTERED_RECIPIENT",
-        "C_AUTH_REJECT_ALTERED_VALUE",
-        "C_AUTH_LEDGER_ORACLE_PASS",
-        "C_AUTH_EXACT_AFFORDABILITY_PASS",
-        "C_AUTH_FUNDED_ALIEN_ISOLATED"
+        "C_TYPED_HIDDEN_FIRST",
+        "C_TYPED_HIDDEN_MIDDLE",
+        "C_TYPED_HIDDEN_PAYEE_MUTATION",
+        "C_TYPED_HIDDEN_AMOUNT_MUTATION",
+        "C_TYPED_HIDDEN_REORDER",
+        "C_TYPED_HIDDEN_PREPEND",
+        "C_TYPED_HIDDEN_MIDDLE_REMOVAL",
+        "C_TYPED_JSON_ORACLE_ALL_ITEMS",
+        "C_TYPED_SINGLE_ITEM_CONTROL",
+        "C_TYPED_SCALAR_CONTROL",
+        "C_TYPED_PRIMITIVE_ARRAY_FAIL_CLOSED",
+        "C_TYPED_SIGNATURE_DIGEST_CONTROL",
+        "C_TYPED_PROBE_COMPLETED_NOT_CANONICAL_CHAIN_PROOF"
       ],
-      "classification": "real signed ApplyTransaction with funded alternate-signer isolation, exact affordability and independent balance/nonce/burn oracle; no canonical QBFT import or remote RPC exposure"
+      "classification": "Real certified Clef apitypes approval renderer vs EIP-712 signing preimage, 3 synthetic isolated states; cross-component user consent impact conditional and no chain-level unauthorized spend"
     },
     {
       "id": "C-conflicting-nonce-order",
