@@ -41,17 +41,18 @@
       "classification": "QBFT backend makeBlock and InsertChain canonical import prerequisite only; no signed transfer, fee invariant, or attack proof; forged Coinbase post-seal negative control must fail InsertChain and leave canonical head/root unchanged"
     },
     {
-      "id": "A-live-qbft-beneficiary-collision",
+      "id": "A-live-qbft-nonce-relay-collision",
       "owner": "A",
-      "source": "reports/electroneum/A/tests/live_qbft_fee_collision_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_fee_collision_test.go",
+      "source": "reports/electroneum/A/tests/live_qbft_nonce_relay_collision_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_nonce_relay_collision_test.go",
       "package": "./consensus/istanbul/backend",
-      "test": "TestLiveAValidSignedQBFTFeeCollision",
+      "test": "TestLiveASameNonceRelayCollision",
       "markers": [
-        "A_QBFT_COLLISION_CANONICAL",
-        "A_QBFT_COLLISION_MUTATION_REJECTED"
+        "A_NONCE_RELAY_CANONICAL seed=91",
+        "A_NONCE_RELAY_CANONICAL seed=92",
+        "A_NONCE_RELAY_CANONICAL seed=93"
       ],
-      "classification": "LIVE-CHAT externally signed tx -> QBFT seal -> canonical insertion -> balance/nonce invariant, fresh genesis states; candidate research not a proven exploit"
+      "classification": "Signed conflicting same-nonce relay transfers: reject second after first execution; seal first in canonical QBFT; three independently funded states; independent debit/value/nonce oracle. Guard-passed result is not a vulnerability."
     }
   ]
 }
