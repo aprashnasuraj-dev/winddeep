@@ -3,19 +3,6 @@
   "owner": "B",
   "probes": [
     {
-      "id": "B-cross-code-dedup-signed-prepare",
-      "owner": "B",
-      "source": "reports/electroneum/B/tests/live_cross_code_message_poison_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_b_cross_code_test.go",
-      "package": "./consensus/istanbul/backend",
-      "test": "TestLiveBCrossCodeSignedPrepareSuppression",
-      "markers": [
-        "B_CROSS_CODE_POISON_FIRED",
-        "B_CROSS_CODE_ORACLE"
-      ],
-      "classification": "live-chat signed honest-validator PREPARE payload delivered first under mismatched COMMIT code by synthetic Byzantine validator; instrument event dispatch from backend HandleMsg; compare clean fresh genesis; G0 default P2P and 4-node network liveness unproven"
-    },
-    {
       "id": "B-outsider-cross-code-replay",
       "owner": "B",
       "source": "reports/electroneum/B/tests/live_cross_code_message_poison_test.go",
@@ -39,6 +26,18 @@
         "B_FOUR_VALIDATOR_NETWORK_ORACLE"
       ],
       "classification": "isolated 4 actual independent QBFT backend/core instances with 3-of-4 honest quorum, one Byzantine retag relay, protocol-valid gossip scheduling, canonical block height across 3 honest nodes; isolated simulated transport, not external live network"
+    },
+    {
+      "id": "B-outsider-signed-prepare-ingress",
+      "owner": "B",
+      "source": "reports/electroneum/B/tests/live_outsider_signed_prepare_ingress_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_b_outsider_ingress_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestLiveBOutsiderSignedPrepareIngress",
+      "markers": [
+        "B_OUTSIDER_PREPARE_INGRESS"
+      ],
+      "classification": "outsider-generated signed PREPARE at backend ingress versus honest signer; event dispatch is not canonical vote admission, G0 default P2P ingress and network liveness remain unverified"
     }
   ]
 }
