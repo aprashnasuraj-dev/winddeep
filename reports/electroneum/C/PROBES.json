@@ -23,19 +23,6 @@
       "classification": "real signed ApplyTransaction with funded alternate-signer isolation, exact affordability and independent balance/nonce/burn oracle; no canonical QBFT import or remote RPC exposure"
     },
     {
-      "id": "C-signer-domain-boundary",
-      "owner": "C",
-      "source": "reports/electroneum/C/test_signer_domain_boundary_test.go",
-      "target": "core/adversarial_worker_c_signer_domain_test.go",
-      "package": "./core",
-      "test": "TestWorkerCSignerDomainBoundary",
-      "markers": [
-        "C_DOMAIN_VALID_OWNER",
-        "C_DOMAIN_REJECTED"
-      ],
-      "classification": "certified runtime signer-domain differential only; no txpool or canonical execution, not an exploit"
-    },
-    {
       "id": "C-browser-simple-request-boundary",
       "owner": "C",
       "source": "reports/electroneum/C/test_rpc_browser_ingress_test.go",
@@ -47,6 +34,19 @@
         "C_BROWSER_JSON_CONTROL"
       ],
       "classification": "native HTTP browser-simple-request ingress boundary with side-effect counter; no default personal exposure or canonical state claim"
+    },
+    {
+      "id": "C-ws-origin-dispatch-boundary",
+      "owner": "C",
+      "source": "reports/electroneum/C/test_rpc_ws_origin_test.go",
+      "target": "rpc/adversarial_worker_c_ws_origin_test.go",
+      "package": "./rpc",
+      "test": "TestWorkerCWSOriginDispatchBoundary",
+      "markers": [
+        "C_WS_ORIGIN_REJECTED",
+        "C_WS_ALLOWED_CONTROL"
+      ],
+      "classification": "native WS handshake Origin gate and privileged-handler counter; no proof of default privileged exposure or canonical spend"
     }
   ]
 }
