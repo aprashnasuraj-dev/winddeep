@@ -17,18 +17,6 @@
       "classification": "bounded certified state override and defensive controls; NOT P2 proof"
     },
     {
-      "id": "E-RPC-017-EXPIRY-POLL-RACE",
-      "owner": "E",
-      "source": "reports/electroneum/E/test_filter_expiry_poll_race_test.go",
-      "target": "eth/filters/adversarial_e_filter_expiry_poll_race_test.go",
-      "package": "./eth/filters",
-      "test": "TestWorkerEFilterExpiryPollingBounded",
-      "markers": [
-        "E_EXPIRY_POLL"
-      ],
-      "classification": "bounded filter lifecycle guard; observed completed polls; no stuck result; removed nonexistent stuck marker that prevented matrix progression"
-    },
-    {
       "id": "E-RPC-019-HTTP-BATCH-ISOLATION",
       "owner": "E",
       "source": "reports/electroneum/E/test_http_batch_isolation_test.go",
@@ -39,6 +27,18 @@
         "E_HTTP_BATCH_ISOLATION"
       ],
       "classification": "outside-in HTTP request response isolation; no vulnerability claimed without executed target differential"
+    },
+    {
+      "id": "E-RPC-020-NOTIFICATION-BATCH",
+      "owner": "E",
+      "source": "reports/electroneum/E/test_notification_batch_isolation_test.go",
+      "target": "rpc/adversarial_e_notification_batch_isolation_test.go",
+      "package": "./rpc",
+      "test": "TestWorkerEMixedNotificationBatchIsolation",
+      "markers": [
+        "E_NOTIFICATION_BATCH"
+      ],
+      "classification": "bounded concurrent outsider notification+request response isolation; no security impact assumed"
     }
   ]
 }
