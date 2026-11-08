@@ -36,17 +36,17 @@
       "classification": "native HTTP browser-simple-request ingress boundary with side-effect counter; no default personal exposure or canonical state claim"
     },
     {
-      "id": "C-ws-origin-dispatch-boundary",
+      "id": "C-high-s-malleability",
       "owner": "C",
-      "source": "reports/electroneum/C/test_rpc_ws_origin_test.go",
-      "target": "rpc/adversarial_worker_c_ws_origin_test.go",
-      "package": "./rpc",
-      "test": "TestWorkerCWSOriginDispatchBoundary",
+      "source": "reports/electroneum/C/test_high_s_malleability_test.go",
+      "target": "core/types/adversarial_worker_c_high_s_malleability_test.go",
+      "package": "./core/types",
+      "test": "TestWorkerCHighSMalleabilityAdmission",
       "markers": [
-        "C_WS_ORIGIN_REJECTED",
-        "C_WS_ALLOWED_CONTROL"
+        "C_HIGHS_REJECTED",
+        "C_HIGHS_HONEST_CONTROL"
       ],
-      "classification": "native WS handshake Origin gate and privileged-handler counter; no proof of default privileged exposure or canonical spend"
+      "classification": "high-S ECDSA malleability across transaction binary decoder and signer; signature rejection only, no txpool/canonical breach proven"
     }
   ]
 }
