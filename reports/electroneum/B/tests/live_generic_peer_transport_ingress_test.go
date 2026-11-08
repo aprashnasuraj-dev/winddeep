@@ -57,3 +57,48 @@ func TestLiveBGenericPeerTransportIngress(t *testing.T) {
   })
  }
 }
+
+ 
+// TestLiveBFutureHeightOutsiderSequence checks whether a non-validator
+// transport sender can inject a validator-signed future-height message
+// before a current-height honest message. It does not claim P2P admission.
+func TestLiveBFutureHeightOutsiderSequence(t *testing.T) {
+ for _,tag:=range []byte{151,157,163} {
+  t.Run(fmt.Sprintf("state_%d",tag),func(t *testing.T){
+   genesis,keys:=testutils.GenesisAndKeys(4)
+   outsider,err:=crypto.GenerateKey();if err!=nil{t.Fatal(err)}
+   chain,b:=newBlockchainFromConfig(genesis,keys,*istanbul.DefaultConfig)
+   defer b.Stop()
+   dest:=crypto.PubkeyToAddress(keys[0].PublicKey)
+   honest:=crypto.PubkeyToAddress(keys[1].PublicKey)
+   relay:=crypto.PubkeyToAddress(outsider.PublicKey)
+   net:=&liveBNet{nodes:map[common.Address]*liveBNetNode{}}
+   net.nodes[dest]=&liveBNetNode{b:b,chain:chain,addr:dest}
+   sub:=b.EventMux().Subscribe(istanbul.MessageEvent{})
+   defer sub.Unsubscribe()
+   send:=func(height int64,sender common.Address) {
+    msg:=qbfttypes.NewPrepare(big.NewInt(height),big.NewInt(0),crypto.Keccak256Hash([]byte{tag,byte(height)}))
+    unsigned,e:=msg.EncodePayloadForSigning();if e!=nil{t.Fatal(e)}
+    sig,e:=crypto.Sign(crypto.Keccak256(unsigned),keys[1]);if e!=nil{t.Fatal(e)}
+    msg.SetSignature(sig)
+    if e:=(&liveBNetPeer{net:net,source:sender,destination:dest}).SendConsensus(qbfttypes.PrepareCode,msg);e!=nil{t.Fatal(e)}
+   }
+   send(2,relay)
+   send(1,honest)
+   observed:=0
+   deadline:=time.After(800*time.Millisecond)
+  events:
+   for observed<2 {
+    select {
+    case ev:=<-sub.Chan():
+     if m,ok:=ev.Data.(istanbul.MessageEvent);ok&&m.Code==qbfttypes.PrepareCode {observed++}
+    case <-deadline:break events
+    }
+   }
+   height:=chain.CurrentBlock().NumberU64()
+   t.Logf("B_FUTURE_HEIGHT_OUTSIDER_ORACLE state=%d delivered=%d canonical_height=%d accepted_votes=NOT_MEASURED",tag,observed,height)
+   if height!=0 {t.Fatal("unexpected canonical advancement")}
+   if observed==0 {t.Fatal("transport discriminator inconclusive")}
+  })
+ }
+}
