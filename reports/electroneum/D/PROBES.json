@@ -29,7 +29,7 @@
         "D_SIDECHAIN_HASH_LOOKUP_PRE_RESTART_OK",
         "D_SIDECHAIN_HASH_LOOKUP_POST_RESTART_OK"
       ],
-      "classification": "new native InsertChain hash-addressed sidechain block versus canonical number mapping before/after restart, three distinct chain lengths; fake PoW; no QBFT, no peer ingress, not a vulnerability claim"
+      "classification": "new native InsertChain hash-addressed sidechain block versus canonical number mapping before/after restart, three distinct chain lengths; fake PoW; no QBFT, no peer ingress, not a vulnerability claim; NEW distinct sidechain header-number index consistency invariant checked on competing branch before/after restart"
     }
   ]
 }
