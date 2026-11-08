@@ -299,26 +299,26 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int,autoSync 
  case committed=<-results:
  case <-time.After(30*time.Second):
  }
- if maxVictims==2 {
+ if maxVictims==3 {
   if committed==nil{
    close(stop)
-   t.Fatal("two untrusted ETH66 peers unexpectedly prevented a 7-of-9 signed QBFT quorum")
+   t.Fatal("three untrusted ETH66 peers unexpectedly prevented a 6-of-9 signed QBFT quorum")
   }
   if _,err:=proposer.chain.InsertChain([]*types.Block{committed});err!=nil{
    close(stop)
-   t.Fatalf("7-of-9 real QBFT block rejected by canonical InsertChain: %v",err)
+   t.Fatalf("6-of-9 real QBFT block rejected by canonical InsertChain: %v",err)
   }
   if err:=proposer.engine.VerifyHeader(proposer.chain,committed.Header(),true);err!=nil{
    close(stop)
-   t.Fatalf("7-of-9 QBFT signed committed-seal verification: %v",err)
+   t.Fatalf("6-of-9 QBFT signed committed-seal verification: %v",err)
   }
-  t.Logf("QBFT9_ETH66_TWO_PEER_GUARD signers=9 untrusted_eth66_sessions=2 stopped_real_miners=2 remaining_signers=7 signed_finality=true canonical_height=%d committed_hash=%s",committed.NumberU64(),committed.Hash())
+  t.Logf("QBFT9_ETH66_THREE_PEER_GUARD signers=9 untrusted_eth66_sessions=3 stopped_real_miners=3 remaining_signers=6 signed_finality=true canonical_height=%d committed_hash=%s",committed.NumberU64(),committed.Hash())
  } else {
   if committed!=nil{
    close(stop)
-   t.Fatalf("6-of-9 subquorum unexpectedly committed a block: %s",committed.Hash())
+   t.Fatalf("5-of-9 subquorum unexpectedly committed a block: %s",committed.Hash())
   }
-  t.Log("QBFT9_ETH66_THREE_VALIDATOR_OUTAGE signers=9 untrusted_eth66_sessions=3 real_status_handshakes=3 stopped_real_miners=3 remaining_signers=6 signed_finality_30s=false canonical_imports=0")
+  t.Log("QBFT9_ETH66_FOUR_VALIDATOR_OUTAGE signers=9 untrusted_eth66_sessions=4 real_status_handshakes=4 stopped_real_miners=4 remaining_signers=5 signed_finality_30s=false canonical_imports=0")
  }
  close(stop)
  for _,n:=range nodes{
@@ -326,11 +326,11 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int,autoSync 
  }
 }
 func TestIndependentThreeEth66WirePeersHaltNineQBFTSignerQuorum(t *testing.T) {
- t.Run("two_untrusted_peers_seven_live_signed_quorum",func(t *testing.T){
-  independentRunEth66WireQBFTThreshold(t,2,false)
- })
- t.Run("three_untrusted_peers_six_live_no_quorum",func(t *testing.T){
+ t.Run("three_untrusted_peers_six_live_signed_quorum",func(t *testing.T){
   independentRunEth66WireQBFTThreshold(t,3,false)
+ })
+ t.Run("four_untrusted_peers_five_live_no_quorum",func(t *testing.T){
+  independentRunEth66WireQBFTThreshold(t,4,false)
  })
 }
 
@@ -339,5 +339,5 @@ func TestIndependentThreeEth66WirePeersHaltNineQBFTSignerQuorum(t *testing.T) {
 // for the shipped ten-second forceSyncCycle to discover the peer and begin
 // the downloader autonomously. It tests the shipped scheduler boundary.
 func TestIndependentAutomaticEth66QBFTThreePeerOutage(t *testing.T) {
- independentRunEth66WireQBFTThreshold(t,3,true)
+ independentRunEth66WireQBFTThreshold(t,4,true)
 }
