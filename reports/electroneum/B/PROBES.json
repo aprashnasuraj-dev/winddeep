@@ -28,16 +28,16 @@
       "classification": "isolated 4 actual independent QBFT backend/core instances with 3-of-4 honest quorum, one Byzantine retag relay, protocol-valid gossip scheduling, canonical block height across 3 honest nodes; isolated simulated transport, not external live network"
     },
     {
-      "id": "B-outsider-signed-prepare-ingress",
+      "id": "B-outsider-relay-preemption",
       "owner": "B",
-      "source": "reports/electroneum/B/tests/live_outsider_signed_prepare_ingress_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_b_outsider_ingress_test.go",
+      "source": "reports/electroneum/B/tests/live_outsider_relay_preemption_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_b_outsider_relay_preemption_test.go",
       "package": "./consensus/istanbul/backend",
-      "test": "TestLiveBOutsiderSignedPrepareIngress",
+      "test": "TestLiveBOutsiderRelayPreemption",
       "markers": [
-        "B_OUTSIDER_PREPARE_INGRESS"
+        "B_OUTSIDER_RELAY_PREEMPTION"
       ],
-      "classification": "outsider-generated signed PREPARE at backend ingress versus honest signer; event dispatch is not canonical vote admission, G0 default P2P ingress and network liveness remain unverified"
+      "classification": "nonvalidator relay of legitimate validator-signed PREPARE before authentic validator delivery; backend ingress-only, no default P2P or canonical finality claim"
     }
   ]
 }
