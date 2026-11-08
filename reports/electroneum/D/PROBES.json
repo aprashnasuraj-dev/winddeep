@@ -3,18 +3,17 @@
   "owner": "D",
   "probes": [
     {
-      "id": "D-live-wire-header-required-fields",
+      "id": "D-eth66-announcement-equivocation",
       "owner": "D",
-      "source": "reports/electroneum/D/test_live_wire_header_fields_test.go",
-      "target": "core/types/adversarial_live_d_wire_header_fields_test.go",
-      "package": "./core/types",
-      "test": "TestLiveDWireHeaderRequiredFieldBoundary",
+      "source": "reports/electroneum/D/test_eth66_announcement_equivocation_test.go",
+      "target": "eth/protocols/eth/adversarial_d_announcement_equivocation_test.go",
+      "package": "./eth/protocols/eth",
+      "test": "TestLiveDETH66AnnouncementEquivocationWire",
       "markers": [
-        "D_WIRE_HEADER_CASE",
-        "D_WIRE_NIL_RESULT",
-        "D_WIRE_SANITY_BOUNDARY"
+        "D_EQUIVOCATION_WIRE",
+        "D_EQUIVOCATION_ORACLE_FAIL"
       ],
-      "classification": "novel RLP wire-frame required-field nil/oversized decoder and accessor crash characterization, three synthetic state variations; NOT established network reachability or P1"
+      "classification": "Unprivileged peer conflicting valid hash/height announcements; wire-only preliminary discriminator; no canonical admission or QBFT breach established"
     },
     {
       "id": "D-live-eth66-rlp-pointer-boundaries",
