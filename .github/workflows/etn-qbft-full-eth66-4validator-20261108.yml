@@ -1,4 +1,4 @@
-name: ETN real ETH66 ingress to 4-validator QBFT liveness
+name: ETN real ETH66 1-peer guard vs 2-peer QBFT outage
 on:
   push:
     branches: [etn-qbft-4validator-liveness-20261108]
