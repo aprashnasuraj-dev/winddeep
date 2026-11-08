@@ -201,7 +201,7 @@ func isolatedWireConnectHeadOnly(t *testing.T,n *isolatedWireQBFTNode,idx byte)(
  t.Logf("QBFT_ETH66_WIRE_VALIDATOR_STOPPED address=%s real_eth66_handshake=true ancestor_verified=false miner_running=false",n.addr)
  return c,nil
 }
-func TestIndependentTwoEth66WirePeersHaltFourQBFTSignerQuorum(t *testing.T){
+func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int){
  genesis,keys:=testutils.GenesisAndKeys(4)
  net:=&isolatedWireQBFTNet{nodes:map[common.Address]*isolatedWireQBFTNode{}}
  nodes:=make([]*isolatedWireQBFTNode,0,4)
@@ -248,7 +248,7 @@ func TestIndependentTwoEth66WirePeersHaltFourQBFTSignerQuorum(t *testing.T){
  if proposer==nil{t.Fatal("QBFT proposer not in genesis validator set")}
  targeted:=0
  for _,n:=range nodes{
-  if n==proposer||targeted>=2{continue}
+  if n==proposer||targeted>=maxVictims{continue}
   pool:=core.NewTxPool(core.DefaultTxPoolConfig,n.chain.Config(),n.chain)
   mux:=new(event.TypeMux)
   h,err:=newHandler(&handlerConfig{
@@ -272,7 +272,7 @@ func TestIndependentTwoEth66WirePeersHaltFourQBFTSignerQuorum(t *testing.T){
   if err!=nil{t.Fatal(err)}
   targeted++
  }
- if targeted!=2{t.Fatalf("real ETH66 victim count %d, want 2",targeted)}
+ if targeted!=maxVictims{t.Fatalf("real ETH66 victim count %d, want %d",targeted,maxVictims)}
  candidate,err:=isolatedWireQBFTCandidate(proposer)
  if err!=nil{t.Fatalf("remaining honest proposer cannot prepare: %v",err)}
  results:=make(chan *types.Block,2)
@@ -280,14 +280,42 @@ func TestIndependentTwoEth66WirePeersHaltFourQBFTSignerQuorum(t *testing.T){
  if err:=proposer.engine.Seal(proposer.chain,candidate,results,stop);err!=nil{
   t.Fatalf("signer proposal did not start: %v",err)
  }
+ var committed *types.Block
  select{
- case committed:=<-results:
-  if committed!=nil{t.Fatalf("2 of 4 QBFT validators finalized a signed block after ETH66 attack: %s",committed.Hash())}
+ case committed=<-results:
  case <-time.After(7*time.Second):
+ }
+ if maxVictims==1 {
+  if committed==nil{
+   close(stop)
+   t.Fatal("one untrusted ETH66 peer unexpectedly prevented a 3-of-4 signed QBFT quorum")
+  }
+  if _,err:=proposer.chain.InsertChain([]*types.Block{committed});err!=nil{
+   close(stop)
+   t.Fatalf("3-of-4 real QBFT block rejected by canonical InsertChain: %v",err)
+  }
+  if err:=proposer.engine.VerifyHeader(proposer.chain,committed.Header(),true);err!=nil{
+   close(stop)
+   t.Fatalf("3-of-4 QBFT signed committed-seal verification: %v",err)
+  }
+  t.Logf("QBFT_ETH66_WIRE_ONE_PEER_GUARD signers=4 untrusted_eth66_sessions=1 stopped_real_miners=1 remaining_signers=3 signed_finality=true canonical_height=%d committed_hash=%s",committed.NumberU64(),committed.Hash())
+ } else {
+  if committed!=nil{
+   close(stop)
+   t.Fatalf("2-of-4 Byzantine quorum accepted a block: %s",committed.Hash())
+  }
+  t.Log("QBFT_ETH66_WIRE_TWO_VALIDATOR_OUTAGE signers=4 untrusted_eth66_sessions=2 real_status_handshakes=2 stopped_real_miners=2 remaining_signers=2 signed_finality_7s=false canonical_imports=0")
  }
  close(stop)
  for _,n:=range nodes{
   if n.miner!=nil&&n.miner.Mining(){t.Fatal("attacker-stopped miner resumed before parent sync verified")}
  }
- t.Log("QBFT_ETH66_WIRE_TWO_VALIDATOR_OUTAGE signers=4 untrusted_eth66_sessions=2 real_status_handshakes=2 stopped_real_miners=2 remaining_signers=2 signed_finality_7s=false canonical_imports=0")
+}
+func TestIndependentTwoEth66WirePeersHaltFourQBFTSignerQuorum(t *testing.T) {
+ t.Run("one_untrusted_peer_three_live_signed_quorum",func(t *testing.T){
+  independentRunEth66WireQBFTThreshold(t,1)
+ })
+ t.Run("two_untrusted_peers_two_live_no_quorum",func(t *testing.T){
+  independentRunEth66WireQBFTThreshold(t,2)
+ })
 }
