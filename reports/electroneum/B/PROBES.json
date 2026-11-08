@@ -36,17 +36,17 @@
       "classification": "signed certified QBFT engine 4-validator equivocation/quorum component check; not full consensus network or default external ingress"
     },
     {
-      "id": "B-committed-seal-round-binding",
+      "id": "B-duplicate-membership-quorum",
       "owner": "B",
-      "source": "reports/electroneum/B/tests/test_committed_seal_round_binding_test.go",
-      "target": "consensus/istanbul/engine/adversarial_worker_b_round_binding_test.go",
+      "source": "reports/electroneum/B/tests/test_duplicate_membership_quorum_test.go",
+      "target": "consensus/istanbul/engine/adversarial_worker_b_duplicate_membership_test.go",
       "package": "./consensus/istanbul/engine",
-      "test": "TestWorkerBCommittedSealRoundBinding",
+      "test": "TestWorkerBDuplicateMembershipQuorumBoundary",
       "markers": [
-        "B_ROUND_BINDING_HONEST",
-        "B_ROUND_BINDING_REPLAY_REJECTED"
+        "B_DUPMEM_HONEST_QUORUM",
+        "B_DUPMEM_TWO_DISTINCT_REJECTED"
       ],
-      "classification": "signed round-one quorum vs round-zero vote replay; engine-only; default ingress, canonical state, and external impact unverified"
+      "classification": "duplicate membership versus distinct signed quorum boundary; engine only; externally reachable canonical membership path unverified"
     }
   ]
 }
