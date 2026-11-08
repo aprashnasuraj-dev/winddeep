@@ -41,19 +41,19 @@
       "classification": "QBFT backend makeBlock and InsertChain canonical import prerequisite only; no signed transfer, fee invariant, or attack proof; forged Coinbase post-seal negative control must fail InsertChain and leave canonical head/root unchanged"
     },
     {
-      "id": "A-transaction-cost-overflow-oracle",
+      "id": "A-fee-recipient-collision",
       "owner": "A",
-      "source": "reports/electroneum/A/tests/transaction_cost_overflow_oracle_test.go",
-      "target": "core/adversarial_worker_a_transaction_cost_overflow_oracle_test.go",
+      "source": "reports/electroneum/A/tests/fee_recipient_collision_test.go",
+      "target": "core/adversarial_worker_a_fee_recipient_collision_test.go",
       "package": "./core",
-      "test": "TestWorkerATransactionCostOverflowOracle",
+      "test": "TestWorkerAFeeRecipientCollision",
       "markers": [
-        "A_COST_ORACLE case=honest",
-        "A_COST_ORACLE case=zero_price",
-        "A_COST_ORACLE case=uint64_product_boundary",
-        "A_COST_ORACLE case=uint256_value_boundary"
+        "A_COLLISION_ORACLE case=honest_separate",
+        "A_COLLISION_ORACLE case=attacker_collision",
+        "A_COLLISION_ORACLE case=zero_price_collision",
+        "A_COLLISION_ORACLE case=exact_balance_collision"
       ],
-      "classification": "signed outsider-controlled transaction cost big integer oracle including zero price, uint64 multiplication and uint256 value boundary; primitive-only, no canonical QBFT admission or P1/P2 claim"
+      "classification": "signed outsider-controlled transfer destination collides with block fee beneficiary; compare against independent empty-block issuance baseline; Ethash faker component path only, NOT QBFT canonical proof"
     }
   ]
 }
