@@ -34,18 +34,18 @@
       "classification": "Signed conflicting same-nonce relay transfers: reject second after first execution; seal first in canonical QBFT; three independently funded states; independent debit/value/nonce oracle. Guard-passed result is not a vulnerability."
     },
     {
-      "id": "A-live-qbft-beneficiary-fee-collision",
+      "id": "A-live-qbft-wrong-chainid-relay",
       "owner": "A",
-      "source": "reports/electroneum/A/tests/live_qbft_beneficiary_fee_collision_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_beneficiary_fee_collision_test.go",
+      "source": "reports/electroneum/A/tests/live_qbft_wrong_chainid_relay_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_wrong_chainid_relay_test.go",
       "package": "./consensus/istanbul/backend",
-      "test": "TestLiveABeneficiaryTransferFeeCollision",
+      "test": "TestLiveAWrongChainIDRelayRejection",
       "markers": [
-        "A_BENEFICIARY_COLLISION_CANONICAL seed=91",
-        "A_BENEFICIARY_COLLISION_CANONICAL seed=92",
-        "A_BENEFICIARY_COLLISION_CANONICAL seed=93"
+        "A_CHAINID_RELAY_CANONICAL seed=91",
+        "A_CHAINID_RELAY_CANONICAL seed=92",
+        "A_CHAINID_RELAY_CANONICAL seed=93"
       ],
-      "classification": "Signed QBFT two-transaction beneficiary collision; compare independent sender/recipient/beneficiary fee accounting across three funded states; any block reward requires separate oracle control, not an automatic breach."
+      "classification": "Outsider submits signed legacy transfer with EIP155 chain ID from different network after honest signed transfer; canonical QBFT must reject cross-chain relay without credit or nonce mutation. Three funded states; negative result is not vulnerability."
     }
   ]
 }
