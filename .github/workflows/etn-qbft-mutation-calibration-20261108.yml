@@ -1,0 +1,73 @@
+name: ETN QBFT ETH66 detector-sensitivity control
+on:
+  push:
+    branches: [etn-qbft-4validator-liveness-20261108]
+    paths: [.github/workflows/etn-qbft-mutation-calibration-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  sensitivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Stage current research PoC, make disposable locally-faulted copy
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/independent_eth66_wire_to_four_qbft_test.go etn-target/eth/adversarial_eth66_four_qbft_test.go
+          gofmt -w etn-target/eth/adversarial_eth66_four_qbft_test.go
+          cp etn-target/eth/adversarial_eth66_four_qbft_test.go evidence/PoC/
+          echo "target_source=db0eb8792dd57304fbc66a60377c7663e1bd44d2" > evidence/identity.txt
+          echo "calibration=mutation_in_ephemeral_runner_not_a_vulnerability" >> evidence/identity.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('etn-target/eth/downloader/downloader.go')
+          src=p.read_text()
+          needle='\td.mux.Post(ProgressEvent{})'
+          assert src.count(needle)==1, 'Expected exactly one canonical progress event'
+          p.write_text(src.replace(needle,'\t// MUTATION-CALIBRATION-ONLY: suppressed verified head progress; NOT a remediation'))
+          PY
+          (cd etn-target && git diff -- eth/downloader/downloader.go > ../evidence/ephemeral-mutation.diff)
+      - name: Require PoC's actual-target breach assertion to fail on faulted control
+        shell: bash
+        working-directory: etn-target
+        run: |
+          set -euo pipefail
+          set +e
+          go test ./eth -run '^TestIndependentTwoEth66WirePeersHaltFourQBFTSignerQuorum$' -count=1 -v -timeout=70s > ../evidence/mutated-control.log 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -F 'actual QBFT miner still running' ../evidence/mutated-control.log
+          echo 'MUTATION_SENSITIVITY_VERIFIED: offline disposable source edit suppressed the vulnerable stop signal; the exploit assertion correctly failed'
+      - name: Restore immutable upstream and hash detector evidence
+        if: always()
+        shell: bash
+        run: |
+          set -eu
+          (cd etn-target && git checkout -- eth/downloader/downloader.go)
+          test -z "$(git -C etn-target diff -- eth/downloader/downloader.go)"
+          (cd evidence && sha256sum mutated-control.log ephemeral-mutation.diff PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-qbft-sensitivity-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
