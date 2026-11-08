@@ -3,21 +3,6 @@
   "owner": "B",
   "probes": [
     {
-      "id": "B-single-validator-equivocation",
-      "owner": "B",
-      "source": "reports/electroneum/B/tests/test_single_validator_equivocation_test.go",
-      "target": "consensus/istanbul/engine/adversarial_worker_b_equivocation_test.go",
-      "package": "./consensus/istanbul/engine",
-      "test": "TestWorkerBSingleValidatorEquivocationIsolation",
-      "markers": [
-        "B_EQUIVOCATION_HONEST_QUORUM",
-        "B_EQUIVOCATION_SINGLE_SIGNER_REJECTED",
-        "B_EQUIVOCATION_DUPLICATE_REJECTED",
-        "B_EQUIVOCATION_CROSS_HEADER_REJECTED"
-      ],
-      "classification": "signed certified QBFT engine 4-validator equivocation/quorum component check; not full consensus network or default external ingress"
-    },
-    {
       "id": "B-live-outsider-signed-qbft-p2p",
       "owner": "B",
       "source": "reports/electroneum/B/tests/live_outsider_qbft_p2p_test.go",
@@ -43,6 +28,19 @@
         "B_CROSS_CODE_ORACLE"
       ],
       "classification": "live-chat signed honest-validator PREPARE payload delivered first under mismatched COMMIT code by synthetic Byzantine validator; instrument event dispatch from backend HandleMsg; compare clean fresh genesis; G0 default P2P and 4-node network liveness unproven"
+    },
+    {
+      "id": "B-outsider-cross-code-replay",
+      "owner": "B",
+      "source": "reports/electroneum/B/tests/live_cross_code_message_poison_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_b_cross_code_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestLiveBCrossCodeSignedPrepareSuppression",
+      "markers": [
+        "B_CROSS_CODE_POISON_FIRED",
+        "B_CROSS_CODE_ORACLE"
+      ],
+      "classification": "outsider peer replay of observed signed QBFT PREPARE payload under COMMIT transport code, followed by authentic PREPARE; component ingress event-dispatch differential only; no distributed finality claim"
     }
   ]
 }
