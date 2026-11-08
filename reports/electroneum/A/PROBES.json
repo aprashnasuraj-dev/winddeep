@@ -3,23 +3,6 @@
   "owner": "A",
   "probes": [
     {
-      "id": "A-qbft-import-admission",
-      "owner": "A",
-      "source": "reports/electroneum/A/tests/qbft_import_admission_test.go",
-      "target": "consensus/istanbul/backend/adversarial_worker_a_qbft_import_test.go",
-      "package": "./consensus/istanbul/backend",
-      "test": "TestWorkerAQBFTImportAdmission",
-      "markers": [
-        "A_QBFT_IMPORT_BASELINE blocks=1",
-        "A_QBFT_IMPORT_BASELINE blocks=2",
-        "A_QBFT_IMPORT_BASELINE blocks=3",
-        "A_QBFT_IMPORT_DEFENSE blocks=1",
-        "A_QBFT_IMPORT_DEFENSE blocks=2",
-        "A_QBFT_IMPORT_DEFENSE blocks=3"
-      ],
-      "classification": "QBFT backend makeBlock and InsertChain canonical import prerequisite only; no signed transfer, fee invariant, or attack proof; forged Coinbase post-seal negative control must fail InsertChain and leave canonical head/root unchanged"
-    },
-    {
       "id": "A-live-qbft-nonce-relay-collision",
       "owner": "A",
       "source": "reports/electroneum/A/tests/live_qbft_nonce_relay_collision_test.go",
@@ -46,6 +29,20 @@
         "A_STALE_REPLAY_CANONICAL seed=93"
       ],
       "classification": "Duplicate byte-identical signed transaction submitted by second outsider relay after first state transition, before canonical QBFT sealing; must reject duplicate and prevent second recipient credit; three distinct initial balances/values; not a cross-block replay claim."
+    },
+    {
+      "id": "A-live-qbft-cross-block-signed-replay",
+      "owner": "A",
+      "source": "reports/electroneum/A/tests/live_qbft_cross_block_replay_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_cross_block_replay_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestLiveACrossBlockReplayAfterQBFTCommit",
+      "markers": [
+        "A_CROSS_BLOCK_REPLAY_CANONICAL seed=91",
+        "A_CROSS_BLOCK_REPLAY_CANONICAL seed=92",
+        "A_CROSS_BLOCK_REPLAY_CANONICAL seed=93"
+      ],
+      "classification": "Outsider resubmits signed bytes after first canonical QBFT block; verifies nonce and state rejection at next block and imports honest second block; three distinct funded states. Guard-passed not reportable."
     }
   ]
 }
