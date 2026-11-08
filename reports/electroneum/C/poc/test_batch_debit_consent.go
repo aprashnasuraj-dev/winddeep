@@ -5,6 +5,7 @@ import (
     "context"
     "encoding/hex"
     "errors"
+    "io"
     "fmt"
     "math/big"
     "os"
@@ -111,6 +112,7 @@ func cVaultPayout(t *testing.T, parsed abi.ABI, sim *backends.SimulatedBackend,
     return tx.Hash()
 }
 func TestWorkerCClefBatchVaultEconomicEffect(t *testing.T) {
+    cVaultRealCLIControl(t)
     abiBytes,e:=os.ReadFile("poc_SignedBatchVault.abi")
     if e!=nil{t.Fatalf("ABI fixture missing: %v",e)}
     bytecodeHex,e:=os.ReadFile("poc_SignedBatchVault.bin")
@@ -233,4 +235,75 @@ func TestWorkerCClefBatchVaultEconomicEffect(t *testing.T) {
         })
     }
     t.Log("C_BATCH_THREE_FRESH_EVM_STATES_COMPLETE_NOT_P1_ATTESTATION")
+}
+
+
+// cVaultCaptureRealCLI runs the actual Electroneum CommandlineUI renderer with
+// synthetic stdin and captures the user-facing approval text. The complete
+// terminal prompt includes an opaque preimage and hash; the SECURITY claim is
+// narrower: structured human-readable payment items are missing, not that
+// every output byte is identical.
+func cVaultCaptureRealCLI(t *testing.T, d apitypes.TypedData) string {
+    t.Helper()
+    msgs,e:=d.Format();if e!=nil{t.Fatal(e)}
+    domain,e:=d.HashStruct("EIP712Domain",d.Domain.Map());if e!=nil{t.Fatal(e)}
+    body,e:=d.HashStruct("Batch",d.Message);if e!=nil{t.Fatal(e)}
+    raw:=append([]byte{0x19,0x01},domain...)
+    raw=append(raw,body...)
+    inr,inw,e:=os.Pipe();if e!=nil{t.Fatal(e)}
+    outr,outw,e:=os.Pipe();if e!=nil{t.Fatal(e)}
+    _,_ = io.WriteString(inw,"y\n")
+    inw.Close()
+    oldIn,oldOut:=os.Stdin,os.Stdout
+    os.Stdin=inr
+    os.Stdout=outw
+    cli:=clefcore.NewCommandlineUI()
+    resp,callErr:=cli.ApproveSignData(&clefcore.SignDataRequest{
+        Address:common.NewMixedcaseAddress(common.Address{0x11}),
+        Messages:msgs,Rawdata:raw,Hash:crypto.Keccak256(raw),
+    })
+    outw.Close()
+    os.Stdin,os.Stdout=oldIn,oldOut
+    captured,readErr:=io.ReadAll(outr)
+    inr.Close();outr.Close()
+    if callErr!=nil || readErr!=nil || !resp.Approved{
+        t.Fatalf("real CLI rendering failed err=%v read=%v approved=%v",callErr,readErr,resp.Approved)
+    }
+    return string(captured)
+}
+func cVaultRealCLIControl(t *testing.T) {
+    t.Helper()
+    contract:=common.Address{0xC1}
+    owner:=common.Address{0x11}
+    attacker:=common.Address{0xA5}
+    benign:=common.Address{0xB5}
+    amount:=big.NewInt(7000000)
+    original:=cVaultBatch(contract,owner,benign,amount,big.NewInt(0))
+    malicious:=cVaultBatch(contract,attacker,benign,amount,big.NewInt(0))
+    displayGood:=cVaultCaptureRealCLI(t,original)
+    displayBad:=cVaultCaptureRealCLI(t,malicious)
+    marker:="messages:\n"
+    section:=func(content string) string {
+        parts:=strings.SplitN(content,marker,2)
+        if len(parts)!=2{t.Fatal("CLI did not render messages")}
+        return strings.SplitN(parts[1],"raw data:",2)[0]
+    }
+    if section(displayGood)!=section(displayBad){
+        t.Fatal("actual CLI readable message differs; hidden-approval premise defeated")
+    }
+    if displayGood==displayBad{
+        t.Fatal("expected the opaque preimage or digest to change")
+    }
+    if strings.Contains(section(displayBad),attacker.Hex()){
+        t.Fatal("attacker address is visible in real CLI")
+    }
+    visible:=cVaultBatch(contract,attacker,benign,amount,big.NewInt(0))
+    visible.Message["instructions"].([]interface{})[1].(map[string]interface{})["amount"]="2"
+    visibleText:=cVaultCaptureRealCLI(t,visible)
+    if section(visibleText)==section(displayBad){
+        t.Fatal("real CLI failed to show changed last payment")
+    }
+    t.Log("C_BATCH_REAL_CLI_READABLE_PAYMENTS_IDENTICAL_WHEN_FIRST_PAYEE_CHANGES")
+    t.Log("C_BATCH_REAL_CLI_OPAQUE_HASH_AND_RAW_PREIMAGE_CHANGE")
+    t.Log("C_BATCH_REAL_CLI_VISIBLE_LAST_PAYMENT_CONTROL_DIFFERS")
 }
