@@ -17,18 +17,6 @@
       "classification": "bounded certified state override and defensive controls; NOT P2 proof"
     },
     {
-      "id": "E-RPC-008-FILTER-EXPIRY",
-      "owner": "E",
-      "source": "reports/electroneum/E/test_filter_expiry_poll_test.go",
-      "target": "eth/filters/adversarial_e_filter_expiry_poll_test.go",
-      "package": "./eth/filters",
-      "test": "TestWorkerEExpiredFilterPollDoesNotBlock",
-      "markers": [
-        "E_FILTER_EXPIRY_POLL_BOUNDARY"
-      ],
-      "classification": "bounded expired-filter global mutex liveness probe; NOT vulnerability proof"
-    },
-    {
       "id": "E-RPC-011-SELECTOR-CONFLICT",
       "owner": "E",
       "source": "reports/electroneum/E/test_selector_conflict_test.go",
@@ -40,6 +28,19 @@
         "E_SELECTOR_INVARIANT"
       ],
       "classification": "public eth_getLogs blockHash/range selector conflict validation; guard characterization only, not vulnerability proof"
+    },
+    {
+      "id": "E-RPC-016-WILDCARD-TOPIC-DEPTH",
+      "owner": "E",
+      "source": "reports/electroneum/E/test_wildcard_topic_depth_test.go",
+      "target": "eth/filters/adversarial_e_wildcard_topic_depth_test.go",
+      "package": "./eth/filters",
+      "test": "TestWorkerEWildcardTopicDepthBudget",
+      "markers": [
+        "E_WILDCARD_DEPTH",
+        "E_WILDCARD_DEPTH_INVARIANT"
+      ],
+      "classification": "unverified public eth_getLogs wildcard positional depth cap bypass; NOT reportable without impact"
     }
   ]
 }
