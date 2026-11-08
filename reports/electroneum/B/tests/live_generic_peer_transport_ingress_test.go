@@ -5,6 +5,7 @@ import (
  "math/big"
  "testing"
  "time"
+ "github.com/electroneum/electroneum-sc/common"
  "github.com/electroneum/electroneum-sc/consensus/istanbul"
  "github.com/electroneum/electroneum-sc/consensus/istanbul/testutils"
  qbfttypes "github.com/electroneum/electroneum-sc/consensus/istanbul/types"
@@ -30,7 +31,7 @@ func TestLiveBGenericPeerTransportIngress(t *testing.T) {
     dest:=crypto.PubkeyToAddress(keys[0].PublicKey)
     sender:=crypto.PubkeyToAddress(keys[1].PublicKey)
     if senderIsOutsider {sender=crypto.PubkeyToAddress(outsider.PublicKey)}
-    net:=&liveBNet{nodes:map[[20]byte]*liveBNetNode{}}
+    net:=&liveBNet{nodes:map[common.Address]*liveBNetNode{}}
     net.nodes[dest]=&liveBNetNode{b:b,chain:chain,addr:dest}
     sub:=b.EventMux().Subscribe(istanbul.MessageEvent{})
     defer sub.Unsubscribe()
