@@ -35,16 +35,16 @@
       "classification": "three distinct in-memory funded states; signed competing nonce-zero transfers in different orders; ApplyTransaction state oracle, not txpool or QBFT canonical import"
     },
     {
-      "id": "C-fee-cap-tamper",
+      "id": "C-raw-tx-trailing-bytes",
       "owner": "C",
-      "source": "reports/electroneum/C/test_fee_cap_tamper_test.go",
-      "target": "core/adversarial_worker_c_fee_cap_tamper_test.go",
+      "source": "reports/electroneum/C/test_raw_transaction_trailing_bytes_test.go",
+      "target": "core/adversarial_worker_c_raw_transaction_trailing_bytes_test.go",
       "package": "./core",
-      "test": "TestWorkerCFeeCapTamperNoOwnerDebit",
+      "test": "TestWorkerCRawTransactionTrailingBytes",
       "markers": [
-        "C_FEE_TAMPER_ORACLE"
+        "C_RAW_TRAILING_REJECT"
       ],
-      "classification": "hostile RPC middleware substitutes signed EIP-1559 maxFeePerGas; three distinct funded state controls; ApplyTransaction owner balance/nonce oracle; no default RPC or QBFT canonical import"
+      "classification": "valid signed legacy/EIP-1559 raw transaction plus RLP trailing item; 3 keys and chain IDs; framing oracle only, default RPC/txpool/canonical impact unverified"
     }
   ]
 }
