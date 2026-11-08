@@ -3,28 +3,22 @@
   "owner": "C",
   "probes": [
     {
-      "id": "C-eip712-approval-omission",
+      "id": "C-eip712-clef-consent-e2e",
       "owner": "C",
-      "source": "reports/electroneum/C/test_eip712_approval_integrity_test.go",
-      "target": "signer/core/apitypes/adversarial_worker_c_eip712_approval_test.go",
-      "package": "./signer/core/apitypes",
-      "test": "TestWorkerCApprovalRenderingVsSignature",
+      "source": "reports/electroneum/C/test_eip712_clef_consent_endtoend_test.go",
+      "target": "signer/core/adversarial_worker_c_eip712_consent_test.go",
+      "package": "./signer/core",
+      "test": "TestWorkerCClefApprovalMismatchEndToEnd",
       "markers": [
-        "C_TYPED_HIDDEN_FIRST",
-        "C_TYPED_HIDDEN_MIDDLE",
-        "C_TYPED_HIDDEN_PAYEE_MUTATION",
-        "C_TYPED_HIDDEN_AMOUNT_MUTATION",
-        "C_TYPED_HIDDEN_REORDER",
-        "C_TYPED_HIDDEN_PREPEND",
-        "C_TYPED_HIDDEN_MIDDLE_REMOVAL",
-        "C_TYPED_JSON_ORACLE_ALL_ITEMS",
-        "C_TYPED_SINGLE_ITEM_CONTROL",
-        "C_TYPED_SCALAR_CONTROL",
-        "C_TYPED_PRIMITIVE_ARRAY_FAIL_CLOSED",
-        "C_TYPED_SIGNATURE_DIGEST_CONTROL",
-        "C_TYPED_PROBE_COMPLETED_NOT_CANONICAL_CHAIN_PROOF"
+        "C_E2E_SIGNER_BASELINE_ACCEPTED",
+        "C_E2E_UI_IDENTICAL_APPROVAL",
+        "C_E2E_SIGNED_HIDDEN_PAYEE_CHANGE",
+        "C_E2E_SIGNATURE_RECOVERED_OWNER",
+        "C_E2E_VISIBLE_CHANGE_DENIED",
+        "C_E2E_THREE_DISTINCT_TEMP_KEYSTORES_COMPLETE",
+        "C_E2E_NO_BLOCKCHAIN_STATE_OR_SPEND_ASSERTED"
       ],
-      "classification": "Real certified Clef apitypes approval renderer vs EIP-712 signing preimage, 3 synthetic isolated states; cross-component user consent impact conditional and no chain-level unauthorized spend"
+      "classification": "Real certified Clef signer SignTypedData + approval UI + three distinct temporary keystores + recovered signatures; operator-visible approval omits signed instructions; no onchain spend or external default port claim"
     },
     {
       "id": "C-conflicting-nonce-order",
