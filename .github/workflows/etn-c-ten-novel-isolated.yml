@@ -1,0 +1,69 @@
+name: ETN C isolated ten new signing and encoding hypotheses
+on:
+  push:
+    branches: [electroneum-sc-master-audit]
+    paths:
+      - 'reports/electroneum/C/test_ten_novel_boundaries_test.go'
+      - '.github/workflows/etn-c-ten-novel-isolated.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: etn-c-ten-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  c-ten-novel-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Materialize source tree pinned to historical certified release
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = "7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = "de7f3c75a2db7e87a89918f1257820703d5b731e"
+          echo "C_NOVEL_SOURCE_PIN=$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT"
+          echo "C_NOVEL_GITHUB_SHA=$GITHUB_SHA"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Run ten novel boundaries against certified Go runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$WINDEEP_ETN_SOURCE"
+          work="$(mktemp -d)"
+          cp -a "$WINDEEP_ETN_SOURCE/." "$work/"
+          chmod u+w "$work/core/types"
+          cp reports/electroneum/C/test_ten_novel_boundaries_test.go "$work/core/types/adversarial_c_ten_novel_boundaries_test.go"
+          cd "$work"
+          set +e
+          go test -count=1 -timeout=20m -run '^TestWorkerCTenNovelBoundaries$' -v ./core/types 2>&1 | tee "$RUNNER_TEMP/etn-c-ten-novel.log"
+          code="${PIPESTATUS[0]}"
+          set -e
+          echo "$code" > "$RUNNER_TEMP/etn-c-ten-novel.exit"
+          echo "C_NOVEL_EXECUTION_EXIT=$code"
+          test "$code" -eq 0
+      - name: Export evidence and exact run identity
+        if: always()
+        shell: bash
+        run: |
+          printf 'github_sha=%s\nrun_id=%s\nrun_attempt=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/etn-c-ten-provenance.txt"
+          if test -f "$RUNNER_TEMP/etn-c-ten-novel.log"; then sha256sum "$RUNNER_TEMP/etn-c-ten-novel.log" >> "$RUNNER_TEMP/etn-c-ten-provenance.txt"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: etn-c-ten-novel-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/etn-c-ten-novel.log
+            ${{ runner.temp }}/etn-c-ten-novel.exit
+            ${{ runner.temp }}/etn-c-ten-provenance.txt
+          if-no-files-found: warn
+          retention-days: 14
