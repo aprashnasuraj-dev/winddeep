@@ -3,20 +3,6 @@
   "owner": "A",
   "probes": [
     {
-      "id": "A-live-qbft-nonce-relay-collision",
-      "owner": "A",
-      "source": "reports/electroneum/A/tests/live_qbft_nonce_relay_collision_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_nonce_relay_collision_test.go",
-      "package": "./consensus/istanbul/backend",
-      "test": "TestLiveASameNonceRelayCollision",
-      "markers": [
-        "A_NONCE_RELAY_CANONICAL seed=91",
-        "A_NONCE_RELAY_CANONICAL seed=92",
-        "A_NONCE_RELAY_CANONICAL seed=93"
-      ],
-      "classification": "Signed conflicting same-nonce relay transfers: reject second after first execution; seal first in canonical QBFT; three independently funded states; independent debit/value/nonce oracle. Guard-passed result is not a vulnerability."
-    },
-    {
       "id": "A-live-qbft-identical-signed-replay",
       "owner": "A",
       "source": "reports/electroneum/A/tests/live_qbft_stale_signed_replay_test.go",
@@ -43,6 +29,20 @@
         "A_CROSS_BLOCK_REPLAY_CANONICAL seed=93"
       ],
       "classification": "Outsider resubmits signed bytes after first canonical QBFT block; verifies nonce and state rejection at next block and imports honest second block; three distinct funded states. Guard-passed not reportable."
+    },
+    {
+      "id": "A-live-qbft-self-transfer-fee-conservation",
+      "owner": "A",
+      "source": "reports/electroneum/A/tests/live_qbft_self_transfer_fee_conservation_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_self_transfer_fee_conservation_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestLiveASelfTransferFeeConservationQBFT",
+      "markers": [
+        "A_SELF_FEE_CANONICAL seed=101",
+        "A_SELF_FEE_CANONICAL seed=102",
+        "A_SELF_FEE_CANONICAL seed=103"
+      ],
+      "classification": "Signed nonzero self-transfer through canonical QBFT; independent sender fee-only balance and nonce oracle; beneficiary delta reported separately from issuance. Historical runtime only; core ApplyTransaction is not verified default outsider RPC ingress; guard-passed not reportable."
     }
   ]
 }
