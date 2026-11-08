@@ -35,16 +35,16 @@
       "classification": "three distinct in-memory funded states; signed competing nonce-zero transfers in different orders; ApplyTransaction state oracle, not txpool or QBFT canonical import"
     },
     {
-      "id": "C-legacy-unprotected-replay-boundary",
+      "id": "C-access-list-signature-binding",
       "owner": "C",
-      "source": "reports/electroneum/C/test_legacy_unprotected_replay_test.go",
-      "target": "core/adversarial_worker_c_legacy_unprotected_replay_test.go",
+      "source": "reports/electroneum/C/test_access_list_signature_binding_test.go",
+      "target": "core/adversarial_worker_c_access_list_signature_binding_test.go",
       "package": "./core",
-      "test": "TestWorkerCLegacyUnprotectedReplayBoundary",
+      "test": "TestWorkerCAccessListSignatureBinding",
       "markers": [
-        "C_LEGACY_DOMAIN_ORACLE"
+        "C_ACCESS_BINDING_ORACLE"
       ],
-      "classification": "valid signed legacy replay on EIP155-active isolated ApplyTransaction states; NOT txpool default ingress or QBFT canonical proof"
+      "classification": "hostile wallet intermediary alters EIP-1559 access list after signing; verifies owner binding with 3 distinct chain IDs; no txpool or canonical proof"
     }
   ]
 }
