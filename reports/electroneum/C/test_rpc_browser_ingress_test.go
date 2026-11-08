@@ -11,12 +11,15 @@ import (
 // C_BROWSER_INGRESS: a browser-reachable simple request must not execute
 // a privileged RPC method. This is an ingress check, not proof of default
 // personal namespace exposure or a canonical unauthorized spend.
+type cBrowserSignerAPI struct { calls *int }
+func (a *cBrowserSignerAPI) Sign() string { *a.calls = *a.calls + 1; return "UNAUTHORIZED_SIGN" }
+
 func TestWorkerCBrowserSimpleRequestBoundary(t *testing.T) {
  for _, seed := range []int{61,67,71} {
   t.Run(string(rune('A'+seed%26)),func(t *testing.T){
    var calls int
    srv:=NewServer()
-   if err:=srv.RegisterName("personal",&cSignerAPI{calls:&calls});err!=nil{t.Fatal(err)}
+   if err:=srv.RegisterName("personal",&cBrowserSignerAPI{calls:&calls});err!=nil{t.Fatal(err)}
    payload:=[]byte(`{"jsonrpc":"2.0","id":1,"method":"personal_sign","params":[]}`)
    invoke:=func(method,ctype string)(int,string){
     t.Helper()
