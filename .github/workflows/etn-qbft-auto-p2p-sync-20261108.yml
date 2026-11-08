@@ -1,0 +1,54 @@
+name: ETN autonomous peer-selection ETH66 QBFT liveness test
+on:
+  push:
+    branches: [etn-qbft-4validator-liveness-20261108]
+    paths: [.github/workflows/etn-qbft-auto-p2p-sync-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  automatic-four-validator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Stage official upstream without modifying any source code
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/independent_eth66_wire_to_four_qbft_test.go etn-target/eth/adversarial_eth66_four_qbft_test.go
+          gofmt -w etn-target/eth/adversarial_eth66_four_qbft_test.go
+          cp etn-target/eth/adversarial_eth66_four_qbft_test.go evidence/PoC/
+          echo 'target=db0eb8792dd57304fbc66a60377c7663e1bd44d2' > evidence/identity.txt
+          echo 'test_commit=${{ github.sha }}' >> evidence/identity.txt
+          echo 'auto_scheduler=YES; direct handler.doSync=NO; source=official; peers=full real eth/66 protocol handshake' >> evidence/identity.txt
+      - name: Three independent full auto peer-selected QBFT outage runs
+        shell: bash
+        working-directory: etn-target
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            go test ./eth -run '^TestIndependentAutomaticEth66QBFTTwoPeerOutage$' -count=1 -v -timeout=150s 2>&1 | tee "../evidence/automatic-$n.log"
+          done
+          (cd ../evidence && sha256sum automatic-*.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-qbft-autosync-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
