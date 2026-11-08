@@ -30,6 +30,19 @@
         "D_SIDECHAIN_HASH_LOOKUP_POST_RESTART_OK"
       ],
       "classification": "new native InsertChain hash-addressed sidechain block versus canonical number mapping before/after restart, three distinct chain lengths; fake PoW; no QBFT, no peer ingress, not a vulnerability claim; NEW distinct sidechain header-number index consistency invariant checked on competing branch before/after restart"
+    },
+    {
+      "id": "D-orphan-order-recovery",
+      "owner": "D",
+      "source": "reports/electroneum/D/test_orphan_order_recovery_test.go",
+      "target": "core/adversarial_worker_d_orphan_order_test.go",
+      "package": "./core",
+      "test": "TestWorkerDOutOfOrderAncestorRecovery",
+      "markers": [
+        "D_ORPHAN_REJECTED",
+        "D_ORDERED_RECOVERY_RESTART_OK"
+      ],
+      "classification": "stateful out-of-order missing-ancestor admission and ordered recovery/restart, three distinct branch lengths; fake PoW harness only, not QBFT, P2P ingress or reportable finding"
     }
   ]
 }
