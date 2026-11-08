@@ -36,19 +36,17 @@
       "classification": "signed certified QBFT engine 4-validator equivocation/quorum component check; not full consensus network or default external ingress"
     },
     {
-      "id": "B-validator-set-rotation",
+      "id": "B-committed-seal-round-binding",
       "owner": "B",
-      "source": "reports/electroneum/B/tests/test_validator_set_rotation_test.go",
-      "target": "consensus/istanbul/engine/adversarial_worker_b_rotation_test.go",
+      "source": "reports/electroneum/B/tests/test_committed_seal_round_binding_test.go",
+      "target": "consensus/istanbul/engine/adversarial_worker_b_round_binding_test.go",
       "package": "./consensus/istanbul/engine",
-      "test": "TestWorkerBValidatorSetRotationSealAuthorization",
+      "test": "TestWorkerBCommittedSealRoundBinding",
       "markers": [
-        "B_ROTATION_NEW_SET_HONEST",
-        "B_ROTATION_RETIRED_REJECTED",
-        "B_ROTATION_OLD_SET_BOUNDARY",
-        "B_ROTATION_TWO_OF_FOUR_REJECTED"
+        "B_ROUND_BINDING_HONEST",
+        "B_ROUND_BINDING_REPLAY_REJECTED"
       ],
-      "classification": "new-set vs retired signer committed-seal authorization component; canonical validator-set selection and network exposure not proven"
+      "classification": "signed round-one quorum vs round-zero vote replay; engine-only; default ingress, canonical state, and external impact unverified"
     }
   ]
 }
