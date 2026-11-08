@@ -3,18 +3,18 @@
   "owner": "A",
   "probes": [
     {
-      "id": "A-live-qbft-identical-signed-replay",
+      "id": "A-live-qbft-same-nonce-competing-recipients",
       "owner": "A",
-      "source": "reports/electroneum/A/tests/live_qbft_stale_signed_replay_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_stale_signed_replay_test.go",
+      "source": "reports/electroneum/A/tests/live_qbft_same_nonce_competing_recipients_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_same_nonce_competing_recipients_test.go",
       "package": "./consensus/istanbul/backend",
-      "test": "TestLiveAIdenticalSignedReplayBeforeQBFTSeal",
+      "test": "TestLiveASameNonceCompetingRecipientsCanonical",
       "markers": [
-        "A_STALE_REPLAY_CANONICAL seed=91",
-        "A_STALE_REPLAY_CANONICAL seed=92",
-        "A_STALE_REPLAY_CANONICAL seed=93"
+        "A_SAME_NONCE_CANONICAL seed=91",
+        "A_SAME_NONCE_CANONICAL seed=92",
+        "A_SAME_NONCE_CANONICAL seed=93"
       ],
-      "classification": "Duplicate byte-identical signed transaction submitted by second outsider relay after first state transition, before canonical QBFT sealing; must reject duplicate and prevent second recipient credit; three distinct initial balances/values; not a cross-block replay claim."
+      "classification": "Two valid signed transactions share nonce but target different recipients and prices. After first canonical QBFT inclusion, reject competing same-nonce transaction without mutation; honest nonce-1 control seals next block. Three distinct genesis balances/transfer values. Core ApplyTransaction is not txpool/RPC ingress, so G0 not established; not submission ready."
     },
     {
       "id": "A-live-qbft-cross-block-signed-replay",
