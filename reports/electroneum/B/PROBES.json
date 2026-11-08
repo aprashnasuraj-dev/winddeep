@@ -29,17 +29,16 @@
       "classification": "outsider peer replay of observed signed QBFT PREPARE payload under COMMIT transport code, followed by authentic PREPARE; component ingress event-dispatch differential only; no distributed finality claim"
     },
     {
-      "id": "B-cross-code-qbft-quorum-state",
+      "id": "B-four-validator-byzantine-live-net",
       "owner": "B",
-      "source": "reports/electroneum/B/tests/live_cross_code_quorum_state_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_b_quorum_state_test.go",
+      "source": "reports/electroneum/B/tests/live_four_validator_simnet_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_b_four_val_net_test.go",
       "package": "./consensus/istanbul/backend",
-      "test": "TestLiveBCrossCodeQuorumImpact",
+      "test": "TestLiveBOneByzantineFourValidatorNetworkLiveness",
       "markers": [
-        "B_QUORUM_ACTUAL_STATE",
-        "B_QUORUM_LIVENESS_DIFFERENTIAL"
+        "B_FOUR_VALIDATOR_NETWORK_ORACLE"
       ],
-      "classification": "signed preprepare plus 3 honest-validator prepares (incl own) in real live QBFT core vs one Byzantine wrong-code suppression, require clean three-of-four Prepared state; single-node state only, not four-distributed consensus liveness demonstration"
+      "classification": "isolated 4 actual independent QBFT backend/core instances with 3-of-4 honest quorum, one Byzantine retag relay, protocol-valid gossip scheduling, canonical block height across 3 honest nodes; isolated simulated transport, not external live network"
     }
   ]
 }
