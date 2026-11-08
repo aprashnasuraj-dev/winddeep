@@ -56,7 +56,7 @@ func TestLiveACrossBlockReplayAfterQBFTCommit(t *testing.T) {
    fee:=new(big.Int).Mul(price,big.NewInt(21000))
    expected:=new(big.Int).Sub(big.NewInt(initial),new(big.Int).Add(big.NewInt(tc.value),fee))
    if actual.GetBalance(sender).Cmp(expected)!=0||actual.GetBalance(recipient).Cmp(big.NewInt(tc.value))!=0||actual.GetBalance(competing).Sign()!=0||actual.GetNonce(sender)!=1 {
-    t.Fatalf("A_CROSS_BLOCK_REPLAY_BREACH seed=%d sender=%s expected=%s first=%s second=%s nonce=%d",tc.seed,actual.GetBalance(sender),expected,actual.GetBalance(recipient),actual.GetBalance(competing),actual.GetNonce(sender),secondSealed.Hash())
+    t.Fatalf("A_CROSS_BLOCK_REPLAY_BREACH seed=%d sender=%s expected=%s first=%s second=%s nonce=%d",tc.seed,actual.GetBalance(sender),expected,actual.GetBalance(recipient),actual.GetBalance(competing),actual.GetNonce(sender))
    }
    // Replay through a second relay only AFTER the first block became canonical.
    nextHeader:=makeHeader(sealed,engine.config)
@@ -85,7 +85,7 @@ func TestLiveACrossBlockReplayAfterQBFTCommit(t *testing.T) {
    if chain.CurrentBlock().Hash()!=secondSealed.Hash()||after.GetBalance(sender).Cmp(expected)!=0||after.GetBalance(recipient).Cmp(big.NewInt(tc.value))!=0||after.GetNonce(sender)!=1 {
     t.Fatalf("A_CROSS_BLOCK_REPLAY_BREACH seed=%d second canonical state differs",tc.seed)
    }
-   t.Logf("A_CROSS_BLOCK_REPLAY_CANONICAL seed=%d block=%s tx=%s sender=%s recipient=%s rejected_recipient=%s nonce=%d second_block=%s",tc.seed,sealed.Hash(),first.Hash(),actual.GetBalance(sender),actual.GetBalance(recipient),actual.GetBalance(competing),actual.GetNonce(sender))
+   t.Logf("A_CROSS_BLOCK_REPLAY_CANONICAL seed=%d block=%s tx=%s sender=%s recipient=%s rejected_recipient=%s nonce=%d second_block=%s",tc.seed,sealed.Hash(),first.Hash(),actual.GetBalance(sender),actual.GetBalance(recipient),actual.GetBalance(competing),actual.GetNonce(sender),secondSealed.Hash())
   })
  }
 }
