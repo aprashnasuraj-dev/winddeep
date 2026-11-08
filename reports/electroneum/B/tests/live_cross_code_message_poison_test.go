@@ -16,7 +16,7 @@ import (
 )
 
 // TestLiveBCrossCodeSignedPrepareSuppression tests a real signature-bearing
-// QBFT PREPARE, first replayed by an outsider peer under a different
+// QBFT PREPARE, first replayed by one Byzantine validator under a different
 // transport code (COMMIT), then received under the original PREPARE code.
 // The asserted invariant is that a previously invalidly typed frame must
 // not suppress subsequent dispatch of authentic typed consensus messages.
@@ -32,19 +32,28 @@ func TestLiveBCrossCodeSignedPrepareSuppression(t *testing.T) {
    prep.SetSignature(sig)
    wire,e:=rlp.EncodeToBytes(prep);if e!=nil{t.Fatal(e)}
    honestAddr:=crypto.PubkeyToAddress(keys[1].PublicKey)
-   outsiderKey,e:=crypto.HexToECDSA(fmt.Sprintf("%064x",uint64(scenario)+9000));if e!=nil{t.Fatal(e)}
-   outsiderAddr:=crypto.PubkeyToAddress(outsiderKey.PublicKey)
+   byzAddr:=crypto.PubkeyToAddress(keys[3].PublicKey)
    run:=func(poison bool)(validDispatched bool,wrongDispatched bool,err error) {
     chain,backend:=newBlockchainFromConfig(genesis,keys,cfg)
     defer backend.Stop()
     sub:=backend.EventMux().Subscribe(istanbul.MessageEvent{})
     defer sub.Unsubscribe()
-    send:=func(code uint64,fromAddr [20]byte) error {
-     handled,e:=backend.HandleMsg(fromAddr,p2p.Msg{
-      Code:code,Size:uint32(len(wire)),Payload:bytes.NewReader(wire),
-     })
-     if !handled||e!=nil {return fmt.Errorf("code=%d handled=%v err=%v",code,handled,e)}
-     return nil
+    send:=func(code uint64,fromAddr [20]byte) <-chan error {
+     completed:=make(chan error,1)
+     go func(){
+      handled,e:=backend.HandleMsg(fromAddr,p2p.Msg{
+       Code:code,Size:uint32(len(wire)),Payload:bytes.NewReader(wire),
+      })
+      if !handled||e!=nil {completed<-fmt.Errorf("code=%d handled=%v err=%v",code,handled,e);return}
+      completed<-nil
+     }()
+     return completed
+    }
+    waitResult:=func(ch <-chan error) error{
+     select{
+      case e:=<-ch:return e
+      case <-time.After(2*time.Second):return fmt.Errorf("HandleMsg did not return; blocked consensus event delivery")
+     }
     }
     recv:=func(d time.Duration)(uint64,bool) {
      select {
@@ -57,13 +66,15 @@ func TestLiveBCrossCodeSignedPrepareSuppression(t *testing.T) {
      }
     }
     if poison {
-     if err=send(qbfttypes.CommitCode,outsiderAddr);err!=nil{return}
+     done:=send(qbfttypes.CommitCode,byzAddr)
      code,ok:=recv(800*time.Millisecond)
+     if err=waitResult(done);err!=nil{return}
      wrongDispatched=ok&&code==qbfttypes.CommitCode
      if !wrongDispatched {err=fmt.Errorf("poison type was not dispatched code=%d seen=%v",code,ok);return}
     }
-    if err=send(qbfttypes.PrepareCode,honestAddr);err!=nil{return}
-    code,ok:=recv(80*time.Millisecond)
+    done:=send(qbfttypes.PrepareCode,honestAddr)
+    code,ok:=recv(120*time.Millisecond)
+    if err=waitResult(done);err!=nil{return}
     validDispatched=ok&&code==qbfttypes.PrepareCode
     if chain.CurrentBlock().NumberU64()!=0 {err=fmt.Errorf("test unexpectedly committed a block")}
     return
@@ -74,8 +85,8 @@ func TestLiveBCrossCodeSignedPrepareSuppression(t *testing.T) {
    t.Logf("B_CROSS_CODE_POISON_FIRED scenario=%d wire=%d wrong_code=%d wrong_dispatched=true",scenario,len(wire),qbfttypes.CommitCode)
    cleanValid,_,err:=run(false)
    if err!=nil{t.Fatal(err)}
-   t.Logf("B_CROSS_CODE_ORACLE scenario=%d expected_valid_dispatch=true clean_dispatch=%v poison_then_valid_dispatch=%v signed_sender=%s relay_outsider=%s",
-    scenario,cleanValid,poisonedValid,honestAddr,outsiderAddr)
+   t.Logf("B_CROSS_CODE_ORACLE scenario=%d expected_valid_dispatch=true clean_dispatch=%v poison_then_valid_dispatch=%v signed_sender=%s relay_byzantine_validator=%s",
+    scenario,cleanValid,poisonedValid,honestAddr,byzAddr)
    if !cleanValid {t.Fatal("B_CROSS_CODE_HARNESS_INVALID: same honest message did not dispatch on clean backend")}
    if poisonedValid {
     t.Logf("B_CROSS_CODE_GUARD_HELD scenario=%d no_suppression=true",scenario)
