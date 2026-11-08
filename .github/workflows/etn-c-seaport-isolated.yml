@@ -1,0 +1,101 @@
+name: ETN C independent Seaport-format consent discriminator
+on:
+  push:
+    branches: [electroneum-sc-master-audit]
+    paths:
+      - 'reports/electroneum/C/test_seaport_signer_consent_test.go'
+      - '.github/workflows/etn-c-seaport-isolated.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: etn-c-seaport-${{ github.sha }}
+  cancel-in-progress: false
+jobs:
+  certified-signer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Execute in historical certified signer runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = "7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = "de7f3c75a2db7e87a89918f1257820703d5b731e"
+          scratch="$(mktemp -d)"
+          cp -a "$WINDEEP_ETN_SOURCE/." "$scratch/"
+          chmod u+w "$scratch/signer/core"
+          cp reports/electroneum/C/test_seaport_signer_consent_test.go "$scratch/signer/core/adversarial_c_seaport_consent_test.go"
+          cd "$scratch"
+          printf 'target_source_sha=%s\ntrigger_sha=%s\n' "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" "$GITHUB_SHA" > "$RUNNER_TEMP/c-seaport-pin.txt"
+          set +e
+          go test -count=1 -timeout=15m -run '^TestWorkerCSeaportV15HiddenOfferConsent$' -v ./signer/core 2>&1 | tee "$RUNNER_TEMP/c-seaport.log"
+          exitcode="${PIPESTATUS[0]}"
+          set -e
+          echo "$exitcode" > "$RUNNER_TEMP/c-seaport.exit"
+          echo "C_SEAPORT_TEST_EXIT=$exitcode"
+          test "$exitcode" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: etn-c-seaport-certified-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/c-seaport-pin.txt
+            ${{ runner.temp }}/c-seaport.log
+            ${{ runner.temp }}/c-seaport.exit
+            reports/electroneum/C/test_seaport_signer_consent_test.go
+          retention-days: 14
+          if-no-files-found: warn
+  current-upstream-signer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Test public upstream at immutable SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/c-seaport-source"
+          git -C "$RUNNER_TEMP/c-seaport-source" init -q
+          git -C "$RUNNER_TEMP/c-seaport-source" remote add origin https://github.com/electroneum/electroneum-sc.git
+          git -C "$RUNNER_TEMP/c-seaport-source" fetch --quiet --depth=1 origin db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          git -C "$RUNNER_TEMP/c-seaport-source" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/c-seaport-source" rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          cp reports/electroneum/C/test_seaport_signer_consent_test.go "$RUNNER_TEMP/c-seaport-source/signer/core/adversarial_c_seaport_consent_test.go"
+          printf 'target_source_sha=db0eb8792dd57304fbc66a60377c7663e1bd44d2\ntrigger_sha=%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/c-seaport-current-pin.txt"
+          cd "$RUNNER_TEMP/c-seaport-source"
+          set +e
+          go test -count=1 -timeout=15m -run '^TestWorkerCSeaportV15HiddenOfferConsent$' -v ./signer/core 2>&1 | tee "$RUNNER_TEMP/c-seaport-current.log"
+          exitcode="${PIPESTATUS[0]}"
+          set -e
+          echo "$exitcode" > "$RUNNER_TEMP/c-seaport-current.exit"
+          echo "C_SEAPORT_CURRENT_TEST_EXIT=$exitcode"
+          test "$exitcode" -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: etn-c-seaport-current-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/c-seaport-current-pin.txt
+            ${{ runner.temp }}/c-seaport-current.log
+            ${{ runner.temp }}/c-seaport-current.exit
+            reports/electroneum/C/test_seaport_signer_consent_test.go
+          retention-days: 14
+          if-no-files-found: warn
