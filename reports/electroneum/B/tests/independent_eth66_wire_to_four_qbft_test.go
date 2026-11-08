@@ -121,7 +121,7 @@ func isolatedWireQBFTCandidate(node *isolatedWireQBFTNode)(*types.Block,error){
  st,err:=node.chain.StateAt(parent.Root());if err!=nil{return nil,err}
  return node.engine.FinalizeAndAssemble(node.chain,header,st,nil,nil,nil)
 }
-func isolatedWireConnectHeadOnly(t *testing.T,n *isolatedWireQBFTNode,idx byte)(*isolatedWireAttacker,error){
+func isolatedWireConnectHeadOnly(t *testing.T,n *isolatedWireQBFTNode,idx byte,autoSync bool)(*isolatedWireAttacker,error){
  t.Helper()
  rw,attackerRW:=p2p.MsgPipe()
  caps:=[]p2p.Cap{{Name:"etn",Version:ethproto.ETH66}}
@@ -189,19 +189,19 @@ func isolatedWireConnectHeadOnly(t *testing.T,n *isolatedWireQBFTNode,idx byte)(
  if peer==nil{return c,fmt.Errorf("no successfully authenticated ETH66 source")}
  op:=peerToSyncOp(downloader.FullSync,peer)
  if op.td.Cmp(big.NewInt(0))<=0{return c,fmt.Errorf("untrusted peer did not advertise higher TD")}
- go func(){c.syncResult<-n.handler.doSync(op)}()
+ if !autoSync { go func(){c.syncResult<-n.handler.doSync(op)}() }
  select{
  case <-c.ancestryRequested:
  case err:=<-c.syncResult:return c,fmt.Errorf("head-only peer exited before ancestry: %w",err)
  case err:=<-c.serveErrors:return c,fmt.Errorf("attacker test wire service failed: %w",err)
- case <-time.After(10*time.Second):return c,fmt.Errorf("no ETH66 ancestry lookup observed")
+ case <-time.After(21*time.Second):return c,fmt.Errorf("no ETH66 ancestry lookup observed; auto_scheduler=%v",autoSync)
  }
  if !isolatedWaitMiner(n.miner,false){return c,fmt.Errorf("actual QBFT miner still running")}
  if n.chain.CurrentBlock().NumberU64()!=0{return c,fmt.Errorf("attacker imported unauthorized canonical block")}
  t.Logf("QBFT_ETH66_WIRE_VALIDATOR_STOPPED address=%s real_eth66_handshake=true ancestor_verified=false miner_running=false",n.addr)
  return c,nil
 }
-func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int){
+func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int,autoSync bool){
  genesis,keys:=testutils.GenesisAndKeys(4)
  net:=&isolatedWireQBFTNet{nodes:map[common.Address]*isolatedWireQBFTNode{}}
  nodes:=make([]*isolatedWireQBFTNode,0,4)
@@ -267,7 +267,7 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int){
   n.miner=etnminer.New(&isolatedWireMinerBackend{chain:n.chain,pool:pool},&cfg,n.chain.Config(),mux,n.engine,nil)
   n.miner.Start(n.addr)
   if !isolatedWaitMiner(n.miner,true){t.Fatal("actual validator miner did not start")}
-  attack,err:=isolatedWireConnectHeadOnly(t,n,byte(targeted+1))
+  attack,err:=isolatedWireConnectHeadOnly(t,n,byte(targeted+1),autoSync)
   if attack!=nil{attacks=append(attacks,attack)}
   if err!=nil{t.Fatal(err)}
   targeted++
@@ -313,9 +313,17 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int){
 }
 func TestIndependentTwoEth66WirePeersHaltFourQBFTSignerQuorum(t *testing.T) {
  t.Run("one_untrusted_peer_three_live_signed_quorum",func(t *testing.T){
-  independentRunEth66WireQBFTThreshold(t,1)
+  independentRunEth66WireQBFTThreshold(t,1,false)
  })
  t.Run("two_untrusted_peers_two_live_no_quorum",func(t *testing.T){
-  independentRunEth66WireQBFTThreshold(t,2)
+  independentRunEth66WireQBFTThreshold(t,2,false)
  })
+}
+
+// The production chainSyncer itself must select the high-TD untrusted peer.
+// Unlike the base fixture this test DOES NOT call handler.doSync; it waits
+// for the shipped ten-second forceSyncCycle to discover the peer and begin
+// the downloader autonomously. It tests the shipped scheduler boundary.
+func TestIndependentAutomaticEth66QBFTTwoPeerOutage(t *testing.T) {
+ independentRunEth66WireQBFTThreshold(t,2,true)
 }
