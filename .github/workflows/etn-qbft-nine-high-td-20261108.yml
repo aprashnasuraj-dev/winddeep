@@ -1,0 +1,74 @@
+name: ETN nine-val realistic 97-bit claimed TD differential
+on:
+  push:
+    branches: [etn-qbft-nine-high-td-20261108]
+    paths: [.github/workflows/etn-qbft-nine-high-td-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  nine-high-td:
+    strategy:
+      fail-fast: false
+      matrix:
+        case: [control-three, attack-four]
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Stage nine-validator real source with protocol-allowed production-range 97-bit TD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/independent_eth66_wire_to_nine_full_miners_test.go target/eth/adversarial_eth66_nine_full_miners_test.go
+          python3 - <<'PY'
+          from pathlib import Path
+          path=Path("target/eth/adversarial_eth66_nine_full_miners_test.go")
+          s=path.read_text()
+          old="aPeer.Handshake(1,big.NewInt(1000000000),head.Hash(),genesis,fork,filter)"
+          new="aPeer.Handshake(1,new(big.Int).Lsh(big.NewInt(1),96),head.Hash(),genesis,fork,filter)"
+          assert s.count(old)==1,"unexpected source mismatch"
+          path.write_text(s.replace(old,new))
+          print("HIGH_TD_BOUNDARY_BITLEN=97 allowed_max_bitlen=100")
+          PY
+          (cd target && gofmt -w eth/adversarial_eth66_nine_full_miners_test.go)
+          cp target/eth/adversarial_eth66_nine_full_miners_test.go evidence/PoC/
+          echo 'upstream=db0eb8792dd57304fbc66a60377c7663e1bd44d2' > evidence/identity.txt
+          echo 'research_commit=${{ github.sha }}' >> evidence/identity.txt
+          echo 'untrusted_peer_advertised_td=2^96,bitlen=97,allowed_max_bitlen=100' >> evidence/identity.txt
+          echo 'independent_real_eth66=true,real_nine_QBFT_miners=true,no_public_network=true' >> evidence/identity.txt
+      - name: 3 independent fresh network starts with high-TD attack and controls
+        shell: bash
+        working-directory: target
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.case }}" = "control-three" ]; then
+            rex='^TestIndependentNineFullMinersThreePeerGuard$'
+          else
+            rex='^TestIndependentNineFullMinersFourPeerLiveness$'
+          fi
+          for n in 1 2 3; do
+            go test ./eth -run "$rex" -count=1 -v -timeout=125s 2>&1 | tee "../evidence/${{ matrix.case }}-$n.log"
+          done
+          (cd ../evidence && sha256sum *.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-high-td-${{ matrix.case }}-${{ github.run_id }}
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: warn
