@@ -20,7 +20,7 @@ fixture=Path(sys.argv[2])
 old_source=source.read_text()
 old_test=fixture.read_text()
 assert old_source.count("\td.mux.Post(ProgressEvent{})")==1
-assert old_source.count("\td.syncStatsLock.Lock()")==1
+assert old_source.count("\t}\n\td.syncStatsLock.Lock()")==1
 
 # This is the exact trust-boundary correction under investigation: the
 # untrusted remote head is insufficient until a common ancestor is found.
