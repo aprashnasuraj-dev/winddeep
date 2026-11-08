@@ -29,16 +29,17 @@
       "classification": "bounded expired-filter global mutex liveness probe; NOT vulnerability proof"
     },
     {
-      "id": "E-RPC-009-LOG-TOPIC-BUDGET",
+      "id": "E-RPC-011-SELECTOR-CONFLICT",
       "owner": "E",
-      "source": "reports/electroneum/E/test_log_topic_budget_test.go",
-      "target": "eth/filters/adversarial_e_log_topic_budget_test.go",
+      "source": "reports/electroneum/E/test_selector_conflict_test.go",
+      "target": "eth/filters/adversarial_e_selector_conflict_test.go",
       "package": "./eth/filters",
-      "test": "TestWorkerELogTopicBudget",
+      "test": "TestWorkerEConflictingBlockSelectors",
       "markers": [
-        "E_LOG_TOPIC_GUARD"
+        "E_SELECTOR_CONFLICT",
+        "E_SELECTOR_INVARIANT"
       ],
-      "classification": "per-position versus aggregate filter limit characterization; NOT resource exhaustion proof"
+      "classification": "public eth_getLogs blockHash/range selector conflict validation; guard characterization only, not vulnerability proof"
     }
   ]
 }
