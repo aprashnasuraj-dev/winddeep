@@ -17,7 +17,7 @@ func TestWorkerBCommittedSealRoundBinding(t *testing.T) {
    round:=big.NewInt(1)
    sign:=func(r *big.Int)[][]byte {
     t.Helper()
-    payload:=PrepareCommittedSeal(h,r.Uint64())
+    payload:=PrepareCommittedSeal(h,uint32(r.Uint64()))
     out:=make([][]byte,0,3)
     for i:=0;i<3;i++ {s,e:=crypto.Sign(payload,keys[i]);if e!=nil{t.Fatal(e)};out=append(out,s)}
     return out
