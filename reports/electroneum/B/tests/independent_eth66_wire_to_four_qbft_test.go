@@ -198,8 +198,21 @@ func isolatedWireConnectHeadOnly(t *testing.T,n *isolatedWireQBFTNode,idx byte,a
  }
  if autoSync {t.Log("ETH66_AUTOMATIC_SYNC_SELECTED_HIGH_TD_UNTRUSTED_PEER forceSyncCycle_seconds=10 handler_doSync_manually_called=false")}
  if !isolatedWaitMiner(n.miner,false){return c,fmt.Errorf("actual QBFT miner still running")}
- if n.chain.CurrentBlock().NumberU64()!=0{return c,fmt.Errorf("attacker imported unauthorized canonical block")}
- t.Logf("QBFT_ETH66_WIRE_VALIDATOR_STOPPED address=%s real_eth66_handshake=true ancestor_verified=false miner_running=false",n.addr)
+ // When the natural 10-second scheduler selects the malicious peer,
+ // honest signers can legitimately finalize one or more blocks beforehand.
+ // Verify any pre-existing canonical head cryptographically rather than
+ // mistaking a valid earlier block for an attacker-inserted header.
+ observed:=n.chain.CurrentBlock()
+ if observed.NumberU64()>0 {
+  if err:=n.engine.VerifyHeader(n.chain,observed.Header(),true);err!=nil {
+   return c,fmt.Errorf("canonical head after peer request lacks valid QBFT consensus seals: %w",err)
+  }
+  t.Logf("ETH66_AUTO_VALID_SIGNED_HONEST_CHAIN_HEAD number=%d hash=%s",observed.NumberU64(),observed.Hash())
+ }
+ if observed.Hash()==head.Hash(){
+  return c,fmt.Errorf("attacker-controlled advertised unsigned head became canonical")
+ }
+ t.Logf("QBFT_ETH66_WIRE_VALIDATOR_STOPPED address=%s real_eth66_handshake=true ancestor_verified=false miner_running=false canonical_height=%d",n.addr,observed.NumberU64())
  return c,nil
 }
 func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int,autoSync bool){
