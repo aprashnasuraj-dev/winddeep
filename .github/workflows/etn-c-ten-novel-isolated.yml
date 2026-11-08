@@ -62,11 +62,13 @@ jobs:
         with:
           name: etn-c-ten-novel-${{ github.run_id }}
           path: |
+            reports/electroneum/C/test_ten_novel_boundaries_test.go
             ${{ runner.temp }}/etn-c-ten-novel.log
             ${{ runner.temp }}/etn-c-ten-novel.exit
             ${{ runner.temp }}/etn-c-ten-provenance.txt
           if-no-files-found: warn
           retention-days: 14
+          # The exact replay fixture is included for byte-for-byte audit.
 
   c-ten-latest-upstream:
     runs-on: ubuntu-latest
@@ -114,8 +116,10 @@ jobs:
         with:
           name: etn-c-ten-current-${{ github.run_id }}
           path: |
+            reports/electroneum/C/test_ten_novel_boundaries_test.go
             ${{ runner.temp }}/etn-c-ten-current.log
             ${{ runner.temp }}/etn-c-ten-current.exit
             ${{ runner.temp }}/etn-c-current-provenance.txt
           if-no-files-found: warn
           retention-days: 14
+          # The exact replay fixture is included for byte-for-byte audit.
