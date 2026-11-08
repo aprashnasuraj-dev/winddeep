@@ -1,0 +1,66 @@
+name: ETN nine-validator 7-of-9 threshold versus ETH66 head-only liveness
+on:
+  push:
+    branches: [etn-qbft-nine-validator-20261108]
+    paths: [.github/workflows/etn-qbft-nine-validator-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  nine-validator:
+    strategy:
+      fail-fast: false
+      matrix:
+        experiment: [manual-control, automatic-selection]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Stage pinned upstream and nine-validator isolated adversarial test
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/independent_eth66_wire_to_nine_qbft_test.go target/eth/adversarial_eth66_nine_qbft_test.go
+          (cd target && gofmt -w eth/adversarial_eth66_nine_qbft_test.go)
+          cp target/eth/adversarial_eth66_nine_qbft_test.go evidence/PoC/
+          echo 'official_target=db0eb8792dd57304fbc66a60377c7663e1bd44d2' > evidence/identity.txt
+          echo 'test_commit=${{ github.sha }}' >> evidence/identity.txt
+          echo 'experiment=${{ matrix.experiment }}' >> evidence/identity.txt
+          echo 'in_memory_eth66_wire_and_qbft_gossip=true' >> evidence/identity.txt
+          echo 'public_TCP_peer_reachability_not_established=true' >> evidence/identity.txt
+          echo 'nine_is_simulated_validator_count_not_live_mainnet_proof=true' >> evidence/identity.txt
+      - name: Run three independent genuine QBFT threshold experiments
+        shell: bash
+        working-directory: target
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.experiment }}" = manual-control ]; then
+            rex='^TestIndependentThreeEth66WirePeersHaltNineQBFTSignerQuorum$'
+          else
+            rex='^TestIndependentAutomaticEth66QBFTThreePeerOutage$'
+          fi
+          for n in 1 2 3; do
+            go test ./eth -run "$rex" -count=1 -v -timeout=150s 2>&1 | tee "../evidence/${{ matrix.experiment }}-$n.log"
+          done
+          (cd ../evidence && sha256sum *.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-nine-qbft-${{ matrix.experiment }}-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
