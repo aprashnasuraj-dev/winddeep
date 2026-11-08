@@ -41,19 +41,17 @@
       "classification": "QBFT backend makeBlock and InsertChain canonical import prerequisite only; no signed transfer, fee invariant, or attack proof; forged Coinbase post-seal negative control must fail InsertChain and leave canonical head/root unchanged"
     },
     {
-      "id": "A-fee-recipient-collision",
+      "id": "A-live-qbft-beneficiary-collision",
       "owner": "A",
-      "source": "reports/electroneum/A/tests/fee_recipient_collision_test.go",
-      "target": "core/adversarial_worker_a_fee_recipient_collision_test.go",
-      "package": "./core",
-      "test": "TestWorkerAFeeRecipientCollision",
+      "source": "reports/electroneum/A/tests/live_qbft_fee_collision_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_fee_collision_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestLiveAValidSignedQBFTFeeCollision",
       "markers": [
-        "A_COLLISION_ORACLE case=honest_separate",
-        "A_COLLISION_ORACLE case=attacker_collision",
-        "A_COLLISION_ORACLE case=zero_price_collision",
-        "A_COLLISION_ORACLE case=exact_balance_collision"
+        "A_QBFT_COLLISION_CANONICAL",
+        "A_QBFT_COLLISION_MUTATION_REJECTED"
       ],
-      "classification": "signed outsider-controlled transfer destination collides with block fee beneficiary; compare against independent empty-block issuance baseline; Ethash faker component path only, NOT QBFT canonical proof"
+      "classification": "LIVE-CHAT externally signed tx -> QBFT seal -> canonical insertion -> balance/nonce invariant, fresh genesis states; candidate research not a proven exploit"
     }
   ]
 }
