@@ -34,18 +34,18 @@
       "classification": "Signed conflicting same-nonce relay transfers: reject second after first execution; seal first in canonical QBFT; three independently funded states; independent debit/value/nonce oracle. Guard-passed result is not a vulnerability."
     },
     {
-      "id": "A-live-qbft-sequential-underfunded-relay",
+      "id": "A-live-qbft-under-base-fee-relay",
       "owner": "A",
-      "source": "reports/electroneum/A/tests/live_qbft_sequential_underfunded_relay_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_sequential_underfunded_relay_test.go",
+      "source": "reports/electroneum/A/tests/live_qbft_under_base_fee_relay_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_under_base_fee_relay_test.go",
       "package": "./consensus/istanbul/backend",
-      "test": "TestLiveASequentialUnderfundedRelayRejection",
+      "test": "TestLiveAUnderBaseFeeRelayRejection",
       "markers": [
-        "A_UNDERFUNDED_RELAY_CANONICAL seed=91",
-        "A_UNDERFUNDED_RELAY_CANONICAL seed=92",
-        "A_UNDERFUNDED_RELAY_CANONICAL seed=93"
+        "A_BASEFEE_RELAY_CANONICAL seed=91",
+        "A_BASEFEE_RELAY_CANONICAL seed=92",
+        "A_BASEFEE_RELAY_CANONICAL seed=93"
       ],
-      "classification": "Signed next-nonce transaction exceeds remaining sender balance after valid first transaction; rejects second without recipient credit or nonce advance, then canonical QBFT admission of first; three funded states. No vulnerability without observed violation."
+      "classification": "Outsider signed dynamic-fee next-nonce relay with cap below base fee following valid transfer; only genuine London-active canonical QBFT admission counts; skips non-London configurations, independent balance/nonce oracle, no breach assumed."
     }
   ]
 }
