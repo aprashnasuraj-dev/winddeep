@@ -30,17 +30,18 @@
       "classification": "public eth_getLogs blockHash/range selector conflict validation; guard characterization only, not vulnerability proof"
     },
     {
-      "id": "E-LIVE-RPC-WILDCARD-API",
+      "id": "E-RPC-017-EXPIRY-POLL-RACE",
       "owner": "E",
-      "source": "reports/electroneum/E/test_live_wildcard_getlogs_test.go",
-      "target": "eth/filters/adversarial_live_e_wildcard_getlogs_test.go",
+      "source": "reports/electroneum/E/test_filter_expiry_poll_race_test.go",
+      "target": "eth/filters/adversarial_e_filter_expiry_poll_race_test.go",
       "package": "./eth/filters",
-      "test": "TestLiveEWildcardCapAgainstGetLogs",
+      "test": "TestWorkerEFilterExpiryPollingBounded",
       "markers": [
-        "E_LIVE_ENTRY_COMPARISON",
-        "E_LIVE_LIMIT_POLICY_RESULT"
+        "E_EXPIRY_CREATE",
+        "E_EXPIRY_POLL",
+        "E_EXPIRY_STUCK"
       ],
-      "classification": "LIVE-CHAT bounded public FilterAPI in-process JSON criteria versus configured cap: policy and API error measured, no DoS or external impact asserted"
+      "classification": "bounded public filter expiry/poll race, timeout invariant only; not demonstrated availability exploit"
     }
   ]
 }
