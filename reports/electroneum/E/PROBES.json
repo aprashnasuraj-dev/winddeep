@@ -36,10 +36,9 @@
       "package": "./eth/filters",
       "test": "TestWorkerEOrphanBlockHashLogBoundary",
       "markers": [
-        "E_ORPHAN_DIFFERENTIAL",
-        "E_ORPHAN_CANONICAL_ORACLE"
+        "E_ORPHAN_DIFFERENTIAL"
       ],
-      "classification": "bounded historical block-hash vs canonical log behavioral test; no signed-QBFT or security impact proof"
+      "classification": "observed historical hash-specific logs from synthetic rawdb states; canonical oracle held; not a signed QBFT security breach; retired after verified log"
     }
   ]
 }
