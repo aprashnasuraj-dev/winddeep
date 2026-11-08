@@ -15,7 +15,6 @@ import (
  "github.com/electroneum/electroneum-sc/consensus/misc"
  "github.com/electroneum/electroneum-sc/core"
  "github.com/electroneum/electroneum-sc/core/rawdb"
- "github.com/electroneum/electroneum-sc/core/types"
  "github.com/electroneum/electroneum-sc/core/vm"
  "github.com/electroneum/electroneum-sc/crypto"
  "github.com/electroneum/electroneum-sc/p2p"
