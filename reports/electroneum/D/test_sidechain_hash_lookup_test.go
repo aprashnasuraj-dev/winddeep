@@ -38,6 +38,8 @@ func TestWorkerDSidechainHashLookupRestart(t *testing.T) {
      n:=uint64(i+1)
      if rawdb.ReadCanonicalHash(db,n)==block.Hash(){t.Fatalf("%s D_SIDECHAIN_CANONICAL_BREACH height=%d",stage,n)}
      if got:=rawdb.ReadBlock(db,block.Hash(),n);got==nil||got.Hash()!=block.Hash(){t.Fatalf("%s sidechain body missing height=%d",stage,n)}
+     if hn:=rawdb.ReadHeaderNumber(db,block.Hash());hn==nil||*hn!=n{t.Fatalf("%s D_SIDECHAIN_HEADER_NUMBER_BREACH height=%d lookup=%v",stage,n,hn)}
+     if hdr:=rawdb.ReadHeader(db,block.Hash(),n);hdr==nil||hdr.Hash()!=block.Hash(){t.Fatalf("%s D_SIDECHAIN_HEADER_BREACH height=%d",stage,n)}
     }
    }
    check("before_restart")
