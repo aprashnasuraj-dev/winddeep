@@ -1,0 +1,54 @@
+name: ETN nine-validator automatic 6-of-9 finalization guard
+on:
+  push:
+    branches: [etn-qbft-nine-validator-parallel-20261108]
+    paths: [.github/workflows/etn-qbft-nine-parallel-auto-control-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  three-peers-quorum-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Stage current pin and record identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/independent_eth66_wire_to_nine_qbft_test.go target/eth/adversarial_eth66_nine_qbft_test.go
+          (cd target && gofmt -w eth/adversarial_eth66_nine_qbft_test.go)
+          cp target/eth/adversarial_eth66_nine_qbft_test.go evidence/PoC/
+          echo "upstream=db0eb8792dd57304fbc66a60377c7663e1bd44d2" > evidence/identity.txt
+          echo "research_commit=${{ github.sha }}" >> evidence/identity.txt
+          echo 'automatic_PEER_selection=true; external_TCP_unverified=true' >> evidence/identity.txt
+      - name: Three fresh 3-of-9 stopped -> 6-of-9 signed canonical quorum controls
+        shell: bash
+        working-directory: target
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            go test ./eth -run '^TestIndependentAutomaticEth66QBFTThreePeerQuorumControl$' -count=1 -v -timeout=110s 2>&1 | tee "../evidence/auto-control-$n.log"
+          done
+          (cd ../evidence && sha256sum auto-control-*.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-nine-auto-control-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
