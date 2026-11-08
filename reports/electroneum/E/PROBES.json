@@ -29,16 +29,16 @@
       "classification": "outside-in HTTP request response isolation; no vulnerability claimed without executed target differential"
     },
     {
-      "id": "E-RPC-021-WS-RECONNECT",
+      "id": "E-RPC-022-WS-DEFAULT-ORIGIN",
       "owner": "E",
-      "source": "reports/electroneum/E/test_websocket_reconnect_isolation_test.go",
-      "target": "rpc/adversarial_e_websocket_reconnect_isolation_test.go",
+      "source": "reports/electroneum/E/test_ws_default_origin_boundary_test.go",
+      "target": "rpc/adversarial_e_ws_default_origin_boundary_test.go",
       "package": "./rpc",
-      "test": "TestWorkerEWebsocketReconnectIsolation",
+      "test": "TestWorkerEWebsocketDefaultOriginBoundary",
       "markers": [
-        "E_WS_RECONNECT"
+        "E_WS_ORIGIN_BOUNDARY"
       ],
-      "classification": "bounded WebSocket session reconnection and response isolation; not evidence of a security impact"
+      "classification": "default WebSocket origin boundary discrimination; no vulnerability unless untrusted origin is accepted and meaningful impact proven"
     }
   ]
 }
