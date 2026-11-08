@@ -1,0 +1,55 @@
+name: ETN real ETH66 ingress to 4-validator QBFT liveness
+on:
+  push:
+    branches: [etn-qbft-4validator-liveness-20261108]
+    paths: [.github/workflows/etn-qbft-full-eth66-4validator-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  real-eth66-4validator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Pin public upstream and stage genuine 4-validator ETH66 end-to-end source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/independent_eth66_wire_to_four_qbft_test.go etn-target/eth/adversarial_eth66_four_qbft_test.go
+          gofmt -w etn-target/eth/adversarial_eth66_four_qbft_test.go
+          cp etn-target/eth/adversarial_eth66_four_qbft_test.go evidence/PoC/
+          echo 'target=db0eb8792dd57304fbc66a60377c7663e1bd44d2' > evidence/identity.txt
+          echo 'test_commit=${{ github.sha }}' >> evidence/identity.txt
+          echo 'scope=real ETH66 handshake through runEthPeer plus genuine QBFT signers; in-process message pipes and gossip' >> evidence/identity.txt
+          echo 'not_claimed=public_TCP_devp2p_mainnet_exploit_or_production_validator_reachability' >> evidence/identity.txt
+      - name: Three independent end-to-end network and signed QBFT executions
+        shell: bash
+        working-directory: etn-target
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            go test ./eth -run '^TestIndependentTwoEth66WirePeersHaltFourQBFTSignerQuorum$' -count=1 -v -timeout=105s 2>&1 | tee "../evidence/endtoend-$n.log"
+          done
+          (cd ../evidence && sha256sum endtoend-*.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-real-eth66-qbft-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
