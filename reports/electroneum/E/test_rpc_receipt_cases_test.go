@@ -9,6 +9,7 @@ import (
  "github.com/electroneum/electroneum-sc/common/hexutil"
  "github.com/electroneum/electroneum-sc/core/types"
  "github.com/electroneum/electroneum-sc/params"
+ "github.com/electroneum/electroneum-sc/rpc"
 )
 
 // Synthetic backend isolates the actual public RPC adapter without chain traffic.
@@ -180,6 +181,25 @@ func TestWorkerEReceiptFeeWidthBoundary(t *testing.T) {
     t.Fatalf("sibling full-width price mismatch: got=%v expected=%v",sibling.GasPrice,expected)
    }
    if loss && discrepancy.Cmp(boundary)<0 {t.Fatalf("truncation delta unexpectedly small: %s",discrepancy)}
+   // X-factor real RPC message boundary: encode through the shipped JSON-RPC
+   // server/client, rather than merely inspecting an internal Go map. The
+   // backing chain is STILL synthetic and this cannot establish outsider impact.
+   server:=rpc.NewServer()
+   if e:=server.RegisterName("eth",api);e!=nil {t.Fatalf("register real RPC server: %v",e)}
+   client:=rpc.DialInProc(server)
+   var wire struct {
+    EffectiveGasPrice string `json:"effectiveGasPrice"`
+    TransactionHash common.Hash `json:"transactionHash"`
+   }
+   wireErr:=client.CallContext(context.Background(),&wire,"eth_getTransactionReceipt",b.tx.Hash())
+   client.Close()
+   server.Stop()
+   if wireErr!=nil {t.Fatalf("real JSON-RPC roundtrip failed: %v",wireErr)}
+   wireExpected:=hexutil.EncodeUint64(tc.price.Uint64())
+   if wire.TransactionHash!=b.tx.Hash() {t.Fatalf("RPC wire tx identity mismatch: got=%s",wire.TransactionHash)}
+   if wire.EffectiveGasPrice!=wireExpected {t.Fatalf("RPC wire fee width changed: got=%q expected narrowed=%q",wire.EffectiveGasPrice,wireExpected)}
+   t.Logf("E_RPC_WIRE_EFFECTIVE_PRICE name=%s wire=%s bigint_expected=%s confirmed_truncation=%t",tc.name,wire.EffectiveGasPrice,expected,loss)
+
    // Corrected full-width encoding would remove the discrepancy; the
    // independent oracle explicitly detects the current narrowing mutation.
    t.Logf("E_FEE_WIDTH_CASE price=%s receipt=%s sibling=%s loss=%v delta=%s",expected,observed,(*big.Int)(sibling.GasPrice),loss,discrepancy)
