@@ -253,7 +253,7 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int,autoSync 
   }
  }
  // Nine validators each have their own authentic signing key, local chain and active
- // signed QBFT backend. Choose two non-proposers as ETH66 peer victims.
+ // signed QBFT backend. Target distinct non-proposer validators as ETH66 peers.
  valset:=nodes[0].engine.Validators(nodes[0].chain.Genesis())
  if valset==nil||valset.Size()!=9{t.Fatalf("invalid nine-validator genesis snapshot")}
  proposerAddr:=valset.GetProposer().Address()
@@ -261,6 +261,13 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int,autoSync 
  for _,node:=range nodes{if node.addr==proposerAddr{proposer=node}}
  if proposer==nil{t.Fatal("QBFT proposer not in genesis validator set")}
  targeted:=0
+ // Schedule the automatic peer sessions concurrently. This reflects four
+ // independent external peers connecting to four independent validator nodes,
+ // rather than delaying each next connection by a 10s forceSyncCycle. A
+ // sequential 4x10s harness allowed the earliest peer to hit its natural
+ // sync timeout before the final 30s shared-liveness assertion finished.
+ type asyncAttackResult struct{ a *isolatedWireAttacker; err error }
+ attackWait:=make(chan asyncAttackResult,maxVictims)
  for _,n:=range nodes{
   if n==proposer||targeted>=maxVictims{continue}
   pool:=core.NewTxPool(core.DefaultTxPoolConfig,n.chain.Config(),n.chain)
@@ -281,12 +288,32 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int,autoSync 
   n.miner=etnminer.New(&isolatedWireMinerBackend{chain:n.chain,pool:pool},&cfg,n.chain.Config(),mux,n.engine,nil)
   n.miner.Start(n.addr)
   if !isolatedWaitMiner(n.miner,true){t.Fatal("actual validator miner did not start")}
-  attack,err:=isolatedWireConnectHeadOnly(t,n,byte(targeted+1),autoSync)
-  if attack!=nil{attacks=append(attacks,attack)}
-  if err!=nil{t.Fatal(err)}
+  if autoSync {
+   index:=byte(targeted+1)
+   go func(node *isolatedWireQBFTNode, id byte){
+    attack,err:=isolatedWireConnectHeadOnly(t,node,id,true)
+    attackWait<-asyncAttackResult{a:attack,err:err}
+   }(n,index)
+  }else{
+   attack,err:=isolatedWireConnectHeadOnly(t,n,byte(targeted+1),false)
+   if attack!=nil{attacks=append(attacks,attack)}
+   if err!=nil{t.Fatal(err)}
+  }
   targeted++
  }
  if targeted!=maxVictims{t.Fatalf("real ETH66 victim count %d, want %d",targeted,maxVictims)}
+ if autoSync{
+  for i:=0;i<maxVictims;i++{
+   select{
+   case result:=<-attackWait:
+    if result.a!=nil{attacks=append(attacks,result.a)}
+    if result.err!=nil{t.Fatalf("parallel automatic ETH66 victim %d: %v",i,result.err)}
+   case <-time.After(26*time.Second):
+    t.Fatal("parallel automatic peers did not all reach independent ancestry wait")
+   }
+  }
+  t.Logf("QBFT9_PARALLEL_AUTO_ALL_PEERS_ACTIVE count=%d total_eligible_signers=9",maxVictims)
+ }
  candidate,err:=isolatedWireQBFTCandidate(proposer)
  if err!=nil{t.Fatalf("remaining honest proposer cannot prepare: %v",err)}
  results:=make(chan *types.Block,2)
