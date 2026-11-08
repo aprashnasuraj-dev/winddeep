@@ -35,16 +35,17 @@
       "classification": "three distinct in-memory funded states; signed competing nonce-zero transfers in different orders; ApplyTransaction state oracle, not txpool or QBFT canonical import"
     },
     {
-      "id": "C-noncanonical-nonce-rlp",
+      "id": "C-fee-floor-boundary",
       "owner": "C",
-      "source": "reports/electroneum/C/test_noncanonical_nonce_rlp_test.go",
-      "target": "core/adversarial_worker_c_noncanonical_nonce_rlp_test.go",
+      "source": "reports/electroneum/C/test_fee_floor_boundary_test.go",
+      "target": "core/adversarial_worker_c_fee_floor_boundary_test.go",
       "package": "./core",
-      "test": "TestWorkerCNoncanonicalNonceRLP",
+      "test": "TestWorkerCFeeFloorBoundary",
       "markers": [
-        "C_RLP_NONCANONICAL_REJECT"
+        "C_FEE_FLOOR_REJECT",
+        "C_FEE_FLOOR_HONEST_ORACLE"
       ],
-      "classification": "untrusted RPC intermediary rewrites signed legacy nonce-zero RLP integer 0x80 to noncanonical 0x00; signed honest baseline and 3 synthetic chain domains; parser-only test, RPC/txpool and canonical impact unverified"
+      "classification": "signed outsider-submitted under-base-fee dynamic transaction; 3 independently funded in-memory states and honest controls; ApplyTransaction only, default RPC and canonical QBFT unverified"
     }
   ]
 }
