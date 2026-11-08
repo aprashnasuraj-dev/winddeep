@@ -16,19 +16,6 @@
       "classification": "Unprivileged peer conflicting valid hash/height announcements; wire-only preliminary discriminator; no canonical admission or QBFT breach established"
     },
     {
-      "id": "D-live-eth66-rlp-pointer-boundaries",
-      "owner": "D",
-      "source": "reports/electroneum/D/test_live_eth66_rlp_boundary_test.go",
-      "target": "eth/protocols/eth/adversarial_live_d_eth66_rlp_test.go",
-      "package": "./eth/protocols/eth",
-      "test": "TestLiveDETH66RLPOptionalPointerBoundaries",
-      "markers": [
-        "D_WIRE_ENVELOPE",
-        "D_WIRE_ENVELOPE_VALID"
-      ],
-      "classification": "live-chat actual NewBlock ETH66 RLP envelope decode, pointer nil, sanityCheck panic probe and honest control; nil gateway and default node impact require later confirmation"
-    },
-    {
       "id": "D-eth66-untrusted-td-sync-boundary",
       "owner": "D",
       "source": "reports/electroneum/D/test_eth66_td_sync_boundary_test.go",
@@ -39,6 +26,19 @@
         "D_TD_SYNC_BOUNDARY"
       ],
       "classification": "ETH66 outsider-controlled total difficulty claim versus independently computed parent+header oracle; admission impact not established; not a vulnerability claim"
+    },
+    {
+      "id": "D-eth66-cross-message-replay",
+      "owner": "D",
+      "source": "reports/electroneum/D/test_eth66_cross_message_replay_test.go",
+      "target": "eth/protocols/eth/adversarial_d_cross_message_replay_test.go",
+      "package": "./eth/protocols/eth",
+      "test": "TestLiveDETH66CrossMessageReplay",
+      "markers": [
+        "D_CROSS_MESSAGE_RESULT",
+        "D_CROSS_MESSAGE_ORACLE_FAIL"
+      ],
+      "classification": "Stateful protocol-valid multi-message replay/equivocation oracle; wire boundary only; no canonical or QBFT impact established"
     }
   ]
 }
