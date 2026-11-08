@@ -36,17 +36,18 @@
       "classification": "signed certified QBFT engine 4-validator equivocation/quorum component check; not full consensus network or default external ingress"
     },
     {
-      "id": "B-outsider-committed-vote",
+      "id": "B-expanded-validator-quorum",
       "owner": "B",
-      "source": "reports/electroneum/B/tests/test_outsider_committed_vote_test.go",
-      "target": "consensus/istanbul/engine/adversarial_worker_b_outsider_vote_test.go",
+      "source": "reports/electroneum/B/tests/test_expanded_validator_quorum_test.go",
+      "target": "consensus/istanbul/engine/adversarial_worker_b_expanded_quorum_test.go",
       "package": "./consensus/istanbul/engine",
-      "test": "TestWorkerBOutsiderCommittedVoteRejected",
+      "test": "TestWorkerBExpandedValidatorQuorumBoundary",
       "markers": [
-        "B_OUTSIDER_HONEST_QUORUM",
-        "B_OUTSIDER_THIRD_VOTE_REJECTED"
+        "B_EXPANDED_FIVE_VALIDATOR_FOUR_ACCEPTED",
+        "B_EXPANDED_FIVE_VALIDATOR_THREE_REJECTED",
+        "B_EXPANDED_FIVE_VALIDATOR_TWO_REJECTED"
       ],
-      "classification": "nonvalidator ECDSA signature must not supply third committed seal in four-validator quorum; engine only, ingress and canonical finality unverified"
+      "classification": "five-validator membership expansion distinct quorum boundary; certified engine component only; canonical transition and default outsider ingress unverified"
     }
   ]
 }
