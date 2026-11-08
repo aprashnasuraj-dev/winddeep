@@ -67,3 +67,55 @@ jobs:
             ${{ runner.temp }}/etn-c-ten-provenance.txt
           if-no-files-found: warn
           retention-days: 14
+
+  c-ten-latest-upstream:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Fetch exact current upstream source SHA, never public-network test
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/electroneum-current"
+          git -C "$RUNNER_TEMP/electroneum-current" init -q
+          git -C "$RUNNER_TEMP/electroneum-current" remote add origin https://github.com/electroneum/electroneum-sc.git
+          git -C "$RUNNER_TEMP/electroneum-current" fetch --quiet --depth=1 origin db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          git -C "$RUNNER_TEMP/electroneum-current" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "$RUNNER_TEMP/electroneum-current" rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          cp reports/electroneum/C/test_ten_novel_boundaries_test.go "$RUNNER_TEMP/electroneum-current/core/types/adversarial_c_ten_novel_boundaries_test.go"
+          echo "C_NOVEL_UPSTREAM_SHA=db0eb8792dd57304fbc66a60377c7663e1bd44d2"
+      - name: Execute latest upstream signer and RLP cases
+        shell: bash
+        run: |
+          cd "$RUNNER_TEMP/electroneum-current"
+          set +e
+          go test -count=1 -timeout=20m -run '^TestWorkerCTenNovelBoundaries$' -v ./core/types 2>&1 | tee "$RUNNER_TEMP/etn-c-ten-current.log"
+          code="${PIPESTATUS[0]}"
+          set -e
+          echo "$code" > "$RUNNER_TEMP/etn-c-ten-current.exit"
+          echo "C_NOVEL_CURRENT_EXIT=$code"
+          test "$code" -eq 0
+      - name: Write recent-upstream provenance
+        if: always()
+        shell: bash
+        run: |
+          printf 'upstream_sha=db0eb8792dd57304fbc66a60377c7663e1bd44d2\ntrigger_sha=%s\nrun_id=%s\nrun_attempt=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > "$RUNNER_TEMP/etn-c-current-provenance.txt"
+          if test -f "$RUNNER_TEMP/etn-c-ten-current.log"; then sha256sum "$RUNNER_TEMP/etn-c-ten-current.log" >> "$RUNNER_TEMP/etn-c-current-provenance.txt"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: etn-c-ten-current-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/etn-c-ten-current.log
+            ${{ runner.temp }}/etn-c-ten-current.exit
+            ${{ runner.temp }}/etn-c-current-provenance.txt
+          if-no-files-found: warn
+          retention-days: 14
