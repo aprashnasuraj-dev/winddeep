@@ -25,6 +25,7 @@ type liveBNet struct {
  nodes map[common.Address]*liveBNetNode
  byzantine common.Address
  attack bool
+ delayHonest bool
  retagged atomic.Int64
  forwarded atomic.Int64
 }
@@ -53,7 +54,7 @@ func (p *liveBNetPeer) SendQBFTConsensus(code uint64,payload []byte)error{
    go func(to common.Address,bytes []byte){_ = n.deliver(n.byzantine,to,qbfttypes.CommitCode,bytes)}(dest,append([]byte(nil),payload...))
   }
  }
- if n.attack && code==qbfttypes.PrepareCode && p.destination!=n.byzantine {
+ if n.delayHonest && code==qbfttypes.PrepareCode && p.destination!=n.byzantine {
   time.Sleep(90*time.Millisecond)
  }
  return n.deliver(p.source,p.destination,code,payload)
@@ -85,8 +86,8 @@ func TestLiveBOneByzantineFourValidatorNetworkLiveness(t *testing.T){
  for _,seed:=range []int{1,2} {
   t.Run(fmt.Sprintf("network_%d",seed),func(t *testing.T){
    genesis,keys:=testutils.GenesisAndKeys(4)
-   run:=func(attack bool)(progress int,byzRetags int64,states string,err error){
-    net:=&liveBNet{nodes:make(map[common.Address]*liveBNetNode),attack:attack}
+   run:=func(attack,delayHonest bool)(progress int,byzRetags int64,states string,err error){
+    net:=&liveBNet{nodes:make(map[common.Address]*liveBNetNode),attack:attack,delayHonest:delayHonest}
     nodes:=make([]*liveBNetNode,4)
     for i,key:=range keys {
      db:=rawdb.NewMemoryDatabase()
@@ -144,8 +145,13 @@ func TestLiveBOneByzantineFourValidatorNetworkLiveness(t *testing.T){
     }
     return progress,net.retagged.Load(),states,nil
    }
-   honestProgress,hRetags,hStates,e:=run(false);if e!=nil{t.Fatal(e)}
-   badProgress,bRetags,bStates,e:=run(true);if e!=nil{t.Fatal(e)}
+   honestProgress,hRetags,hStates,e:=run(false,false);if e!=nil{t.Fatal(e)}
+   delayedProgress,dRetags,dStates,e:=run(false,true);if e!=nil{t.Fatal(e)}
+   badProgress,bRetags,bStates,e:=run(true,true);if e!=nil{t.Fatal(e)}
+   t.Logf("B_FOUR_VALIDATOR_DELAY_CONTROL seed=%d honest=%d delay_only=%d poisoned=%d delay_state=%s",
+    seed,honestProgress,delayedProgress,badProgress,dStates)
+   if delayedProgress!=3 {t.Fatalf("B_FOUR_VALIDATOR_DELAY_ONLY_FAIL: expected 3, got %d",delayedProgress)}
+   if dRetags!=0 {t.Fatal("delay-only run unexpectedly retagged packets")}
    t.Logf("B_FOUR_VALIDATOR_NETWORK_ORACLE seed=%d honest_progress=%d attacked_progress=%d retags=%d honest_state=%s attacked_state=%s",
     seed,honestProgress,badProgress,bRetags,hStates,bStates)
    if honestProgress!=3 {
