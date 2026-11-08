@@ -3,19 +3,6 @@
   "owner": "D",
   "probes": [
     {
-      "id": "D-sidechain-hash-lookup-restart",
-      "owner": "D",
-      "source": "reports/electroneum/D/test_sidechain_hash_lookup_test.go",
-      "target": "core/adversarial_worker_d_sidechain_lookup_test.go",
-      "package": "./core",
-      "test": "TestWorkerDSidechainHashLookupRestart",
-      "markers": [
-        "D_SIDECHAIN_HASH_LOOKUP_PRE_RESTART_OK",
-        "D_SIDECHAIN_HASH_LOOKUP_POST_RESTART_OK"
-      ],
-      "classification": "new native InsertChain hash-addressed sidechain block versus canonical number mapping before/after restart, three distinct chain lengths; fake PoW; no QBFT, no peer ingress, not a vulnerability claim; NEW distinct sidechain header-number index consistency invariant checked on competing branch before/after restart"
-    },
-    {
       "id": "D-live-wire-header-required-fields",
       "owner": "D",
       "source": "reports/electroneum/D/test_live_wire_header_fields_test.go",
@@ -41,6 +28,18 @@
         "D_WIRE_ENVELOPE_VALID"
       ],
       "classification": "live-chat actual NewBlock ETH66 RLP envelope decode, pointer nil, sanityCheck panic probe and honest control; nil gateway and default node impact require later confirmation"
+    },
+    {
+      "id": "D-eth66-untrusted-td-sync-boundary",
+      "owner": "D",
+      "source": "reports/electroneum/D/test_eth66_td_sync_boundary_test.go",
+      "target": "eth/protocols/eth/adversarial_d_td_sync_boundary_test.go",
+      "package": "./eth/protocols/eth",
+      "test": "TestLiveDETH66TDClaimBoundary",
+      "markers": [
+        "D_TD_SYNC_BOUNDARY"
+      ],
+      "classification": "ETH66 outsider-controlled total difficulty claim versus independently computed parent+header oracle; admission impact not established; not a vulnerability claim"
     }
   ]
 }
