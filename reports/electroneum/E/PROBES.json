@@ -29,16 +29,16 @@
       "classification": "bounded filter lifecycle guard; observed completed polls; no stuck result; removed nonexistent stuck marker that prevented matrix progression"
     },
     {
-      "id": "E-RPC-018-ORPHAN-BLOCKHASH",
+      "id": "E-RPC-019-HTTP-BATCH-ISOLATION",
       "owner": "E",
-      "source": "reports/electroneum/E/test_orphan_blockhash_log_test.go",
-      "target": "eth/filters/adversarial_e_orphan_blockhash_log_test.go",
-      "package": "./eth/filters",
-      "test": "TestWorkerEOrphanBlockHashLogBoundary",
+      "source": "reports/electroneum/E/test_http_batch_isolation_test.go",
+      "target": "rpc/adversarial_e_http_batch_isolation_test.go",
+      "package": "./rpc",
+      "test": "TestWorkerEHTTPBatchCrossRequestIsolation",
       "markers": [
-        "E_ORPHAN_DIFFERENTIAL"
+        "E_HTTP_BATCH_ISOLATION"
       ],
-      "classification": "observed historical hash-specific logs from synthetic rawdb states; canonical oracle held; not a signed QBFT security breach; retired after verified log"
+      "classification": "outside-in HTTP request response isolation; no vulnerability claimed without executed target differential"
     }
   ]
 }
