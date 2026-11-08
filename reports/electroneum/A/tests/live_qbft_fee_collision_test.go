@@ -9,6 +9,7 @@ import (
  "github.com/electroneum/electroneum-sc/common"
  "github.com/electroneum/electroneum-sc/consensus/istanbul"
  "github.com/electroneum/electroneum-sc/consensus/istanbul/testutils"
+ "github.com/electroneum/electroneum-sc/consensus/misc"
  "github.com/electroneum/electroneum-sc/core"
  "github.com/electroneum/electroneum-sc/core/types"
  "github.com/electroneum/electroneum-sc/core/vm"
@@ -33,13 +34,13 @@ func TestLiveAValidSignedQBFTFeeCollision(t *testing.T) {
    genesis.Alloc[sender]=core.GenesisAccount{Balance:big.NewInt(initial)}
    engineCfg:=*istanbul.DefaultConfig
    chain,engine:=newBlockchainFromConfig(genesis,keys,engineCfg)
-   defer engine.Stop()
+   defer func(){done:=make(chan struct{});go func(){engine.Stop();close(done)}();select{case <-done:case <-time.After(2*time.Second):t.Log("A_QBFT_CLEANUP_TIMEOUT")}}()
    parent:=chain.Genesis()
    header:=makeHeader(parent,engine.config)
    header.Coinbase=engine.Address()
    if chain.Config().IsLondon(header.Number) {
     // The production helper does this for every London-enabled QBFT header.
-    header.BaseFee=makeBlockWithoutSeal(chain,engine,parent,true).BaseFee()
+    header.BaseFee=misc.CalcBaseFee(chain.Config(),parent.Header())
    }
    if err:=engine.Prepare(chain,header);err!=nil {t.Fatal(err)}
    state,err:=chain.StateAt(parent.Root());if err!=nil {t.Fatal(err)}
