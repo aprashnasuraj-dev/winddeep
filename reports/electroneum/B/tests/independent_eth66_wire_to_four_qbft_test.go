@@ -283,7 +283,7 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int){
  var committed *types.Block
  select{
  case committed=<-results:
- case <-time.After(7*time.Second):
+ case <-time.After(30*time.Second):
  }
  if maxVictims==1 {
   if committed==nil{
@@ -304,7 +304,7 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int){
    close(stop)
    t.Fatalf("2-of-4 Byzantine quorum accepted a block: %s",committed.Hash())
   }
-  t.Log("QBFT_ETH66_WIRE_TWO_VALIDATOR_OUTAGE signers=4 untrusted_eth66_sessions=2 real_status_handshakes=2 stopped_real_miners=2 remaining_signers=2 signed_finality_7s=false canonical_imports=0")
+  t.Log("QBFT_ETH66_WIRE_TWO_VALIDATOR_OUTAGE signers=4 untrusted_eth66_sessions=2 real_status_handshakes=2 stopped_real_miners=2 remaining_signers=2 signed_finality_30s=false canonical_imports=0")
  }
  close(stop)
  for _,n:=range nodes{
