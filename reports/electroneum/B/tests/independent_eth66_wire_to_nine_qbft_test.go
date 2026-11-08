@@ -327,7 +327,7 @@ func independentRunEth66WireQBFTThreshold(t *testing.T, maxVictims int,autoSync 
 }
 func TestIndependentThreeEth66WirePeersHaltNineQBFTSignerQuorum(t *testing.T) {
  t.Run("two_untrusted_peers_seven_live_signed_quorum",func(t *testing.T){
-  independentRunEth66WireQBFTThreshold(t,3,false)
+  independentRunEth66WireQBFTThreshold(t,2,false)
  })
  t.Run("three_untrusted_peers_six_live_no_quorum",func(t *testing.T){
   independentRunEth66WireQBFTThreshold(t,3,false)
