@@ -56,6 +56,7 @@ func TestLiveBGenericPeerTransportIngress(t *testing.T) {
    if height!=0||outsiderHeight!=0 {t.Fatal("unexpected canonical advancement")}
   })
  }
+ TestLiveBFutureHeightOutsiderSequence(t)
 }
 
  
