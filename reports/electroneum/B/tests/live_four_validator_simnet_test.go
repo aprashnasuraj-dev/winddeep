@@ -18,6 +18,7 @@ import (
  "github.com/electroneum/electroneum-sc/core/vm"
  "github.com/electroneum/electroneum-sc/crypto"
  "github.com/electroneum/electroneum-sc/p2p"
+ "github.com/electroneum/electroneum-sc/rlp"
 )
 
 type liveBNetNode struct { b *Backend; chain *core.BlockChain; addr common.Address }
@@ -38,8 +39,14 @@ func (n *liveBNet) deliver(source,dest common.Address,code uint64,payload []byte
  n.forwarded.Add(1)
  return nil
 }
-func (p *liveBNetPeer) Send(code uint64,data interface{})error{return nil}
-func (p *liveBNetPeer) SendConsensus(code uint64,data interface{})error{return nil}
+// Encode and deliver rather than silently claiming transport success.
+func (p *liveBNetPeer) Send(code uint64,data interface{})error{
+ payload,err:=rlp.EncodeToBytes(data);if err!=nil{return err}
+ return p.net.deliver(p.source,p.destination,code,payload)
+}
+func (p *liveBNetPeer) SendConsensus(code uint64,data interface{})error{
+ return p.Send(code,data)
+}
 func (p *liveBNetPeer) SendQBFTConsensus(code uint64,payload []byte)error{
  n:=p.net
  if p.source==n.byzantine{return nil} // the single faulty validator withholds its own votes
