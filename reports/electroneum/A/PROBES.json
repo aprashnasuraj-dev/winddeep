@@ -3,27 +3,6 @@
   "owner": "A",
   "probes": [
     {
-      "id": "A-signed-import-restart",
-      "owner": "A",
-      "source": "reports/electroneum/A/tests/signed_import_restart_test.go",
-      "target": "core/adversarial_worker_a_import_restart_test.go",
-      "package": "./core",
-      "test": "TestWorkerASignedImportRestartLedger",
-      "markers": [
-        "A_IMPORT_RESTART_HONEST name=honest",
-        "A_IMPORT_RESTART_HONEST name=boundary_zero",
-        "A_IMPORT_RESTART_HONEST name=empty_control",
-        "A_IMPORT_RESTART_HONEST name=two_block_replay",
-        "A_IMPORT_RESTART_ORACLE name=two_block_replay",
-        "A_IMPORT_RESTART_HONEST name=fee_boundary",
-        "A_IMPORT_RESTART_ORACLE name=fee_boundary",
-        "A_IMPORT_RESTART_ORACLE name=fee_boundary miner_fee_delta=",
-        "A_IMPORT_RESTART_SUPPLY name=zero_fee_boundary",
-        "A_IMPORT_RESTART_DEFENSE name=unsigned_rejected"
-      ],
-      "classification": "signed ethash-faker InsertChain and restart ledger, including two sequential signed blocks; not QBFT consensus or reorg; independent sender+recipient conservation oracle for paid gas; two-block 2-wei gas-price boundary and restart nonce check; independent fresh empty-block chain cancels miner reward to isolate exact fee credit; zero-fee signed two-block boundary, independent observed issuance balance oracle and unsigned-signature pre-admission defense (not QBFT)"
-    },
-    {
       "id": "A-qbft-import-admission",
       "owner": "A",
       "source": "reports/electroneum/A/tests/qbft_import_admission_test.go",
@@ -53,6 +32,20 @@
         "A_NONCE_RELAY_CANONICAL seed=93"
       ],
       "classification": "Signed conflicting same-nonce relay transfers: reject second after first execution; seal first in canonical QBFT; three independently funded states; independent debit/value/nonce oracle. Guard-passed result is not a vulnerability."
+    },
+    {
+      "id": "A-live-qbft-self-transfer-sequence",
+      "owner": "A",
+      "source": "reports/electroneum/A/tests/live_qbft_self_transfer_sequence_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_self_transfer_sequence_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestLiveASelfTransferThenExternalConservation",
+      "markers": [
+        "A_SELF_TRANSFER_CANONICAL seed=91",
+        "A_SELF_TRANSFER_CANONICAL seed=92",
+        "A_SELF_TRANSFER_CANONICAL seed=93"
+      ],
+      "classification": "Outsider signed nonce-0 self transfer followed by nonce-1 external transfer in one accepted QBFT block; independent sender and external balance conservation oracle across 3 funded states; self-transfer must not mint value."
     }
   ]
 }
