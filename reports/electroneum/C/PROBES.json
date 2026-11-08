@@ -35,16 +35,16 @@
       "classification": "three distinct in-memory funded states; signed competing nonce-zero transfers in different orders; ApplyTransaction state oracle, not txpool or QBFT canonical import"
     },
     {
-      "id": "C-access-list-signature-binding",
+      "id": "C-fee-cap-tamper",
       "owner": "C",
-      "source": "reports/electroneum/C/test_access_list_signature_binding_test.go",
-      "target": "core/adversarial_worker_c_access_list_signature_binding_test.go",
+      "source": "reports/electroneum/C/test_fee_cap_tamper_test.go",
+      "target": "core/adversarial_worker_c_fee_cap_tamper_test.go",
       "package": "./core",
-      "test": "TestWorkerCAccessListSignatureBinding",
+      "test": "TestWorkerCFeeCapTamperNoOwnerDebit",
       "markers": [
-        "C_ACCESS_BINDING_ORACLE"
+        "C_FEE_TAMPER_ORACLE"
       ],
-      "classification": "hostile wallet intermediary alters EIP-1559 access list after signing; verifies owner binding with 3 distinct chain IDs; no txpool or canonical proof"
+      "classification": "hostile RPC middleware substitutes signed EIP-1559 maxFeePerGas; three distinct funded state controls; ApplyTransaction owner balance/nonce oracle; no default RPC or QBFT canonical import"
     }
   ]
 }
