@@ -1,4 +1,4 @@
-name: ETN autonomous peer-selection ETH66 QBFT liveness test
+name: ETN autonomous ETH66 QBFT liveness (signed-head oracle)
 on:
   push:
     branches: [etn-qbft-4validator-liveness-20261108]
