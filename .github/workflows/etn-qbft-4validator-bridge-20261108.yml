@@ -1,0 +1,56 @@
+name: ETN live miner/downloader to four-validator QBFT causal bridge
+on:
+  push:
+    branches: [etn-qbft-4validator-liveness-20261108]
+    paths: [.github/workflows/etn-qbft-4validator-bridge-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  qbft-causal-bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: etn-target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Stage current upstream with real four-validator bridge fixtures
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C etn-target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/independent_real_qbft_4validator_quorum_test.go etn-target/consensus/istanbul/backend/adversarial_four_validator_network_test.go
+          cp reports/electroneum/B/tests/independent_fourvalidator_miner_downloader_bridge_test.go etn-target/consensus/istanbul/backend/adversarial_four_validator_bridge_test.go
+          gofmt -w etn-target/consensus/istanbul/backend/adversarial_four_validator_*_test.go
+          cp etn-target/consensus/istanbul/backend/adversarial_four_validator_*_test.go evidence/PoC/
+          echo 'target=db0eb8792dd57304fbc66a60377c7663e1bd44d2' > evidence/identity.txt
+          echo 'experiment_commit=${{ github.sha }}' >> evidence/identity.txt
+          echo 'scope=4 genuinely signed QBFT validators, actual miner/downloader event bridge, two isolated head-only registered peers' >> evidence/identity.txt
+          echo 'does_not_prove=public_network_multinode_reachability' >> evidence/identity.txt
+      - name: Repeat honest, one stopped, two stopped, and live miner/downloader bridge
+        shell: bash
+        working-directory: etn-target
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            go test ./consensus/istanbul/backend -run '^TestIndependent(RealQBFTQuorumFourValidators|HeadOnlyPausesTwoRealQBFTValidators)$' -count=1 -v -timeout=100s 2>&1 | tee "../evidence/integrated-$n.log"
+          done
+          (cd ../evidence && sha256sum integrated-*.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-qbft-real-miner-bridge-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
