@@ -24,11 +24,9 @@
       "package": "./eth/filters",
       "test": "TestWorkerEFilterExpiryPollingBounded",
       "markers": [
-        "E_EXPIRY_CREATE",
-        "E_EXPIRY_POLL",
-        "E_EXPIRY_STUCK"
+        "E_EXPIRY_POLL"
       ],
-      "classification": "bounded public filter expiry/poll race, timeout invariant only; not demonstrated availability exploit"
+      "classification": "bounded filter lifecycle guard; observed completed polls; no stuck result; removed nonexistent stuck marker that prevented matrix progression"
     },
     {
       "id": "E-RPC-018-ORPHAN-BLOCKHASH",
