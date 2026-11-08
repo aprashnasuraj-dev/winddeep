@@ -34,18 +34,18 @@
       "classification": "Signed conflicting same-nonce relay transfers: reject second after first execution; seal first in canonical QBFT; three independently funded states; independent debit/value/nonce oracle. Guard-passed result is not a vulnerability."
     },
     {
-      "id": "A-live-qbft-self-transfer-sequence",
+      "id": "A-live-qbft-high-gas-limit-refund",
       "owner": "A",
-      "source": "reports/electroneum/A/tests/live_qbft_self_transfer_sequence_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_self_transfer_sequence_test.go",
+      "source": "reports/electroneum/A/tests/live_qbft_high_gas_limit_refund_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_high_gas_limit_refund_test.go",
       "package": "./consensus/istanbul/backend",
-      "test": "TestLiveASelfTransferThenExternalConservation",
+      "test": "TestLiveAHighGasLimitRefundConservation",
       "markers": [
-        "A_SELF_TRANSFER_CANONICAL seed=91",
-        "A_SELF_TRANSFER_CANONICAL seed=92",
-        "A_SELF_TRANSFER_CANONICAL seed=93"
+        "A_GAS_REFUND_CANONICAL seed=91",
+        "A_GAS_REFUND_CANONICAL seed=92",
+        "A_GAS_REFUND_CANONICAL seed=93"
       ],
-      "classification": "Outsider signed nonce-0 self transfer followed by nonce-1 external transfer in one accepted QBFT block; independent sender and external balance conservation oracle across 3 funded states; self-transfer must not mint value."
+      "classification": "Outsider signed 100000 gas-limit transaction consumes 21000 gas: canonical QBFT sender debit must use actual gas not gas limit, across 3 funded states. Defensive pass not a finding."
     }
   ]
 }
