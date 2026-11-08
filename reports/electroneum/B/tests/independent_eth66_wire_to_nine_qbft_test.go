@@ -368,3 +368,13 @@ func TestIndependentFourEth66WirePeersHaltNineQBFTSignerQuorum(t *testing.T) {
 func TestIndependentAutomaticEth66QBFTFourPeerOutage(t *testing.T) {
  independentRunEth66WireQBFTThreshold(t,4,true)
 }
+
+// Automatic-scheduler control under the same concurrent ETH66 peer ingress
+// used by the four-session outage experiment. Three stopped cores leave six
+// active signers, which is sufficient for this actual nine-validator QBFT
+// implementation's signed quorum. A test failure here falsifies any claim that
+// the four-peer result is caused by crossing that threshold rather than by
+// a broken isolated gossip network or startup ordering.
+func TestIndependentAutomaticEth66QBFTThreePeerQuorumControl(t *testing.T) {
+ independentRunEth66WireQBFTThreshold(t,3,true)
+}
