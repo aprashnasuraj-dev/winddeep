@@ -1,4 +1,4 @@
-name: ETN nine-validator 7-of-9 threshold versus ETH66 head-only liveness
+name: ETN nine-validator 6-of-9 threshold versus ETH66 head-only liveness
 on:
   push:
     branches: [etn-qbft-nine-validator-20261108]
@@ -49,9 +49,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ matrix.experiment }}" = manual-control ]; then
-            rex='^TestIndependentThreeEth66WirePeersHaltNineQBFTSignerQuorum$'
+            rex='^TestIndependentFourEth66WirePeersHaltNineQBFTSignerQuorum$'
           else
-            rex='^TestIndependentAutomaticEth66QBFTThreePeerOutage$'
+            rex='^TestIndependentAutomaticEth66QBFTFourPeerOutage$'
           fi
           for n in 1 2 3; do
             go test ./eth -run "$rex" -count=1 -v -timeout=150s 2>&1 | tee "../evidence/${{ matrix.experiment }}-$n.log"
