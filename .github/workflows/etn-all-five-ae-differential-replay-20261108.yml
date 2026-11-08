@@ -1,0 +1,54 @@
+name: ETN all-five A-E independent certified regression replay
+on:
+  push:
+    branches: [etn-all-five-lanes-replay-20261108]
+    paths: [.github/workflows/etn-all-five-ae-differential-replay-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  independent-lane:
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [A,B,C,D,E]
+    name: ETN ${{ matrix.lane }} verified three-process diagnostic
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Materialize certified source with validated provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = '7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0'
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = 'de7f3c75a2db7e87a89918f1257820703d5b731e'
+          test -f "$WINDEEP_ETN_SOURCE/go.mod"
+          echo "REPLAY_LANE_SOURCE_PIN=${{ matrix.lane }}:$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Execute 3 fresh target-source Go processes; do not infer vulnerability from passing controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 reports/electroneum/shared/run_fresh_matrix.py \
+            --class '${{ matrix.lane }}' \
+            --matrix reports/electroneum/shared/adversarial_matrix.json \
+            --fresh-count 3 \
+            --timeout-sec 1200 \
+            --output "$RUNNER_TEMP/etn-lane-${{ matrix.lane }}"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-five-lanes-${{ matrix.lane }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/etn-lane-${{ matrix.lane }}/fresh-evidence.json
+            ${{ runner.temp }}/etn-lane-${{ matrix.lane }}/fresh-*/result.json
+            ${{ runner.temp }}/etn-lane-${{ matrix.lane }}/fresh-*/*.log
+          if-no-files-found: warn
+          retention-days: 30
