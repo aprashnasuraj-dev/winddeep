@@ -36,17 +36,18 @@
       "classification": "native HTTP browser-simple-request ingress boundary with side-effect counter; no default personal exposure or canonical state claim"
     },
     {
-      "id": "C-high-s-malleability",
+      "id": "C-typed-envelope-substitution",
       "owner": "C",
-      "source": "reports/electroneum/C/test_high_s_malleability_test.go",
-      "target": "core/types/adversarial_worker_c_high_s_malleability_test.go",
+      "source": "reports/electroneum/C/test_typed_envelope_substitution_test.go",
+      "target": "core/types/adversarial_worker_c_typed_envelope_substitution_test.go",
       "package": "./core/types",
-      "test": "TestWorkerCHighSMalleabilityAdmission",
+      "test": "TestWorkerCTypedEnvelopeSubstitution",
       "markers": [
-        "C_HIGHS_REJECTED",
-        "C_HIGHS_HONEST_CONTROL"
+        "C_TYPE_HONEST",
+        "C_TYPE_ENVELOPE_ISOLATED",
+        "C_TYPE_OWNER_BYPASS"
       ],
-      "classification": "high-S ECDSA malleability across transaction binary decoder and signer; signature rejection only, no txpool/canonical breach proven"
+      "classification": "Hostile RPC relay transforms valid EIP-1559 signature into EIP-2930 typed envelope; compare recovered owner and independent transaction hash, not canonical impact"
     }
   ]
 }
