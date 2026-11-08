@@ -196,6 +196,7 @@ func isolatedWireConnectHeadOnly(t *testing.T,n *isolatedWireQBFTNode,idx byte,a
  case err:=<-c.serveErrors:return c,fmt.Errorf("attacker test wire service failed: %w",err)
  case <-time.After(21*time.Second):return c,fmt.Errorf("no ETH66 ancestry lookup observed; auto_scheduler=%v",autoSync)
  }
+ if autoSync {t.Log("ETH66_AUTOMATIC_SYNC_SELECTED_HIGH_TD_UNTRUSTED_PEER forceSyncCycle_seconds=10 handler_doSync_manually_called=false")}
  if !isolatedWaitMiner(n.miner,false){return c,fmt.Errorf("actual QBFT miner still running")}
  if n.chain.CurrentBlock().NumberU64()!=0{return c,fmt.Errorf("attacker imported unauthorized canonical block")}
  t.Logf("QBFT_ETH66_WIRE_VALIDATOR_STOPPED address=%s real_eth66_handshake=true ancestor_verified=false miner_running=false",n.addr)
