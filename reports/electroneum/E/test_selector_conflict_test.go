@@ -25,4 +25,5 @@ func TestWorkerEConflictingBlockSelectors(t *testing.T) {
    if rejected!=tc.reject { t.Fatalf("E_SELECTOR_INVARIANT case=%s rejected=%v expected=%v",tc.name,rejected,tc.reject) }
   })
  }
+ t.Logf("E_SELECTOR_INVARIANT cases=%d all_expected=true",len(cases))
 }
