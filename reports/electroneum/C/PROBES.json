@@ -35,17 +35,17 @@
       "classification": "three distinct in-memory funded states; signed competing nonce-zero transfers in different orders; ApplyTransaction state oracle, not txpool or QBFT canonical import"
     },
     {
-      "id": "C-fee-floor-boundary",
+      "id": "C-intrinsic-gas-boundary",
       "owner": "C",
-      "source": "reports/electroneum/C/test_fee_floor_boundary_test.go",
-      "target": "core/adversarial_worker_c_fee_floor_boundary_test.go",
+      "source": "reports/electroneum/C/test_intrinsic_gas_boundary_test.go",
+      "target": "core/adversarial_worker_c_intrinsic_gas_boundary_test.go",
       "package": "./core",
-      "test": "TestWorkerCFeeFloorBoundary",
+      "test": "TestWorkerCIntrinsicGasBoundary",
       "markers": [
-        "C_FEE_FLOOR_REJECT",
-        "C_FEE_FLOOR_HONEST_ORACLE"
+        "C_INTRINSIC_REJECT",
+        "C_INTRINSIC_HONEST_ORACLE"
       ],
-      "classification": "signed outsider-submitted under-base-fee dynamic transaction; 3 independently funded in-memory states and honest controls; ApplyTransaction only, default RPC and canonical QBFT unverified"
+      "classification": "signed outsider-submitted EIP-1559 transactions with valid calldata and gas limit one below intrinsic; three independently funded state fixtures; real ApplyTransaction, no RPC or canonical QBFT import"
     }
   ]
 }
