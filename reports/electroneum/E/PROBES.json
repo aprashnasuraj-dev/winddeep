@@ -29,16 +29,16 @@
       "classification": "outside-in HTTP request response isolation; no vulnerability claimed without executed target differential"
     },
     {
-      "id": "E-RPC-020-NOTIFICATION-BATCH",
+      "id": "E-RPC-021-WS-RECONNECT",
       "owner": "E",
-      "source": "reports/electroneum/E/test_notification_batch_isolation_test.go",
-      "target": "rpc/adversarial_e_notification_batch_isolation_test.go",
+      "source": "reports/electroneum/E/test_websocket_reconnect_isolation_test.go",
+      "target": "rpc/adversarial_e_websocket_reconnect_isolation_test.go",
       "package": "./rpc",
-      "test": "TestWorkerEMixedNotificationBatchIsolation",
+      "test": "TestWorkerEWebsocketReconnectIsolation",
       "markers": [
-        "E_NOTIFICATION_BATCH"
+        "E_WS_RECONNECT"
       ],
-      "classification": "bounded concurrent outsider notification+request response isolation; no security impact assumed"
+      "classification": "bounded WebSocket session reconnection and response isolation; not evidence of a security impact"
     }
   ]
 }
