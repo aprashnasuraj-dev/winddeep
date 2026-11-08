@@ -1,0 +1,107 @@
+name: ETN C isolated Clef EIP-712 vault discriminator
+on:
+  push:
+    branches: [electroneum-sc-master-audit]
+    paths:
+      - 'reports/electroneum/C/poc/**'
+      - '.github/workflows/etn-c-batch-vault-discriminator.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: c-batch-vault-isolated
+  cancel-in-progress: false
+jobs:
+  isolated-batch-consent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compile a local vault with pinned Solidity 0.8.26 and London EVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/solc" "$RUNNER_TEMP/c-batch-results/fixtures"
+          npm install --prefix "$RUNNER_TEMP/solc" --no-save --no-audit --no-fund solc@0.8.26
+          export NODE_PATH="$RUNNER_TEMP/solc/node_modules"
+          node - <<'JS'
+          const fs=require('fs'), solc=require('solc');
+          const src=fs.readFileSync('reports/electroneum/C/poc/SignedBatchVault.sol','utf8');
+          const input={language:'Solidity',sources:{'SignedBatchVault.sol':{content:src}},
+            settings:{evmVersion:'london',optimizer:{enabled:true,runs:200},
+              outputSelection:{'*':{'*':['abi','evm.bytecode.object']}}}};
+          const out=JSON.parse(solc.compile(JSON.stringify(input)));
+          for(const e of out.errors||[])console.log(e.formattedMessage);
+          if((out.errors||[]).some(e=>e.severity==='error'))process.exit(1);
+          const b=out.contracts['SignedBatchVault.sol']['SignedBatchVault'];
+          if(!b.evm.bytecode.object)process.exit(2);
+          const dir=process.env.RUNNER_TEMP+'/c-batch-results/fixtures/';
+          fs.writeFileSync(dir+'poc_SignedBatchVault.abi',JSON.stringify(b.abi));
+          fs.writeFileSync(dir+'poc_SignedBatchVault.bin',b.evm.bytecode.object);
+          fs.writeFileSync(dir+'compiler.txt',solc.version()+' london\n');
+          console.log('C_BATCH_COMPILER='+solc.version());
+          JS
+          sha256sum "$RUNNER_TEMP/c-batch-results/fixtures/"* > "$RUNNER_TEMP/c-batch-results/fixture-sha256.txt"
+      - name: Execute against both certified and current public code, separately
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          for target in certified current; do
+            mkdir -p "$RUNNER_TEMP/c-batch-$target" "$RUNNER_TEMP/c-batch-results/$target"
+            if [ "$target" = certified ]; then
+              source tools/electroneum_target_bootstrap.sh
+              test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = 7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0
+              test "$WINDEEP_ETN_SOURCE_TREE_SHA" = de7f3c75a2db7e87a89918f1257820703d5b731e
+              cp -a "$WINDEEP_ETN_SOURCE/." "$RUNNER_TEMP/c-batch-$target/"
+              echo "certified sha=$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" > "$RUNNER_TEMP/c-batch-results/$target/source.txt"
+            else
+              git -C "$RUNNER_TEMP/c-batch-$target" init -q
+              git -C "$RUNNER_TEMP/c-batch-$target" remote add origin https://github.com/electroneum/electroneum-sc.git
+              git -C "$RUNNER_TEMP/c-batch-$target" fetch --quiet --depth=1 origin db0eb8792dd57304fbc66a60377c7663e1bd44d2
+              git -C "$RUNNER_TEMP/c-batch-$target" checkout --quiet --detach FETCH_HEAD
+              test "$(git -C "$RUNNER_TEMP/c-batch-$target" rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+              echo "current sha=db0eb8792dd57304fbc66a60377c7663e1bd44d2" > "$RUNNER_TEMP/c-batch-results/$target/source.txt"
+            fi
+            test -f "$RUNNER_TEMP/c-batch-$target/go.mod"
+            chmod -R u+w "$RUNNER_TEMP/c-batch-$target/signer/core"
+            cp reports/electroneum/C/poc/test_batch_debit_consent.go "$RUNNER_TEMP/c-batch-$target/signer/core/adversarial_c_batch_debit_consent_test.go"
+            cp "$RUNNER_TEMP/c-batch-results/fixtures/poc_SignedBatchVault."* "$RUNNER_TEMP/c-batch-$target/signer/core/"
+            set +e
+            (cd "$RUNNER_TEMP/c-batch-$target" && go test -count=1 -timeout=18m -run '^TestWorkerCClefBatchVaultEconomicEffect$' -v ./signer/core) > "$RUNNER_TEMP/c-batch-results/$target/test.log" 2>&1
+            status="$?"
+            set -e
+            echo "$status" > "$RUNNER_TEMP/c-batch-results/$target/exit-code.txt"
+            echo "C_BATCH_RUNTIME_TARGET=$target EXIT=$status"
+            grep -E 'C_BATCH_|FAIL|PASS|panic:|build failed' "$RUNNER_TEMP/c-batch-results/$target/test.log" | tail -80 || true
+            if [ "$status" -ne 0 ]; then failed=1; fi
+          done
+          printf 'trigger_sha=%s\nrun_id=%s\n' "$GITHUB_SHA" "$GITHUB_RUN_ID" > "$RUNNER_TEMP/c-batch-results/provenance.txt"
+          test "$failed" -eq 0
+      - name: Hash all raw evidence, even on failure
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/c-batch-results"
+          find . -type f -not -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS
+          cp "$GITHUB_WORKSPACE/reports/electroneum/C/poc/"*.sol .
+          cp "$GITHUB_WORKSPACE/reports/electroneum/C/poc/"*.go .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: etn-c-isolated-batch-vault-evidence
+          path: |
+            /home/runner/work/_temp/c-batch-results/
+          retention-days: 14
+          if-no-files-found: warn
