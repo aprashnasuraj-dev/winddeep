@@ -15,9 +15,9 @@ import (
  "github.com/electroneum/electroneum-sc/crypto"
 )
 
-// An outsider resubmits a previously included signed transfer through a second relay.
-// A stale signed transaction must never produce a second recipient credit or nonce advance.
-func TestLiveAStaleSignedReplayAcrossCanonicalBlocks(t *testing.T) {
+// An outsider resubmits identical signed bytes after first execution, before QBFT seal.
+// A duplicate signed transaction must not produce a second recipient credit or nonce advance.
+func TestLiveAIdenticalSignedReplayBeforeQBFTSeal(t *testing.T) {
  for _,tc:=range []struct{seed byte; value int64}{{91,17},{92,7001},{93,93000}} {
   t.Run(fmt.Sprintf("state_%d",tc.seed),func(t *testing.T){
    genesis,keys:=testutils.GenesisAndKeys(1)
