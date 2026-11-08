@@ -1,0 +1,59 @@
+name: ETN nine-validator patched ancestor trust-boundary causal control
+on:
+  push:
+    branches: [etn-qbft-nine-ancestry-remediation-20261108]
+    paths: [.github/workflows/etn-qbft-nine-ancestry-causal-control-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  nine-patched-four-peers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Pin and prepare original nine-validator source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/independent_eth66_wire_to_nine_full_miners_test.go target/eth/adversarial_eth66_nine_full_miners_test.go
+          cp target/eth/downloader/downloader.go evidence/downloader-original.go
+          sha256sum target/eth/downloader/downloader.go > evidence/original-sha256.txt
+          python3 reports/electroneum/B/tests/make_nine_ancestry_remediation_control.py target/eth/downloader/downloader.go target/eth/adversarial_eth66_nine_full_miners_test.go | tee evidence/patch-causal-control.jsonl
+          (cd target && gofmt -w eth/downloader/downloader.go eth/adversarial_eth66_nine_full_miners_test.go)
+          cp target/eth/adversarial_eth66_nine_full_miners_test.go evidence/PoC/ 
+          cp target/eth/downloader/downloader.go evidence/downloader-patched.go
+          cp reports/electroneum/B/tests/make_nine_ancestry_remediation_control.py evidence/PoC/
+          echo 'immutable_upstream=db0eb8792dd57304fbc66a60377c7663e1bd44d2' > evidence/identity.txt
+          echo 'research_sha=${{ github.sha }}' >> evidence/identity.txt
+          echo 'all_mutations_disposable=true,no_public_network=true' >> evidence/identity.txt
+      - name: Three fresh independent patched nine-miner vs four untrusted ETH66 peer tests
+        shell: bash
+        working-directory: target
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            go test ./eth -run '^TestIndependentNineFullMinersFourPeerLiveness$' -count=1 -v -timeout=125s 2>&1 | tee "../evidence/patched-$n.log"
+          done
+          (cd ../evidence && sha256sum patched-*.log PoC/*.go PoC/*.py downloader-original.go downloader-patched.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-nine-ancestry-patched-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
