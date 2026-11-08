@@ -34,18 +34,18 @@
       "classification": "Signed conflicting same-nonce relay transfers: reject second after first execution; seal first in canonical QBFT; three independently funded states; independent debit/value/nonce oracle. Guard-passed result is not a vulnerability."
     },
     {
-      "id": "A-live-qbft-wrong-chainid-relay",
+      "id": "A-live-qbft-sequential-underfunded-relay",
       "owner": "A",
-      "source": "reports/electroneum/A/tests/live_qbft_wrong_chainid_relay_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_wrong_chainid_relay_test.go",
+      "source": "reports/electroneum/A/tests/live_qbft_sequential_underfunded_relay_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_a_qbft_sequential_underfunded_relay_test.go",
       "package": "./consensus/istanbul/backend",
-      "test": "TestLiveAWrongChainIDRelayRejection",
+      "test": "TestLiveASequentialUnderfundedRelayRejection",
       "markers": [
-        "A_CHAINID_RELAY_CANONICAL seed=91",
-        "A_CHAINID_RELAY_CANONICAL seed=92",
-        "A_CHAINID_RELAY_CANONICAL seed=93"
+        "A_UNDERFUNDED_RELAY_CANONICAL seed=91",
+        "A_UNDERFUNDED_RELAY_CANONICAL seed=92",
+        "A_UNDERFUNDED_RELAY_CANONICAL seed=93"
       ],
-      "classification": "Outsider submits signed legacy transfer with EIP155 chain ID from different network after honest signed transfer; canonical QBFT must reject cross-chain relay without credit or nonce mutation. Three funded states; negative result is not vulnerability."
+      "classification": "Signed next-nonce transaction exceeds remaining sender balance after valid first transaction; rejects second without recipient credit or nonce advance, then canonical QBFT admission of first; three funded states. No vulnerability without observed violation."
     }
   ]
 }
