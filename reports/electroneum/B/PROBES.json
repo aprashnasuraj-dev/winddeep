@@ -3,20 +3,6 @@
   "owner": "B",
   "probes": [
     {
-      "id": "B-live-outsider-signed-qbft-p2p",
-      "owner": "B",
-      "source": "reports/electroneum/B/tests/live_outsider_qbft_p2p_test.go",
-      "target": "consensus/istanbul/backend/adversarial_live_b_outsider_qbft_test.go",
-      "package": "./consensus/istanbul/backend",
-      "test": "TestLiveBOutsiderSignedQBFTIngress",
-      "markers": [
-        "B_LIVE_OUTSIDER_REJECTED",
-        "B_LIVE_HONEST_CONTROL",
-        "B_LIVE_EVENT_HEALTH"
-      ],
-      "classification": "four/five/seven synthetic validator set real QBFT HandleMsg input, signed outsider vs known-validator control, event-loop health and canonical nonprogress; no distributed quorum demonstrated"
-    },
-    {
       "id": "B-cross-code-dedup-signed-prepare",
       "owner": "B",
       "source": "reports/electroneum/B/tests/live_cross_code_message_poison_test.go",
@@ -41,6 +27,19 @@
         "B_CROSS_CODE_ORACLE"
       ],
       "classification": "outsider peer replay of observed signed QBFT PREPARE payload under COMMIT transport code, followed by authentic PREPARE; component ingress event-dispatch differential only; no distributed finality claim"
+    },
+    {
+      "id": "B-cross-code-qbft-quorum-state",
+      "owner": "B",
+      "source": "reports/electroneum/B/tests/live_cross_code_quorum_state_test.go",
+      "target": "consensus/istanbul/backend/adversarial_live_b_quorum_state_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestLiveBCrossCodeQuorumImpact",
+      "markers": [
+        "B_QUORUM_ACTUAL_STATE",
+        "B_QUORUM_LIVENESS_DIFFERENTIAL"
+      ],
+      "classification": "signed preprepare plus 3 honest-validator prepares (incl own) in real live QBFT core vs one Byzantine wrong-code suppression, require clean three-of-four Prepared state; single-node state only, not four-distributed consensus liveness demonstration"
     }
   ]
 }
