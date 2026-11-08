@@ -23,19 +23,6 @@
       "classification": "real signed ApplyTransaction with funded alternate-signer isolation, exact affordability and independent balance/nonce/burn oracle; no canonical QBFT import or remote RPC exposure"
     },
     {
-      "id": "C-rpc-batch-namespace-boundary",
-      "owner": "C",
-      "source": "reports/electroneum/C/test_rpc_namespace_isolation_test.go",
-      "target": "rpc/adversarial_worker_c_rpc_batch_namespace_test.go",
-      "package": "./rpc",
-      "test": "TestWorkerCRPCBatchNamespaceBoundary",
-      "markers": [
-        "C_RPC_BATCH_SIGNER_REJECTED",
-        "C_RPC_BATCH_PRIVILEGED_CONTROL"
-      ],
-      "classification": "native RPC mixed-batch namespace dispatch adversarial test; synthetic separate servers, not evidence of shipped-default signing exposure"
-    },
-    {
       "id": "C-signer-domain-boundary",
       "owner": "C",
       "source": "reports/electroneum/C/test_signer_domain_boundary_test.go",
@@ -47,6 +34,19 @@
         "C_DOMAIN_REJECTED"
       ],
       "classification": "certified runtime signer-domain differential only; no txpool or canonical execution, not an exploit"
+    },
+    {
+      "id": "C-browser-simple-request-boundary",
+      "owner": "C",
+      "source": "reports/electroneum/C/test_rpc_browser_ingress_test.go",
+      "target": "rpc/adversarial_worker_c_browser_ingress_test.go",
+      "package": "./rpc",
+      "test": "TestWorkerCBrowserSimpleRequestBoundary",
+      "markers": [
+        "C_BROWSER_SIMPLE_REJECTED",
+        "C_BROWSER_JSON_CONTROL"
+      ],
+      "classification": "native HTTP browser-simple-request ingress boundary with side-effect counter; no default personal exposure or canonical state claim"
     }
   ]
 }
