@@ -32,17 +32,18 @@
       "classification": "new native InsertChain hash-addressed sidechain block versus canonical number mapping before/after restart, three distinct chain lengths; fake PoW; no QBFT, no peer ingress, not a vulnerability claim; NEW distinct sidechain header-number index consistency invariant checked on competing branch before/after restart"
     },
     {
-      "id": "D-orphan-order-recovery",
+      "id": "D-live-wire-header-required-fields",
       "owner": "D",
-      "source": "reports/electroneum/D/test_orphan_order_recovery_test.go",
-      "target": "core/adversarial_worker_d_orphan_order_test.go",
-      "package": "./core",
-      "test": "TestWorkerDOutOfOrderAncestorRecovery",
+      "source": "reports/electroneum/D/test_live_wire_header_fields_test.go",
+      "target": "core/types/adversarial_live_d_wire_header_fields_test.go",
+      "package": "./core/types",
+      "test": "TestLiveDWireHeaderRequiredFieldBoundary",
       "markers": [
-        "D_ORPHAN_REJECTED",
-        "D_ORDERED_RECOVERY_RESTART_OK"
+        "D_WIRE_HEADER_CASE",
+        "D_WIRE_NIL_RESULT",
+        "D_WIRE_SANITY_BOUNDARY"
       ],
-      "classification": "stateful out-of-order missing-ancestor admission and ordered recovery/restart, three distinct branch lengths; fake PoW harness only, not QBFT, P2P ingress or reportable finding"
+      "classification": "novel RLP wire-frame required-field nil/oversized decoder and accessor crash characterization, three synthetic state variations; NOT established network reachability or P1"
     }
   ]
 }
