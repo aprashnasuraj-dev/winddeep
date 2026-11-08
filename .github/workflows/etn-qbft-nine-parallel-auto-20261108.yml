@@ -1,0 +1,55 @@
+name: ETN 9-validator concurrent ETH66 auto-sync liveness validation
+on:
+  push:
+    branches: [etn-qbft-nine-validator-parallel-20261108]
+    paths: [.github/workflows/etn-qbft-nine-parallel-auto-20261108.yml]
+permissions:
+  contents: read
+jobs:
+  nine-concurrent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: target
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Stage certified upstream and trace provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p evidence/PoC
+          cp reports/electroneum/B/tests/independent_eth66_wire_to_nine_qbft_test.go target/eth/adversarial_eth66_nine_qbft_test.go
+          (cd target && gofmt -w eth/adversarial_eth66_nine_qbft_test.go)
+          cp target/eth/adversarial_eth66_nine_qbft_test.go evidence/PoC/
+          echo "upstream=db0eb8792dd57304fbc66a60377c7663e1bd44d2" > evidence/identity.txt
+          echo "research_commit=${{ github.sha }}" >> evidence/identity.txt
+          echo 'independent_sessions=4 simultaneous' >> evidence/identity.txt
+          echo 'network=in_memory_ETH66_and_QBFT;no_public_P2P' >> evidence/identity.txt
+      - name: Repeat automatic scheduler with four parallel attacker sessions
+        shell: bash
+        working-directory: target
+        run: |
+          set -euo pipefail
+          for n in 1 2 3; do
+            go test ./eth -run '^TestIndependentAutomaticEth66QBFTFourPeerOutage$' -count=1 -v -timeout=115s 2>&1 | tee "../evidence/parallel-auto-$n.log"
+          done
+          (cd ../evidence && sha256sum parallel-auto-*.log PoC/*.go identity.txt > MANIFEST.sha256)
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-nine-parallel-auto-${{ github.run_id }}
+          path: evidence/
+          if-no-files-found: warn
+          retention-days: 30
