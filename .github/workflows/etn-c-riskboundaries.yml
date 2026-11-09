@@ -36,6 +36,8 @@ jobs:
           git -C upstream rev-parse HEAD > output/target-source-sha.txt
           git -C evidence rev-parse HEAD > output/evidence-workflow-sha.txt
           sha256sum evidence/reports/electroneum/C/test_intrinsic_gas_canonical_qbft_test.go evidence/reports/electroneum/C/adversarial_c_miner_gaspool_test.go > output/fixtures.sha256
+          cp evidence/reports/electroneum/C/test_intrinsic_gas_canonical_qbft_test.go output/standalone-canonical-intrinsic_test.go
+          cp evidence/reports/electroneum/C/adversarial_c_miner_gaspool_test.go output/standalone-miner-gaspool_test.go
           cp evidence/reports/electroneum/C/test_intrinsic_gas_canonical_qbft_test.go upstream/consensus/istanbul/backend/adversarial_c_intrinsic_gas_canonical_test.go
           cp evidence/reports/electroneum/C/adversarial_c_miner_gaspool_test.go upstream/miner/adversarial_c_miner_gaspool_test.go
       - name: Test signed QBFT canonical state preservation
