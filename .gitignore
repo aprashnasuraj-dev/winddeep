@@ -85,3 +85,15 @@ SHA256SUMS.txt
 *.part
 *.tmp
 *.temp
+
+# TransferWise private evidence: public repository must never track these.
+/transferwise/[A-E]/evidence/
+/transferwise/[A-E]/submissions/
+/transferwise/[A-E]/private/
+/transferwise/[A-E]/POC/
+/transferwise/[A-E]/EVIDENCE/
+/transferwise/[A-E]/CONTROL/
+/transferwise/[A-E]/*.zip
+/transferwise/[A-E]/*.tar
+/transferwise/[A-E]/*.tgz
+/transferwise/[A-E]/*.7z
