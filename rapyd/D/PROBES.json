@@ -3,7 +3,7 @@
   "name": "Checkout, hosted pages and browser trust",
   "program": "Rapyd",
   "branch": "rapyd",
-  "updated_utc": "2026-11-09",
+  "updated_utc": "2026-11-09T13:00:00Z",
   "target_priorities": [
     "P0",
     "P1",
@@ -11,12 +11,26 @@
     "P3"
   ],
   "max_active_hypotheses": 3,
-  "active": [],
+  "active": [
+    {
+      "fingerprint": "D|checkout.rapyd.net|return-session-merchant-binding|external-return-parameter|2026-11-09-source-unpinned",
+      "status": "SOURCE_ONLY_POLICY_BLOCKED",
+      "hypothesis": "Merchant-context substitution across hosted checkout return; requires proof that server trusts browser-supplied merchant context",
+      "experiment": "offline strict merchant comparison; mismatch=false, match=true",
+      "gates": {
+        "G0": false,
+        "G1": false,
+        "G2_target": false,
+        "G3": false,
+        "G4": false
+      }
+    }
+  ],
   "retired": [],
   "environment_capabilities": {
-    "github_connector": "UNVERIFIED_IN_AUTOMATION",
+    "github_connector": "READ_WRITE_VERIFIED",
     "isolated_checkout": "UNVERIFIED_IN_AUTOMATION",
-    "test_runtime": "UNVERIFIED_IN_AUTOMATION",
+    "test_runtime": "JS_ISOLATED_FIXTURE_EXECUTED",
     "private_library": "UNVERIFIED_IN_AUTOMATION",
     "last_dns_failure_utc": null
   },
@@ -38,5 +52,22 @@
     ],
     "public_metadata_only": true
   },
-  "focus": "Reason about checkout/verify return URLs, merchant-bound sessions, iframe/origin and authorization flows; no live purchase, verification or other people's identity data."
+  "focus": "Reason about checkout/verify return URLs, merchant-bound sessions, iframe/origin and authorization flows; no live purchase, verification or other people's identity data.",
+  "ranked_hypotheses": [
+    {
+      "boundary": "merchant-bound checkout return",
+      "score": 4,
+      "reason": "highest financial attribution relevance; deployment unverified"
+    },
+    {
+      "boundary": "verify return-state replay",
+      "score": 3,
+      "reason": "distinct one-time state binding; deployment unverified"
+    },
+    {
+      "boundary": "cross-origin postMessage receiver",
+      "score": 2,
+      "reason": "distinct browser origin boundary; deployment unverified"
+    }
+  ]
 }
