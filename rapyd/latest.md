@@ -11,3 +11,13 @@
 - **Public metadata:** independent A–E lane ledgers/short reports; full vulnerabilities and PoCs remain in private handoff only.
 - **Previous failure corrections:** no irrelevant unshipped source assumptions, no hourly repetition of DNS/environment blocker, no source-only confirmation, no fictitious reports.
 - **Next unblock:** a verified copy of the current official brief and authorized researcher status would permit a *separate*, explicitly consented update to testing authorization. The saved schedule itself does not confer permission.
+
+## Verified implementation readiness · 2026-11-09
+
+- Scope classifier: `python scripts/audit/rapyd_scope.py --self-test` (offline only).
+- Runtime + public-evidence safeguards: `python scripts/audit/rapyd_workspace.py doctor --check` and `python scripts/audit/rapyd_handoff.py repo-check`.
+- Synthetic package structure, checksum, private-artifact exclusions and explicit-deny scope behavior are tested by `tests/test_rapyd_scope.py` and `tests/test_rapyd_handoff.py`.
+- GitHub Actions: `.github/workflows/rapyd-readiness.yml`; first verified passing exact head: `f7e0a94ec67a83e9bc5457cb650c2af559150f8e`, run `42620330401`, **11/11 offline tests passed**.
+- Existing five hourly automations were retargeted IN PLACE to Rapyd and independently verified enabled: A :08, B :20, C :32, D :44, E :56 (Asia/Kathmandu). Target-live actions remain disabled in the baseline because official brief+participation are not verified.
+- `scripts/audit/rapyd_handoff.py pack` accepts `--asset`, `--snapshot-sha256`, `--priority`, `--policy-reviewed`; resulting ZIP passes structural checks only, NOT a confirmed exploit or proof of Bugcrowd eligibility.
+- **Findings at setup:** zero confirmed Rapyd vulnerabilities; no actual target testing, no private reports submitted, no reward assertions.
