@@ -1,15 +1,13 @@
 # TransferWise Lane E — Cross-repository and supply-chain integrity
 
-Status: ENVIRONMENT_BLOCKED / CANDIDATE ONLY (2026-11-09)
+Status: ENVIRONMENT_BLOCKED / NOT REPORTABLE ON CURRENT EVIDENCE (2026-11-09).
 
-Objective: test whether untrusted GitHub comment or issue text can trigger a privileged cross-repository AI-agent workflow through a reusable workflow trust boundary.
+Objective: assess whether an unprivileged actor can cause a trusted Wise Terraform provider release to publish attacker-influenced artifacts.
 
-Pinned public source: `transferwise/.github@787be76f0a5211a2e7c6a4080fe82931c084fa2d`, `workflow-templates/call-ci-ai-agents.yml`. The template includes issue/comment/review event triggers, a literal command gate, and a cross-repository reusable-workflow call with `secrets: inherit`. These source observations alone do not establish deployment, attacker reachability, or exploitability.
+Pinned source: transferwise/terraform-provider-awslambda@ddd26331a4f07a271a629dc3df7c57a8296a2aed. Inspected .github/workflows/release.yml, go.mod and README.md through the GitHub connector. The release workflow triggers on pushes of v* tags, checks out source, imports a configured GPG key, and invokes GoReleaser with GITHUB_TOKEN. No attacker-controlled tag creation or deployed Wise consumer was demonstrated. The module path is github.com/dedunu/terraform-provider-awslambda, so Wise-specific provenance/impact requires additional evidence.
 
-Triage (relative, qualitative): (1) issue/comment-to-privileged reusable workflow; (2) cross-repository workflow ref integrity; (3) artifact provenance-to-privileged consumer. Selected (1) as the new untested hypothesis. Strongest counterexample: only trusted maintainers can invoke the actual deployed consumer, or the reusable workflow rejects untrusted events and does not expose privileges.
+Triage: (1) tag-to-signed-release boundary (selected); (2) dependency-to-provider-build boundary; (3) published-provider-to-Wise-infrastructure consumer boundary. All remain unproven; avoid recycling this commit without new evidence. Strongest counterexample: tag creation is restricted to trusted maintainers and release artifacts are consumed only with verified provenance.
 
-Decisive boundary check: public retrieval of `transferwise/claude-code-action/.github/workflows/reusable-workflow-ci-ai-agents.yaml@main` returned 404; a repository search also failed with 422. No accessible deployed consumer or privilege effect was verified. Local `git ls-remote` of the audit checkout failed on DNS resolution of github.com; workspace doctor and target-runtime positive/negative tests were not run.
+Execution: actual local git ls-remote failed with 'Could not resolve host: github.com'. No isolated checkout, workspace doctor, target-runtime PoC, negative control or independent impact oracle executed. G0 scope yes but attacker entry unverified; G1 pinned source, shipped Wise consumer unverified; G2-G4 unmet. No severity, package, Library upload or chat ZIP.
 
-G0: in-scope producer identified, realistic unprivileged trigger not verified. G1: exact public source pinned, consumer/relevance unverified. G2-G4: not met. No severity, no submission, no private package, no Library/chat delivery.
-
-Next decisive test: obtain an authorized isolated checkout and a verifiable public deployed consumer, run `python scripts/audit/transferwise_workspace.py doctor --check`, then independently test both authorized and untrusted comment events in safe fixtures. Retire if invocation is restricted or consumer enforces actor trust. Never run against live Wise infrastructure.
+Next decisive step: obtain an isolated checkout, run python scripts/audit/transferwise_workspace.py doctor --check, and establish an unprivileged tag/release input plus a Wise-specific consumer before any bounded local test. Retire if tag creation and publication are maintainer-only.
