@@ -41,3 +41,9 @@ Severity follows demonstrated impact, not the dangerousness of a primitive. For 
 - **C — Code execution & unsafe data flow:** command/template/build execution, unsafe deserialization/parsing and injection with concrete impact.
 - **D — Infrastructure & deployment integrity:** Wise-specific IaC/cloud/deployment trust and privilege escalation, reproduced without live infrastructure access.
 - **E — Cross-repo & supply chain:** dependency/build/release/artifact/package trust across Wise repositories; reject third-party-only bugs.
+
+## Public-repository disclosure boundary and private handoff (2026-11-09)
+
+`winddeep` is a **public** repository. Preserve **only sanitized operational metadata** in each lane's tracked `PROBES.json` and `latest.md`; never commit unreported vulnerabilities, PoCs, full finding reports, private raw evidence, secret material or reproduction ZIPs. Local `evidence/` and `submissions/` are ignored private workspaces, NOT tracked repository artifacts. Privately deliver independently reproducible, sanitized evidence through ChatGPT Library and the scheduled chat when supported. See `transferwise/HANDOFF.md`.
+
+Each run prioritizes the strongest of at least three distinct in-scope hypotheses based on attacker control, feasible impact, reachability, decisive falsification and verification cost. Never relax G0-G4 or authorized scope. Passing the new offline package integrity gate is **not** independent runtime reproduction and cannot promote a finding to CONFIRMED.
