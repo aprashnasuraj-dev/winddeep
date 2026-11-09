@@ -1,7 +1,9 @@
 # TransferWise Lane C — Code execution and unsafe data flow
 
-Status: READY
+2026-11-09 scoped triage: three distinct leads ranked: (1) `transferwise/cloudflare-prometheus-exporter` YAML config parsing, (2) `transferwise/neural-lifetimes` model-weight deserialization, (3) `transferwise/pipelinewise-singer-python` test-only eval. Priority was (1) because its entry and guard could be falsified from a pinned file. The `transferwise/pipelinewise` repository was excluded throughout.
 
-Focus: Attacker-controlled input to command/template/build execution, unsafe deserialization, parser or injection boundaries with concrete impact.
+Target: `transferwise/cloudflare-prometheus-exporter@89410439b395dd65b6ee8164772f3cbdf0132f85`, `cloudflare_exporter/cli.py`. Source inspection confirms `export` accepts an operator-supplied local config file via Click and passes it to `yaml.load(..., Loader=yaml.FullLoader)`. No external attacker-controlled entry, unsafe default Loader, or Wise-specific security impact was established. Strongest guard: local operator ownership of the config. Counterexample requiring new evidence: an actual Wise-managed service accepts untrusted external YAML and invokes this CLI with it. This hypothesis is NOT REPORTABLE and retired.
 
-No active hypothesis has been accepted yet. Start from a realistic attacker-controlled boundary and pursue only P0/P1/P2, or an already concrete exceptional P3. Record exact repository + commit, experiment/control, observed effect, G0-G4 state, counterexample and one next decisive test.
+Execution: GitHub connector file fetch succeeded; isolated checkout preflight could not run because the container cannot resolve `github.com` (`git ls-remote`: `Could not resolve host: github.com`). No target-runtime PoC or negative-control execution occurred. G0 fail (attacker entry); G1 partial (pinned source, no shipped trust boundary); G2-G4 not met. ENVIRONMENT_BLOCKED for checkout-based verification. No private package or Library delivery warranted.
+
+Next decisive test: obtain a checkout/runtime with network or authorized source materialization, run `python scripts/audit/transferwise_workspace.py doctor --check`, then select a new in-scope hypothesis with demonstrated external-input provenance; do not repeat this YAML fingerprint absent new reachability evidence.
