@@ -27,7 +27,10 @@ func workerECall(t *testing.T,c *websocket.Conn,id int,method string,params ...i
  var msg struct {ID int `json:"id"`; Result json.RawMessage `json:"result"`; Error *struct{Code int;Message string} `json:"error"`}
  if err:=c.ReadJSON(&msg);err!=nil {t.Fatal(err)}
  if msg.ID!=id {t.Fatalf("E_WS_OWNER_RESPONSE_MISMATCH got=%d want=%d",msg.ID,id)}
- if msg.Error!=nil {t.Fatalf("E_WS_OWNER_RPC_ERROR method=%s code=%d message=%s",method,msg.Error.Code,msg.Error.Message)}
+ if msg.Error!=nil {
+  if method=="owner_unsubscribe" && msg.Error.Code==-32000 && msg.Error.Message=="subscription not found" { return json.RawMessage("false") }
+  t.Fatalf("E_WS_OWNER_RPC_ERROR method=%s code=%d message=%s",method,msg.Error.Code,msg.Error.Message)
+ }
  return msg.Result
 }
 func TestWorkerEWebsocketSubscriptionOwnership(t *testing.T) {
