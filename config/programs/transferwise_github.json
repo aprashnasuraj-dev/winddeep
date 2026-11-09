@@ -1,0 +1,40 @@
+{
+  "platform": "bugcrowd",
+  "program": "Wise",
+  "asset_label": "Github",
+  "activity_label": "Recon",
+  "source_kind": "user-supplied-program-policy",
+  "github": {
+    "organization": "transferwise",
+    "allow_pattern": "github.com/transferwise/*",
+    "excluded_repositories": [
+      "transferwise/pipelinewise"
+    ],
+    "known_reported_issue_count": 5,
+    "known_issue_fingerprints": []
+  },
+  "rules": {
+    "outside_organization": "out_of_scope",
+    "third_party_projects": "non_rewardable_unless_wise_specific",
+    "sample_placeholder_secrets": "not_a_finding",
+    "public_leaked_credentials": "not_a_finding_without_manual_program_evidence",
+    "scanner_only_output": "candidate_only_requires_specific_poc"
+  },
+  "automation": {
+    "read_only_source_audit": true,
+    "credential_login_validation": false,
+    "network_exploitation": false,
+    "automatic_submission": false,
+    "default_repo_limit": 30,
+    "max_parallel": 4
+  },
+  "notes": [
+    "Any public repository directly under the transferwise GitHub organization is in GitHub scope except transferwise/pipelinewise.",
+    "Repositories outside transferwise are rejected before checkout.",
+    "A vulnerability inherited from a third-party library/project is not treated as rewardable without Wise-specific vulnerable behavior or integration.",
+    "Sample/placeholder secrets in documentation, examples, tests, fixtures, and CI are suppressed when clearly non-production.",
+    "Credential candidates are never validated by this workflow against Wise systems.",
+    "Static/scanner output is only a lead. A reportable finding requires repository/commit/path evidence, reproducible proof, demonstrated impact, and duplicate review.",
+    "Five issues are known to have been reported, but fingerprints are not available in this policy snapshot; every candidate therefore retains a manual duplicate-review requirement."
+  ]
+}

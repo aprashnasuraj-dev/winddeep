@@ -1,0 +1,126 @@
+name: TransferWise GitHub Scope Audit
+
+on:
+  push:
+    branches: [transferwise]
+    paths:
+      - 'config/programs/transferwise_github.json'
+      - 'scripts/audit/transferwise_org_audit.py'
+      - 'tests/test_transferwise_audit_scope.py'
+      - 'docs/transferwise-audit.md'
+      - '.github/workflows/transferwise-audit.yml'
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Number of prioritized in-scope repositories to audit; 0 = all'
+        required: false
+        default: '30'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transferwise-readonly-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install test dependency
+        run: python -m pip install pytest
+      - name: Enforce scope and evidence policy
+        run: python -m pytest -q tests/test_transferwise_audit_scope.py
+
+  inventory:
+    needs: policy-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    env:
+      LIMIT: ${{ github.event.inputs.limit || '30' }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Enumerate public repositories fail-closed
+        run: |
+          mkdir -p reports
+          python scripts/audit/transferwise_org_audit.py inventory \
+            --config config/programs/transferwise_github.json \
+            --out reports/transferwise_inventory.json \
+            --matrix reports/transferwise_matrix.json \
+            --limit "$LIMIT"
+      - id: matrix
+        name: Export bounded audit matrix
+        run: echo "matrix=$(cat reports/transferwise_matrix.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transferwise-inventory-${{ github.sha }}
+          path: reports/transferwise_inventory.json
+          if-no-files-found: error
+
+  readonly-source-audit:
+    needs: inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJson(needs.inventory.outputs.matrix) }}
+    steps:
+      - name: Checkout Windeep control branch
+        uses: actions/checkout@v5
+        with:
+          path: control
+      - name: Re-assert repository scope before checkout
+        working-directory: control
+        env:
+          REPO: ${{ matrix.repo }}
+        run: |
+          python - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path.cwd()))
+          import importlib.util
+          p = Path("scripts/audit/transferwise_org_audit.py")
+          spec = importlib.util.spec_from_file_location("audit", p)
+          m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          cfg = json.loads(Path("config/programs/transferwise_github.json").read_text())
+          print(m.assert_repo_in_scope(os.environ["REPO"], cfg))
+          PY
+      - name: Shallow clone only the authorized repository
+        env:
+          REPO: ${{ matrix.repo }}
+        run: |
+          git clone --depth 1 --no-tags "https://github.com/${REPO}.git" target
+          git -C target rev-parse HEAD
+      - name: Generate source-review candidates
+        working-directory: control
+        env:
+          REPO: ${{ matrix.repo }}
+          IS_FORK: ${{ matrix.fork }}
+        run: |
+          mkdir -p reports
+          extra=""
+          if [ "$IS_FORK" = "true" ]; then extra="--fork"; fi
+          python scripts/audit/transferwise_org_audit.py scan \
+            --config config/programs/transferwise_github.json \
+            --repo "$REPO" \
+            --root ../target \
+            $extra \
+            --out "reports/${REPO#*/}.json"
+      - name: Preserve candidates as evidence-only artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: transferwise-${{ matrix.repo }}-${{ github.sha }}
+          path: control/reports/*.json
+          if-no-files-found: error
