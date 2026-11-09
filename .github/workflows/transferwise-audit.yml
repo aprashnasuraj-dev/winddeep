@@ -121,6 +121,6 @@ jobs:
       - name: Preserve candidates as evidence-only artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: transferwise-${{ matrix.repo }}-${{ github.sha }}
+          name: transferwise-${{ matrix.name }}-${{ github.sha }}
           path: control/reports/*.json
           if-no-files-found: error

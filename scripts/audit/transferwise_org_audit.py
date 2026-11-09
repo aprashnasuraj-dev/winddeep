@@ -171,7 +171,7 @@ def inventory(config: dict, *, limit: int, token: str = "") -> tuple[list[dict],
         page += 1
     repos.sort(key=lambda x: (-int(x["priority"]), bool(x["archived"]), x["repo"].casefold()))
     selected = repos if limit <= 0 else repos[:limit]
-    matrix = [{"repo": r["repo"], "fork": r["fork"], "archived": r["archived"], "priority": r["priority"]} for r in selected]
+    matrix = [{"repo": r["repo"], "name": r["repo"].split("/", 1)[1], "fork": r["fork"], "archived": r["archived"], "priority": r["priority"]} for r in selected]
     return repos, matrix
 
 
