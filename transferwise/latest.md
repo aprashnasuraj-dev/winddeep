@@ -1,25 +1,45 @@
 # TransferWise GitHub audit status
 
 - Branch: `transferwise`
-- Current workflow commit: `aeeb1e6dd8a5b0d20634343eda44f2115c248598`
-- Verified workflow run: `42574097183` — **SUCCESS**
+- High-impact control-plane commit verified: `fae8e9dd6e594604ff5083763f3ba2b258fe7193`
+- Verified GitHub Actions run: `42575098218` — **32/32 checks SUCCESS**
 - Scope: `github.com/transferwise/*`
 - Explicit exclusion: `transferwise/pipelinewise`
 - Public repositories inventoried after exclusion: **152**
-- First prioritized audit batch: **30/30 completed successfully**
-- Initial high-signal static candidates in that batch: **0**
-- Automatically reportable findings: **0** by design; scanner/static output can never self-promote
-- Outside-org repositories: blocked before checkout
-- Third-party/upstream-only issues: non-rewardable unless Wise-specific behavior/impact is demonstrated
-- Placeholder/sample secrets: suppressed
-- Credential login validation: disabled in automation
-- Known reported issues: **5** (fingerprints unavailable; manual dedupe remains required)
-- Full inventory and per-repository source-review JSON are preserved as GitHub Actions artifacts
+- Baseline prioritized source-audit batch: **30 repositories**
+- Known already-reported issues: **5**; fingerprints unavailable, so every candidate requires duplicate review
+- Automated credential login validation: **disabled**
+- Network exploitation / destructive testing: **disabled**
+- Automatic submission: **disabled**
 
-## Interpretation
+## High-impact operating policy
 
-The zero-candidate result applies only to the first detector layer (GitHub Actions privilege patterns, non-placeholder secret/key leads, shell=True, and unsafe YAML-load leads). It is **not** evidence that these repositories are vulnerability-free. Deeper manual/data-flow and repository-specific hypothesis work is still required.
+Scheduled research is now **P0/P1/P2-first**. An exceptional P3 may be completed only when the exploit path, security-boundary violation, reproducible proof and Wise-specific impact are already concrete. Generic P3 hunting and all P4/P5 work are excluded.
 
-## Verified first-batch repositories
+A reportable result must pass G0-G4 from `transferwise/AUDIT_SYSTEM.md`: exact scope/attacker entry, relevant pinned commit/trust boundary, bounded PoC plus honest control, independent Wise-specific security effect, then defensible severity + duplicate review + sanitized reproduction.
 
-`wise-topic`, `public-api-postman-collection`, `cloudflare-prometheus-exporter`, `banks-reference-android`, `public-widgets`, `neural-lifetimes`, `digital-signatures-examples`, `prometheus-envoy-dashboards`, `wise-platform-samples`, `idempotence4j`, `.github`, `actions-next-bundle-analyzer`, `legal-terms`, `pipelinewise-singer-python`, `shap-select`, `sequence-layout`, `grails-spring-security-oauth`, `tw-challenge-february-2015`, `onfido-api-java-client`, `aws-kms-sign-csr`, `wise-pizza`, `terraform-provider-awslambda`, `prometheus-anomaly-detector`, `plaid-java`, `vero-java`, `wait-for-it`, `ansible-cloudwatch-monitoring`, `admin_power_pack`, `ansible-docker`, `ansible-ebs-automatic-nvme-mapping`.
+Scanner output, code smells, dependency CVEs, placeholder/sample secrets, public leaked-credential lists, and third-party-only vulnerabilities cannot self-promote into findings.
+
+## Parallel lanes
+
+| Lane | Mission | Workspace |
+|---|---|---|
+| A | CI/CD, PR/fork trust, tokens, releases, signing, packages, repository takeover | `transferwise/A/` |
+| B | Authentication, authorization, OAuth/session/token/signature/idempotency | `transferwise/B/` |
+| C | Command/build/template execution, deserialization, parser/injection data flow | `transferwise/C/` |
+| D | Wise-specific IaC/cloud/deployment trust and privilege boundaries | `transferwise/D/` |
+| E | Cross-repository build/release/artifact/package supply-chain integrity | `transferwise/E/` |
+
+Each lane owns an independent `PROBES.json` and `latest.md`, with at most three active hypotheses. Shared files are read-only during scheduled hunting to avoid A-E collisions.
+
+## Scheduled workers
+
+The five pre-existing ETN automation IDs were remapped in place rather than duplicated. They are enabled on their existing staggered hourly schedule in Asia/Kathmandu:
+
+- A — :08
+- B — :20
+- C — :32
+- D — :44
+- E — :56
+
+No Electroneum mission remains in those five task prompts.
