@@ -39,7 +39,7 @@ func TestWorkerEWebsocketSubscriptionOwnership(t *testing.T) {
   a,_,err:=websocket.DefaultDialer.Dial(url,nil);if err!=nil {t.Fatal(err)}
   b,_,err:=websocket.DefaultDialer.Dial(url,nil);if err!=nil {t.Fatal(err)}
   var subscription string
-  if err:=json.Unmarshal(workerECall(t,a,1,"owner_subscribe"),&subscription);err!=nil {t.Fatal(err)}
+  if err:=json.Unmarshal(workerECall(t,a,1,"owner_subscribe","subscribe"),&subscription);err!=nil {t.Fatal(err)}
   if subscription=="" {t.Fatal("empty subscription")}
   var denied bool
   if err:=json.Unmarshal(workerECall(t,b,2,"owner_unsubscribe",subscription),&denied);err!=nil {t.Fatal(err)}
