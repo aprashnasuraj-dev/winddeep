@@ -63,6 +63,23 @@ jobs:
           set -o pipefail
           cd upstream
           go test -count=1 -timeout=20m -run '^TestInvalidTransactions$' -v ./core 2>&1 | tee ../output/upstream-txpool.log
+      - name: Prove proposed gas-pool restoration on disposable official source
+        id: remediation
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 evidence/reports/electroneum/C/apply_synthetic_fix.py upstream/miner/worker.go upstream/miner/adversarial_c_miner_gaspool_test.go
+          gofmt -w upstream/miner/worker.go upstream/miner/adversarial_c_miner_gaspool_test.go
+          git -C upstream diff -- miner/worker.go > output/proposed-miner-rollback-fix.diff
+          cd upstream
+          go test -count=1 -timeout=15m -run '^TestCUnderIntrinsicMinerGasPoolAndRemoteAdmission
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-c-upstream-multiboundary
+          path: output
+          retention-days: 14
+ -v ./miner 2>&1 | tee ../output/remediation-regression.log
       - name: Preserve all raw evidence
         if: always()
         uses: actions/upload-artifact@v4
