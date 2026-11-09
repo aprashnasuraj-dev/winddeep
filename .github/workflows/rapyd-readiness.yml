@@ -1,0 +1,49 @@
+name: Rapyd Offline Scope and Audit Readiness
+on:
+  push:
+    branches: [rapyd]
+    paths:
+      - 'rapyd/**'
+      - 'config/programs/rapyd_bugcrowd.json'
+      - 'scripts/audit/rapyd_*.py'
+      - 'tests/test_rapyd_*.py'
+      - '.gitignore'
+      - '.github/workflows/rapyd-readiness.yml'
+  pull_request:
+    branches: [rapyd]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate scope and default-deny
+        run: python scripts/audit/rapyd_scope.py --self-test
+      - name: Verify git excludes private findings
+        run: python scripts/audit/rapyd_handoff.py repo-check
+      - name: Verify real local CI readiness
+        run: python scripts/audit/rapyd_workspace.py doctor --check
+      - name: Run offline unit tests
+        run: |
+          python -m pip install pytest
+          python -m pytest -q tests/test_rapyd_scope.py tests/test_rapyd_handoff.py
+      - name: Require disabled live network actions
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          cfg=json.loads(Path("config/programs/rapyd_bugcrowd.json").read_text())
+          a=cfg["authorization"]
+          assert a["live_target_requests_enabled"] is False
+          assert a["active_scanning_enabled"] is False
+          assert a["official_brief_verified"] is False
+          print("PASSIVE_ONLY_GUARD_OK")
+          PY
