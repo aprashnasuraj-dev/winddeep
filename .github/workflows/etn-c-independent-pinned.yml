@@ -1,0 +1,63 @@
+name: ETN C — independent upstream canonical intrinsic-gas reproduction
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - electroneum-sc-master-audit
+    paths:
+      - '.github/workflows/etn-c-independent-pinned.yml'
+permissions:
+  contents: read
+jobs:
+  public-upstream-canonical:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout C-owned reproduction fixture
+        uses: actions/checkout@v4
+        with:
+          path: evidence
+          persist-credentials: false
+      - name: Checkout official upstream Electroneum source at exact commit
+        uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: upstream
+          persist-credentials: false
+      - name: Verify official source identity and install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Execute C canonical PoC against pinned public upstream
+        id: run
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE_SHA="$(git -C upstream rev-parse HEAD)"
+          test "$SOURCE_SHA" = "db0eb8792dd57304fbc66a60377c7663e1bd44d2"
+          mkdir -p output
+          cp evidence/reports/electroneum/C/test_intrinsic_gas_canonical_qbft_test.go upstream/consensus/istanbul/backend/adversarial_c_intrinsic_gas_canonical_test.go
+          cd upstream
+          go test -count=1 -timeout=20m -run '^TestWorkerCIntrinsicGasCanonicalBoundary$' -v ./consensus/istanbul/backend 2>&1 | tee ../output/c-public-source-test.log
+      - name: Write source and workflow provenance
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p output
+          {
+            printf 'upstream_sha='
+            git -C upstream rev-parse HEAD
+            printf 'reproduction_fixture_sha256='
+            sha256sum evidence/reports/electroneum/C/test_intrinsic_gas_canonical_qbft_test.go | awk '{print $1}'
+            printf 'runner_workflow_sha='
+            git -C evidence rev-parse HEAD
+          } > output/provenance.txt
+      - name: Upload standalone evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-c-independent-public-upstream
+          path: output/
+          retention-days: 14
