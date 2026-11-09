@@ -1,0 +1,70 @@
+name: ETN C — independent upstream multi-boundary security validation
+on:
+  push:
+    branches: [electroneum-sc-master-audit]
+    paths:
+      - '.github/workflows/etn-c-riskboundaries.yml'
+      - 'reports/electroneum/C/adversarial_c_miner_gaspool_test.go'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  upstream-multi-boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: evidence
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: upstream
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Record source identity and independent fixture hashes
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C upstream rev-parse HEAD)" = db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          mkdir -p output
+          git -C upstream rev-parse HEAD > output/target-source-sha.txt
+          git -C evidence rev-parse HEAD > output/evidence-workflow-sha.txt
+          sha256sum evidence/reports/electroneum/C/test_intrinsic_gas_canonical_qbft_test.go evidence/reports/electroneum/C/adversarial_c_miner_gaspool_test.go > output/fixtures.sha256
+          cp evidence/reports/electroneum/C/test_intrinsic_gas_canonical_qbft_test.go upstream/consensus/istanbul/backend/adversarial_c_intrinsic_gas_canonical_test.go
+          cp evidence/reports/electroneum/C/adversarial_c_miner_gaspool_test.go upstream/miner/adversarial_c_miner_gaspool_test.go
+      - name: Test signed QBFT canonical state preservation
+        id: canonical
+        shell: bash
+        run: |
+          set -o pipefail
+          cd upstream
+          go test -count=1 -timeout=20m -run '^TestWorkerCIntrinsicGasCanonicalBoundary$' -v ./consensus/istanbul/backend 2>&1 | tee ../output/canonical.log
+      - name: Test real miner gas pool and remote txpool admission
+        id: miner
+        if: success()
+        shell: bash
+        run: |
+          set -o pipefail
+          cd upstream
+          go test -count=1 -timeout=20m -run '^TestCUnderIntrinsicMinerGasPoolAndRemoteAdmission$' -v ./miner 2>&1 | tee ../output/miner-pool.log
+      - name: Test upstream transaction pool invalid transaction guard
+        id: pool
+        if: success()
+        shell: bash
+        run: |
+          set -o pipefail
+          cd upstream
+          go test -count=1 -timeout=20m -run '^TestInvalidTransactions$' -v ./core 2>&1 | tee ../output/upstream-txpool.log
+      - name: Preserve all raw evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-c-upstream-multiboundary
+          path: output
+          retention-days: 14
