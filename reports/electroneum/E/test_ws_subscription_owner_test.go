@@ -21,6 +21,7 @@ func (*workerEOwnerService) Subscribe(ctx context.Context) (*Subscription,error)
 }
 func workerECall(t *testing.T,c *websocket.Conn,id int,method string,params ...interface{}) json.RawMessage {
  t.Helper()
+ if params==nil { params=[]interface{}{} }
  if err:=c.WriteJSON(map[string]interface{}{"jsonrpc":"2.0","id":id,"method":method,"params":params});err!=nil {t.Fatal(err)}
  _=c.SetReadDeadline(time.Now().Add(3*time.Second))
  var msg struct {ID int `json:"id"`; Result json.RawMessage `json:"result"`; Error *struct{Code int;Message string} `json:"error"`}
