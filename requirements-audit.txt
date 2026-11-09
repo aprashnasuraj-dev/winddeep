@@ -1,0 +1,2 @@
+# Isolated audit tooling only; do not install the application runtime.
+pytest>=8,<10
