@@ -29,16 +29,16 @@
       "classification": "outside-in HTTP request response isolation; no vulnerability claimed without executed target differential"
     },
     {
-      "id": "E-RPC-022-WS-DEFAULT-ORIGIN",
+      "id": "E-RPC-023-WS-SUBSCRIPTION-OWNERSHIP",
       "owner": "E",
-      "source": "reports/electroneum/E/test_ws_default_origin_boundary_test.go",
-      "target": "rpc/adversarial_e_ws_default_origin_boundary_test.go",
+      "source": "reports/electroneum/E/test_ws_subscription_owner_test.go",
+      "target": "rpc/adversarial_e_ws_subscription_owner_test.go",
       "package": "./rpc",
-      "test": "TestWorkerEWebsocketDefaultOriginBoundary",
+      "test": "TestWorkerEWebsocketSubscriptionOwnership",
       "markers": [
-        "E_WS_ORIGIN_BOUNDARY"
+        "E_WS_OWNER_BOUNDARY"
       ],
-      "classification": "default WebSocket origin boundary discrimination; no vulnerability unless untrusted origin is accepted and meaningful impact proven"
+      "classification": "bounded inert WS cross-session subscription ownership; not canonical-chain impact or a reportable flaw without verified violation"
     }
   ]
 }
