@@ -364,7 +364,24 @@ def validate_candidate(candidate: dict, proof: dict, config: dict) -> tuple[bool
     except ValueError as exc:
         reasons.append(str(exc))
 
-    required_true = ("reproduced", "impact_demonstrated", "specific_poc", "duplicate_reviewed")
+    priority = str(proof.get("priority", "")).upper().strip()
+    primary = {str(x).upper() for x in config.get("severity_policy", {}).get("primary_targets", ["P0", "P1", "P2"])}
+    exceptional = {str(x).upper() for x in config.get("severity_policy", {}).get("allowed_exceptional", ["P3"])}
+    allowed = primary | exceptional
+    if priority not in allowed:
+        reasons.append(f"priority must be one of {sorted(allowed)}; general P4/P5 findings are not audit targets")
+    if priority in exceptional and proof.get("p3_exception_justified") is not True:
+        reasons.append("exceptional P3 requires p3_exception_justified=true")
+
+    required_true = (
+        "attacker_entry_verified",
+        "exact_commit_pinned",
+        "reproduced",
+        "honest_control",
+        "impact_demonstrated",
+        "specific_poc",
+        "duplicate_reviewed",
+    )
     for key in required_true:
         if proof.get(key) is not True:
             reasons.append(f"{key}=true is required")
@@ -382,6 +399,10 @@ def validate_candidate(candidate: dict, proof: dict, config: dict) -> tuple[bool
         reasons.append("poc_steps are required")
     if not str(proof.get("impact", "")).strip():
         reasons.append("impact description is required")
+    if not str(proof.get("counterexample", "")).strip():
+        reasons.append("counterexample is required")
+    if not str(proof.get("attacker_model", "")).strip():
+        reasons.append("attacker_model is required")
 
     return (not reasons), reasons
 
