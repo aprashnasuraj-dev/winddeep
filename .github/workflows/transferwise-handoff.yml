@@ -9,6 +9,11 @@ on:
       - 'scripts/audit/transferwise_handoff.py'
       - 'tests/test_transferwise_handoff.py'
       - '.gitignore'
+      - 'scripts/audit/transferwise_workspace.py'
+      - 'tests/test_transferwise_workspace.py'
+      - 'transferwise/tooling/**'
+      - '.devcontainer/**'
+      - 'requirements-audit.txt'
       - '.github/workflows/transferwise-handoff.yml'
   pull_request:
     branches: [transferwise]
@@ -41,7 +46,9 @@ jobs:
           python-version: '3.12'
       - name: Verify scope, lane ownership, and no tracked private evidence
         run: python scripts/audit/transferwise_handoff.py repo-check
+      - name: Preflight executable environment
+        run: python scripts/audit/transferwise_workspace.py doctor --check
       - name: Install test runner
         run: python -m pip install pytest
       - name: Test portable evidence integrity and existing Wise scope
-        run: python -m pytest -q tests/test_transferwise_handoff.py tests/test_transferwise_audit_scope.py
+        run: python -m pytest -q tests/test_transferwise_handoff.py tests/test_transferwise_audit_scope.py tests/test_transferwise_workspace.py

@@ -1,76 +1,64 @@
-# TransferWise scheduled audit environment and evidence delivery
+# TransferWise scheduled-worker environment
 
-The five scheduled lanes A-E own only their respective transferwise/A-E/ folders.
-No changes here authorize attacking live Wise systems or submitting a report.
+This branch supports five existing hourly ChatGPT audit lanes. The repository is
+PUBLIC: never commit unpublished vulnerability reports, PoCs, evidence, secrets
+or ZIPs. Only non-sensitive lane coordination metadata belongs in git. The
+authoritative private handoff and packaging contract is in
+transferwise/HANDOFF.md and scripts/audit/transferwise_handoff.py.
 
-## Environments
+## Wired tools and execution environments
 
-- GitHub connector: work only on aprashnasuraj-dev/winddeep branch transferwise;
-  serialize branch writes using expected HEAD SHA. Read only authorized public
-  transferwise repositories, excluding transferwise/pipelinewise.
-- GitHub Actions: transferwise-readiness.yml checks the branch and file/evidence
-  structure using Python 3.12 with contents:read, no secrets, and **no execution
-  of arbitrary audit PoCs**. It runs on tooling/policy changes, not every hourly
-  lane push. The existing transferwise-audit.yml remains the read-only scanner.
-- Codespaces / VS Code Dev Containers: Python 3.12, git, GitHub CLI and pytest;
-  no Wise credentials, privileged mounts, or blanket package installs. Install
-  additional Java/Node/Terraform/Docker tools only for an identified target.
-- Scheduled ChatGPT agents: connector/computer entitlement is managed on the
-  automation side. A GitHub commit does NOT provision a computer or grant
-  Library access. If execution or repository-write capability is unavailable,
-  mark ENVIRONMENT_BLOCKED with the exact missing capability.
+- GitHub connector: read and write the winddeep transferwise branch using a
+  checked current HEAD; never merge into main. Only public in-scope
+  transferwise/* repositories are target sources; exclude pipelinewise.
+- Codespaces / VS Code Dev Containers: Python 3.12, git, GitHub CLI and pytest
+  are available after setup. No live target credentials or privileged mounts.
+- GitHub Actions: transferwise-handoff.yml checks all five lanes, private-Git
+  exclusions, bundle checksum/integrity tests and this environment preflight.
+  It runs with contents:read, and neither executes genuine PoCs nor uploads
+  private reports. Do not create another redundant readiness workflow.
+- ChatGPT scheduled automations: must verify their own actual GitHub connector,
+  shell/runtime and persistent Library access. A GitHub commit CANNOT attach a
+  cloud computer or grant account-level permission to an automation.
 
-## Fresh checkout preflight
+## Worker preflight
 
-    git switch transferwise
     python scripts/audit/transferwise_workspace.py doctor --check
-    python -m unittest discover -s tests -p test_transferwise_workspace.py -v
 
-The doctor reports optional toolchains without treating them as prerequisites.
+That command tests Python >=3.11 and git, reports optional gh, rg, Docker,
+Node, Java and Terraform availability, and invokes the existing fail-closed
+repo-check gate. Install optional toolchains only for a pinned target needing
+that runtime. If the agent lacks local execution access, record
+ENVIRONMENT_BLOCKED rather than inventing command results.
 
-## Independently runnable finding package
+## Canonical portable ZIP packaging
 
-Create the following only for a validated G0-G4 finding, inside the owning
-lane directory (replace A and the finding slug with actual values):
+After a finding independently passes G0-G4, prepare a sanitized package in a
+PRIVATE location outside tracked Git:
 
-    transferwise/A/submissions/finding-slug/
-      MANIFEST.json
+    /private/finding/
       REPORT.md
       REPRODUCE.md
       SCOPE.md
       IMPACT.md
       DUPLICATE_REVIEW.md
       ENVIRONMENT.md
-      POC/repro.py
-      EVIDENCE/executed.log
+      POC/reproduce.py
+      EVIDENCE/run.log
       EVIDENCE/CONTROL/negative.log
 
-MANIFEST.example.json is deliberately set to CANDIDATE with all gates false.
-Update the manifest with the exact in-scope repo, pinned 40-character commit,
-justified P0-P2 (or exceptional P3), G0-G4 true, and independently observed
-execution/control only AFTER actually reproducing them.
+Then use the pre-existing builder, which produces MANIFEST.json and SHA256SUMS:
 
-    python scripts/audit/transferwise_workspace.py pack --source transferwise/A/submissions/finding-slug --output transferwise/A/submissions/Wise_TransferWise_A_repo_finding_DATE.zip
-    python scripts/audit/transferwise_workspace.py verify --zip transferwise/A/submissions/Wise_TransferWise_A_repo_finding_DATE.zip
+    python scripts/audit/transferwise_handoff.py pack --source /private/finding --output /private/Wise_TransferWise_A_repo_finding_DATE.zip --lane A --repo transferwise/example --commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --severity P2
+    python scripts/audit/transferwise_handoff.py verify /private/Wise_TransferWise_A_repo_finding_DATE.zip
 
-The builder produces deterministic ZIP contents, MANIFEST file hashes and
-SHA256SUMS; it rejects unsafe paths/symlinks, oversized files, incomplete
-control evidence, unconfirmed claims and out-of-scope targets. Passing bundle
-validation is not proof that a vulnerability exists: independently execute
-the non-destructive PoC and control in an isolated fresh checkout.
+The helper checks STRUCTURE ONLY. It does not attest the PoC executed or
+certify a vulnerability. Execute bounded reproduction and negative control
+independently in a fresh isolated environment; preserve exact results,
+limitations and version pins. The ZIP remains private and untracked.
 
-## Two distinct delivery gates
-
-1. Upload the sanitized verified ZIP into persistent ChatGPT Library at
-   /Wise-TransferWise-Audit/<LANE>/ using an authorized Library-write tool;
-   verify that the Library copy is readable (LIBRARY_VERIFIED).
-2. Attach the ZIP or supply an actually accessible artifact link in the
-   scheduled chat (CHAT_DELIVERED). Include exact reproduction commands,
-   observed vs control result, impact and checksums in the chat report.
-
-If either capability is unavailable, report DELIVERY_BLOCKED, preserve the
-generated ZIP for a future retry and never invent a download URL. GitHub
-Actions itself cannot directly write to the user's ChatGPT Library.
-
-Only sanitize and distribute non-sensitive, legal, non-destructive fixtures.
-The packaging checks are defense in depth, not a comprehensive secret scanner.
+Deliver the verified ZIP using an authorized persistent ChatGPT Library tool
+under /Wise-TransferWise-Audit/<LANE>/; separately provide an accessible
+attachment/link in the scheduled chat. Verify LIBRARY_VERIFIED and
+CHAT_DELIVERED independently. If either operation cannot be completed,
+mark DELIVERY_BLOCKED, retain the private ZIP and do not invent links.
