@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "platform": "bugcrowd",
+  "program": "Rapyd",
+  "program_url": "https://bugcrowd.com/engagements/rapyd",
+  "program_policy_authority": "authenticated official Bugcrowd engagement brief; exclusions override wildcards",
+  "secondary_snapshot": {
+    "checked_utc": "2026-11-09",
+    "latest_observed_scope_change": "2026-08-12",
+    "sources": [
+      "https://bbscope.com/program/bc/%2Fengagements%2Frapyd",
+      "https://bug-bounties.as93.net/rapyd/",
+      "https://community.rapyd.net/t/rapyd-launches-bug-bounty-program-earn-rewards-for-finding-security-vulnerabilities/58567"
+    ],
+    "status": "SECONDARY_ONLY_UNVERIFIED"
+  },
+  "authorization": {
+    "official_brief_verified": false,
+    "program_current_rules_verified": false,
+    "researcher_participation_verified": false,
+    "live_target_requests_enabled": false,
+    "active_scanning_enabled": false,
+    "unverified_behavior": "OFFLINE_OR_PASSIVE_PUBLIC_SOURCE_TRIAGE_ONLY",
+    "recheck_requirements": [
+      "Read current authenticated Bugcrowd brief and changelog",
+      "Verify researcher eligibility/participation",
+      "Record scope+exclusions+rewards+safe-harbor+automation rules+last updated timestamp",
+      "Verify all target redirects and third party ownership",
+      "Do not enable live requests until all authorization gates explicitly pass"
+    ]
+  },
+  "in_scope": [
+    "api.rapyd.net",
+    "dashboard.rapyd.net",
+    "verify.rapyd.net",
+    "checkout.rapyd.net",
+    "*.rapyd.net",
+    "*.korta.is",
+    "jointhemoment.net",
+    "*.rapyd.com",
+    "*.rapyd.org",
+    "*.kortathjonustan.is"
+  ],
+  "out_of_scope": [
+    "community.rapyd.net",
+    "support.rapyd.net",
+    "docs.rapyd.net",
+    "sandbox.rapyd.net",
+    "ghost.rapyd.net",
+    "*.neatcommerce.com",
+    "*.neattest.com",
+    "*.neat.com.hk",
+    "*.neat.hk",
+    "*.neat.wtf",
+    "3rd party services"
+  ],
+  "hard_exclusions": [
+    "Any unlisted/ambiguous host, third-party service, redirect, CNAME or content delivery origin without explicit approval",
+    "Any real customer/merchant data or funds",
+    "Credential stuffing, unauthorized account access, social engineering, DDoS, rate-limit exhaustion",
+    "All automation/scripts against Rapyd support forms",
+    "Bulk discovery, intrusive scanning, purchasing, transfers, refunds and payouts on production",
+    "Private repos, internal networks, employee endpoints, physical targets"
+  ],
+  "severity": {
+    "focus": [
+      "P0",
+      "P1",
+      "P2",
+      "P3"
+    ],
+    "exclude": [
+      "P4",
+      "P5"
+    ],
+    "rule": "Use Bugcrowd VRT and observed impact; do not assign priority to an unverified hypothesis. P3 must show a real security boundary, not cosmetic or best-practice gaps."
+  },
+  "lane_map": {
+    "A": "Web build, frontend trust, deployment and exposed configuration only on in-scope web assets (not arbitrary GitHub repositories)",
+    "B": "Authentication, authorization, merchant and tenant isolation, sessions, signature design",
+    "C": "Input-to-server trust boundary, parser and backend safety via local mocks, fixtures and authorized minimal tests",
+    "D": "Checkout, hosted verification, cross-origin redirects, browser/session boundaries",
+    "E": "Webhook, idempotency, event-ordering and financial state invariants via owned fixtures; no real-money or third-party transactions"
+  },
+  "rules": {
+    "explicit_deny_overrides_wildcard": true,
+    "require_fresh_official_policy": true,
+    "no_cross_asset_redirect_following": true,
+    "no_leaked_credential_validation": true,
+    "no_live_payment_actions": true,
+    "no_automatic_submission": true,
+    "public_git_metadata_only": true,
+    "authorized_live_testing_budget_per_run": 0,
+    "high_value_hypotheses_per_run": 3,
+    "max_active_per_lane": 3,
+    "duplicate_first": true,
+    "one_decisive_test_per_run": true,
+    "status_states": [
+      "NEW",
+      "CANDIDATE",
+      "ENVIRONMENT_BLOCKED",
+      "OUT_OF_SCOPE",
+      "NOT_REPORTABLE",
+      "CONFIRMED_PRIVATE",
+      "DELIVERY_BLOCKED",
+      "NO_NEW_VERIFIABLE_PROGRESS"
+    ]
+  },
+  "evidence_gates": {
+    "G0": "Confirmed current official scope+program testing authorization+actual attacker/owned test persona",
+    "G1": "A concrete reachable Rapyd security boundary, exact affected asset and pinned version/timestamp",
+    "G2": "Controlled bounded positive reproduction and negative control; distinguish mock from actual target",
+    "G3": "Independent security consequence/invariant, realistic impact, counterexample and no harm",
+    "G4": "Defensible VRT priority, known issue/duplicate review, clean-room reproducibility, sanitized private report"
+  },
+  "reporting": {
+    "destination": "Bugcrowd Rapyd engagement (manual researcher review/submission only)",
+    "private_library_root": "/Rapyd-Audit",
+    "public_repo_safe_paths": [
+      "rapyd/<LANE>/PROBES.json",
+      "rapyd/<LANE>/latest.md"
+    ]
+  },
+  "note": "This is a planning snapshot; not an authorization token, not an attestation the live brief was read, and not permission for unattended active live probing."
+}

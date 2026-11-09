@@ -1,0 +1,42 @@
+{
+  "lane": "C",
+  "name": "Input handling and backend security",
+  "program": "Rapyd",
+  "branch": "rapyd",
+  "updated_utc": "2026-11-09",
+  "target_priorities": [
+    "P0",
+    "P1",
+    "P2",
+    "P3"
+  ],
+  "max_active_hypotheses": 3,
+  "active": [],
+  "retired": [],
+  "environment_capabilities": {
+    "github_connector": "UNVERIFIED_IN_AUTOMATION",
+    "isolated_checkout": "UNVERIFIED_IN_AUTOMATION",
+    "test_runtime": "UNVERIFIED_IN_AUTOMATION",
+    "private_library": "UNVERIFIED_IN_AUTOMATION",
+    "last_dns_failure_utc": null
+  },
+  "authorization": {
+    "official_brief": "UNVERIFIED",
+    "live_target_testing": "DISABLED"
+  },
+  "rules": {
+    "source_only": "CANDIDATE_NOT_CONFIRMED",
+    "mock_only": "NOT_RAPYD_VULNERABILITY",
+    "real_payment_actions": "NEVER",
+    "positive_and_negative_control": true,
+    "all_gates": [
+      "G0",
+      "G1",
+      "G2",
+      "G3",
+      "G4"
+    ],
+    "public_metadata_only": true
+  },
+  "focus": "Trace published API input semantics into parsing, validation or server-side dangerous behavior; local parsing fixtures and documented mechanisms only unless separately authorized."
+}
