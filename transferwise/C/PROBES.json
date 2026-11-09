@@ -1,0 +1,34 @@
+{
+  "lane": "C",
+  "name": "Code execution and unsafe data flow",
+  "target_priorities": [
+    "P0",
+    "P1",
+    "P2"
+  ],
+  "exceptional_priority": [
+    "P3"
+  ],
+  "prohibited_general_hunting": [
+    "P4",
+    "P5"
+  ],
+  "max_active_hypotheses": 3,
+  "active": [],
+  "retired": [],
+  "rules": {
+    "scope": "github.com/transferwise/* except transferwise/pipelinewise",
+    "scanner_output": "lead_only",
+    "third_party_only": "reject",
+    "sample_placeholder_secrets": "reject",
+    "leaked_credentials": "do_not_validate_against_live_wise_systems",
+    "required_gates": [
+      "G0",
+      "G1",
+      "G2",
+      "G3",
+      "G4"
+    ]
+  },
+  "focus": "Attacker-controlled input to command/template/build execution, unsafe deserialization, parser or injection boundaries with concrete impact."
+}
