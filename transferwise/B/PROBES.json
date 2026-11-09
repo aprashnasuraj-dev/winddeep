@@ -15,7 +15,14 @@
   ],
   "max_active_hypotheses": 3,
   "active": [],
-  "retired": [],
+  "retired": [
+    {
+      "fingerprint": "transferwise/idempotence4j@77a2761952871c0638516c09d87769880788fb42|financial-idempotency|unprivileged-client",
+      "checked_utc": "2026-11-09",
+      "status": "G0_G1_UNMET_LIBRARY_ONLY_NO_WISE_ENFORCEMENT",
+      "reopen_on": "new Wise-owned deployed integration and attacker entry"
+    }
+  ],
   "rules": {
     "scope": "github.com/transferwise/* except transferwise/pipelinewise",
     "scanner_output": "lead_only",
@@ -30,5 +37,12 @@
       "G4"
     ]
   },
-  "focus": "AuthN/AuthZ, OAuth/session/token/signature/idempotency and privilege-boundary failures in Wise-owned code."
+  "focus": "AuthN/AuthZ, OAuth/session/token/signature/idempotency and privilege-boundary failures in Wise-owned code.",
+  "environment": {
+    "checked_utc": "2026-11-09",
+    "git_dns": "FAILED_Could_not_resolve_host_github.com",
+    "checkout": "UNAVAILABLE",
+    "doctor": "NOT_EXECUTED_script_absent_without_checkout",
+    "connector": "READ_WRITE_AVAILABLE"
+  }
 }
