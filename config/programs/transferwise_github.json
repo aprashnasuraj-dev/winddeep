@@ -13,12 +13,49 @@
     "known_reported_issue_count": 5,
     "known_issue_fingerprints": []
   },
+  "severity_policy": {
+    "primary_targets": ["P0", "P1", "P2"],
+    "allowed_exceptional": ["P3"],
+    "do_not_hunt": ["P4", "P5"],
+    "p3_rule": "Only retain a P3 candidate when a concrete exploit path, security boundary violation, reproducible proof and Wise-specific impact are already demonstrated. Do not spend scheduled runs on generic P3 discovery.",
+    "promotion_rule": "Scanner output, code smell, dependency CVE, theoretical impact or configuration hardening does not establish severity."
+  },
+  "lanes": {
+    "A": {
+      "name": "CI/CD and repository trust",
+      "focus": "GitHub Actions trust boundaries, fork/PR execution, token permissions, release/signing/package publication and repository takeover paths"
+    },
+    "B": {
+      "name": "Authentication, authorization and signing",
+      "focus": "Wise-owned authn/authz, OAuth/session/token/signature/idempotency/cryptographic enforcement and privilege-boundary failures"
+    },
+    "C": {
+      "name": "Code execution and unsafe data flow",
+      "focus": "Attacker-controlled input reaching command execution, deserialization, template/build execution, parser boundary or injection with concrete high-impact consequences"
+    },
+    "D": {
+      "name": "Infrastructure and deployment integrity",
+      "focus": "Wise-specific IaC, cloud/deployment trust, artifact configuration, secret exposure paths and privilege escalation proven safely without touching live infrastructure"
+    },
+    "E": {
+      "name": "Cross-repository and supply-chain integrity",
+      "focus": "Wise-specific dependency, build, release, package, artifact and cross-repository trust failures; third-party-only bugs are rejected"
+    }
+  },
   "rules": {
     "outside_organization": "out_of_scope",
     "third_party_projects": "non_rewardable_unless_wise_specific",
     "sample_placeholder_secrets": "not_a_finding",
     "public_leaked_credentials": "not_a_finding_without_manual_program_evidence",
-    "scanner_only_output": "candidate_only_requires_specific_poc"
+    "scanner_only_output": "candidate_only_requires_specific_poc",
+    "general_p4_p5": "not_audit_target"
+  },
+  "evidence_gates": {
+    "G0": "Exact in-scope repository and attacker-controlled entry point",
+    "G1": "Exact commit, shipped/relevant code path and trust boundary",
+    "G2": "Reproducible non-destructive proof with honest/negative control",
+    "G3": "Independent security invariant and concrete Wise-specific impact",
+    "G4": "Priority justified as P0/P1/P2 or exceptional P3, duplicate-reviewed, sanitized reproduction ready"
   },
   "automation": {
     "read_only_source_audit": true,
@@ -26,15 +63,18 @@
     "network_exploitation": false,
     "automatic_submission": false,
     "default_repo_limit": 30,
-    "max_parallel": 4
+    "max_parallel": 4,
+    "branch": "transferwise",
+    "lane_owned_paths": true
   },
   "notes": [
     "Any public repository directly under the transferwise GitHub organization is in GitHub scope except transferwise/pipelinewise.",
     "Repositories outside transferwise are rejected before checkout.",
     "A vulnerability inherited from a third-party library/project is not treated as rewardable without Wise-specific vulnerable behavior or integration.",
     "Sample/placeholder secrets in documentation, examples, tests, fixtures, and CI are suppressed when clearly non-production.",
-    "Credential candidates are never validated by this workflow against Wise systems.",
-    "Static/scanner output is only a lead. A reportable finding requires repository/commit/path evidence, reproducible proof, demonstrated impact, and duplicate review.",
-    "Five issues are known to have been reported, but fingerprints are not available in this policy snapshot; every candidate therefore retains a manual duplicate-review requirement."
+    "Credential candidates are never validated by automation against Wise systems.",
+    "Static/scanner output is only a lead. A reportable finding requires repository/commit/path evidence, reproducible proof, demonstrated impact, priority justification and duplicate review.",
+    "Five issues are known to have been reported, but fingerprints are not available in this policy snapshot; every candidate therefore retains a manual duplicate-review requirement.",
+    "Scheduled lanes target P0-P2. P3 is retained only when the exploit and concrete impact are already strong enough to justify continued work; general P4/P5 hunting is prohibited."
   ]
 }
