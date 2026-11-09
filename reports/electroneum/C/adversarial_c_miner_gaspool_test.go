@@ -47,8 +47,12 @@ func TestCUnderIntrinsicMinerGasPoolAndRemoteAdmission(t *testing.T) {
    bad,good:=sign(20999),sign(21000)
    pool:=core.NewTxPool(core.DefaultTxPoolConfig,cfg,chain);defer pool.Stop()
    if e:=pool.AddRemote(bad);!errors.Is(e,core.ErrIntrinsicGas){t.Fatalf("C_REMOTE_UNDERINTRINSIC_UNEXPECTED error=%v",e)}
+   // eth_sendRawTransaction -> EthAPIBackend.SendTx -> TxPool.AddLocal.
+   // Local RPC admission must preserve the same intrinsic-gas validation.
+   if e:=pool.AddLocal(bad);!errors.Is(e,core.ErrIntrinsicGas){t.Fatalf("C_RPC_LOCAL_UNDERINTRINSIC_UNEXPECTED error=%v",e)}
+   if pool.Get(bad.Hash())!=nil{t.Fatal("C_INVALID_TX_PRESENT_IN_POOL")}
    if e:=pool.AddRemote(good);e!=nil{t.Fatalf("C_REMOTE_HONEST_FAIL %v",e)}
-   t.Logf("C_REMOTE_GUARD_PASS seed=%d bad_rejected=true honest_accepted=true",tc.seed)
+   t.Logf("C_REMOTE_GUARD_PASS seed=%d p2p_rejected=true rpc_local_rejected=true honest_accepted=true",tc.seed)
    // Deliberate internal injection bypassing the public txpool; NOT an external exploit.
    w:=&worker{chain:chain,chainConfig:cfg};env:=newEnv()
    before:=new(big.Int).Set(env.state.GetBalance(sender))
