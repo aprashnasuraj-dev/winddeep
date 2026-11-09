@@ -93,7 +93,7 @@ jobs:
           import importlib.util
           p = Path("scripts/audit/transferwise_org_audit.py")
           spec = importlib.util.spec_from_file_location("audit", p)
-          m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+          m = importlib.util.module_from_spec(spec); sys.modules[spec.name] = m; spec.loader.exec_module(m)
           cfg = json.loads(Path("config/programs/transferwise_github.json").read_text())
           print(m.assert_repo_in_scope(os.environ["REPO"], cfg))
           PY

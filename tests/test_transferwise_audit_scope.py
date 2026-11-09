@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,7 @@ CONFIG = ROOT / "config" / "programs" / "transferwise_github.json"
 spec = importlib.util.spec_from_file_location("transferwise_org_audit", SCRIPT)
 assert spec and spec.loader
 audit = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = audit
 spec.loader.exec_module(audit)
 
 
