@@ -97,3 +97,15 @@ SHA256SUMS.txt
 /transferwise/[A-E]/*.tar
 /transferwise/[A-E]/*.tgz
 /transferwise/[A-E]/*.7z
+
+# Rapyd unpublished evidence: GitHub repository is PUBLIC.
+/rapyd/[A-E]/evidence/
+/rapyd/[A-E]/submissions/
+/rapyd/[A-E]/private/
+/rapyd/[A-E]/POC/
+/rapyd/[A-E]/EVIDENCE/
+/rapyd/[A-E]/CONTROL/
+/rapyd/[A-E]/*.zip
+/rapyd/[A-E]/*.tar
+/rapyd/[A-E]/*.tgz
+/rapyd/[A-E]/*.7z
