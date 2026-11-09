@@ -35,17 +35,18 @@
       "classification": "three distinct in-memory funded states; signed competing nonce-zero transfers in different orders; ApplyTransaction state oracle, not txpool or QBFT canonical import"
     },
     {
-      "id": "C-intrinsic-gas-boundary",
+      "id": "C-intrinsic-gas-canonical-qbft",
       "owner": "C",
-      "source": "reports/electroneum/C/test_intrinsic_gas_boundary_test.go",
-      "target": "core/adversarial_worker_c_intrinsic_gas_boundary_test.go",
-      "package": "./core",
-      "test": "TestWorkerCIntrinsicGasBoundary",
+      "source": "reports/electroneum/C/test_intrinsic_gas_canonical_qbft_test.go",
+      "target": "consensus/istanbul/backend/adversarial_c_intrinsic_gas_canonical_test.go",
+      "package": "./consensus/istanbul/backend",
+      "test": "TestWorkerCIntrinsicGasCanonicalBoundary",
       "markers": [
-        "C_INTRINSIC_REJECT",
-        "C_INTRINSIC_HONEST_ORACLE"
+        "C_INTRINSIC_COMPONENT",
+        "C_CANONICAL_GUARD_PASS",
+        "C_HONEST_CANONICAL_PASS"
       ],
-      "classification": "signed outsider-submitted EIP-1559 transactions with valid calldata and gas limit one below intrinsic; three independently funded state fixtures; real ApplyTransaction, no RPC or canonical QBFT import"
+      "classification": "real synthetic signed QBFT invalid-block import vs disposable direct-state debit, with exact same-chain honest control; no proven public ingress or live exploit"
     }
   ]
 }
