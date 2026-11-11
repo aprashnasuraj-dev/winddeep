@@ -1,0 +1,42 @@
+name: Electroneum v6.0.0 HTTP Batch Filter Release Audit
+on:
+  push:
+    branches: [electroneum-sc-master-audit]
+    paths:
+      - '.github/workflows/electroneum-http-batch-release-audit.yml'
+      - 'reports/electroneum/E/batch_filter_amplification_release_test.go'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: etn-http-batch-filter-release-audit
+  cancel-in-progress: false
+jobs:
+  real-tagged-release-bounded-http:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Go compatible with release go.mod
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21.13'
+          cache: false
+      - name: Clone exact official v6.0.0 release and verify commit identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v6.0.0 https://github.com/electroneum/electroneum-sc.git "$RUNNER_TEMP/etn-v6-tag"
+          test "$(git -C "$RUNNER_TEMP/etn-v6-tag" rev-parse HEAD)" = 285b59d6d7329d28711b7196d8c50ad624e98c6b
+          cp reports/electroneum/E/batch_filter_amplification_release_test.go "$RUNNER_TEMP/etn-v6-tag/eth/filters/batch_filter_amplification_release_test.go"
+          echo ETN_RELEASE_V6_EXACT_TAG_PIN_PASS
+      - name: Execute real HTTP batch and persistent workers on official release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/etn-v6-tag"
+          go test -count=3 -timeout=15m -run '^TestBatchFilterAmplificationHTTPRealTarget$' -v ./eth/filters
+          echo ETN_RELEASE_V6_REAL_HTTP_FILTER_AMPLIFICATION_PASS
