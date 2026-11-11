@@ -1,4 +1,4 @@
-name: ETN downloader advertised head binding target regression
+name: ETN 2026-11-05 head-binding and progress-event integration test
 on:
   push:
     branches: [audit/downloader-head-hash-target-20261111]
@@ -9,39 +9,53 @@ on:
 permissions:
   contents: read
 jobs:
-  target-head-binding:
+  upstream-exact-head-binding:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
           ref: audit/downloader-head-hash-target-20261111
-          fetch-depth: 0
+          fetch-depth: 1
           persist-credentials: false
       - uses: actions/setup-go@v5
         with:
           go-version: '1.24.0'
           cache: false
-      - name: Source-certified real fetchHead with honest, wrong-head and missing header controls
+      - name: Fetch and verify exact official 2026-11-05 upstream source
         shell: bash
         run: |
           set -euo pipefail
-          source tools/electroneum_target_bootstrap.sh
-          echo "SOURCE_TREE=$WINDEEP_ETN_SOURCE_TREE_SHA"
+          target="$RUNNER_TEMP/electroneum-exact-master"
+          mkdir -p "$target"
+          git -C "$target" init -q
+          git -C "$target" remote add origin https://github.com/electroneum/electroneum-sc.git
+          git -C "$target" -c protocol.version=2 fetch --no-tags --depth=1 origin db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          git -C "$target" checkout --detach -q FETCH_HEAD
+          test "$(git -C "$target" rev-parse HEAD)" = "db0eb8792dd57304fbc66a60377c7663e1bd44d2"
+          test "$(git -C "$target" rev-parse HEAD^{tree})" = "b872b494d87ab289914afccd51d3599a6b88552a"
+          echo "ETN_SOURCE_SHA=$(git -C "$target" rev-parse HEAD)"
+          echo "ETN_SOURCE_TREE=$(git -C "$target" rev-parse HEAD^{tree})"
+          echo "ETN_SOURCE=$target" >> "$GITHUB_ENV"
+      - name: Target runtime test with wrong advertised head and blocked ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
           scratch="$RUNNER_TEMP/etn-dl-head-binding"
           mkdir -p "$scratch"
-          cp -a "$WINDEEP_ETN_SOURCE"/. "$scratch"/
-          chmod u+w "$scratch/eth/downloader"
+          cp -a "$ETN_SOURCE"/. "$scratch"/
           cp reports/electroneum/D/tests/audit_download_head_binding_test.go "$scratch/eth/downloader/"
           cd "$scratch"
           go test -count=3 -timeout=12m -v -run '^TestAuditDownloaderFetchHeadAdvertisedHashBinding$' ./eth/downloader | tee "$RUNNER_TEMP/etn-head-binding.log"
           grep -q 'DOWNLOADER_HONEST_HEAD_MATCH' "$RUNNER_TEMP/etn-head-binding.log"
           grep -q 'DOWNLOADER_UNBOUND_HEAD_CONFIRMED' "$RUNNER_TEMP/etn-head-binding.log"
           grep -q 'DOWNLOADER_EMPTY_HEADER_REJECTED' "$RUNNER_TEMP/etn-head-binding.log"
-          echo "TARGET_FETCH_HEAD_RESPONSE_BINDING_CHARACTERIZED"
+          grep -q 'DOWNLOADER_UNBOUND_PROGRESS_EVENT' "$RUNNER_TEMP/etn-head-binding.log"
+          grep -q 'DOWNLOADER_ANCESTRY_REQUEST_BLOCKED' "$RUNNER_TEMP/etn-head-binding.log"
+          echo "CURRENT_MASTER_HEAD_AND_PROGRESS_REPRODUCED"
           {
-            echo '## Evidentiary scope'
-            echo '- Actual target fetchHead tested using deterministic existing downloader test peer'
-            echo '- Advertised/served hash mismatch characterized; downstream miner/network reachability **not tested**'
-            echo '- Not a proven P1/P2 exploit or bounty report'
+            echo '## Evidence boundaries'
+            echo '- Pinned upstream commit: db0eb8792dd57304fbc66a60377c7663e1bd44d2'
+            echo '- Head hash mismatch admitted; ProgressEvent before ancestor verification'
+            echo '- No miner instance, 4-validator chain, real network availability or severity proof'
           } >> "$GITHUB_STEP_SUMMARY"
