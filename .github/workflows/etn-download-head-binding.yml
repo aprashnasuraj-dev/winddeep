@@ -1,0 +1,47 @@
+name: ETN downloader advertised head binding target regression
+on:
+  push:
+    branches: [audit/downloader-head-hash-target-20261111]
+    paths:
+      - 'reports/electroneum/D/tests/audit_download_head_binding_test.go'
+      - '.github/workflows/etn-download-head-binding.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  target-head-binding:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/downloader-head-hash-target-20261111
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Source-certified real fetchHead with honest, wrong-head and missing header controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          echo "SOURCE_TREE=$WINDEEP_ETN_SOURCE_TREE_SHA"
+          scratch="$RUNNER_TEMP/etn-dl-head-binding"
+          mkdir -p "$scratch"
+          cp -a "$WINDEEP_ETN_SOURCE"/. "$scratch"/
+          chmod u+w "$scratch/eth/downloader"
+          cp reports/electroneum/D/tests/audit_download_head_binding_test.go "$scratch/eth/downloader/"
+          cd "$scratch"
+          go test -count=3 -timeout=12m -v -run '^TestAuditDownloaderFetchHeadAdvertisedHashBinding$' ./eth/downloader | tee "$RUNNER_TEMP/etn-head-binding.log"
+          grep -q 'DOWNLOADER_HONEST_HEAD_MATCH' "$RUNNER_TEMP/etn-head-binding.log"
+          grep -q 'DOWNLOADER_UNBOUND_HEAD_CONFIRMED' "$RUNNER_TEMP/etn-head-binding.log"
+          grep -q 'DOWNLOADER_EMPTY_HEADER_REJECTED' "$RUNNER_TEMP/etn-head-binding.log"
+          echo "TARGET_FETCH_HEAD_RESPONSE_BINDING_CHARACTERIZED"
+          {
+            echo '## Evidentiary scope'
+            echo '- Actual target fetchHead tested using deterministic existing downloader test peer'
+            echo '- Advertised/served hash mismatch characterized; downstream miner/network reachability **not tested**'
+            echo '- Not a proven P1/P2 exploit or bounty report'
+          } >> "$GITHUB_STEP_SUMMARY"
