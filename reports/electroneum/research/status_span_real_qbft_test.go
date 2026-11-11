@@ -6,6 +6,7 @@ package backend
 import (
   "sync/atomic"
   "testing"
+  "net/http/httptest"
 
   "github.com/electroneum/electroneum-sc/consensus"
   "github.com/electroneum/electroneum-sc/core/types"
@@ -41,7 +42,16 @@ func TestAuditStatusRangeLinearRealQBFT(t *testing.T) {
     spy := &auditStatusSpyChain{ChainHeaderReader: chain}
     api := &API{chain: spy, backend: engine}
     first, last := rpc.BlockNumber(1), rpc.BlockNumber(endNumber)
-    got, err := api.Status(&first, &last)
+    server := rpc.NewServer()
+    if err := server.RegisterName("istanbul", api); err != nil { t.Fatal(err) }
+    endpoint := httptest.NewServer(server)
+    caller, dialErr := rpc.DialHTTP(endpoint.URL)
+    if dialErr != nil { t.Fatal(dialErr) }
+    var got Status
+    err := caller.Call(&got, "istanbul_status", first, last)
+    caller.Close()
+    endpoint.Close()
+    server.Stop()
     if err != nil {
       t.Fatalf("istanbul_status range 1..%d failed: %v", endNumber, err)
     }
@@ -50,9 +60,9 @@ func TestAuditStatusRangeLinearRealQBFT(t *testing.T) {
     if reads != want+1 {
       t.Fatalf("header reads in range 1..%d = %d, want %d (includes final-height validator snapshot lookup)", endNumber, reads, want+1)
     }
-    if got == nil || got.NumBlocks != want {
+    if got.NumBlocks != want {
       t.Fatalf("status result range 1..%d = %+v, expected %d blocks", endNumber, got, want)
     }
-    t.Logf("ETN_STATUS_REAL_QBFT end=%d observed_header_reads=%d requested_span=%d", endNumber, reads, want)
+    t.Logf("ETN_STATUS_REAL_HTTP_QBFT end=%d observed_header_reads=%d requested_span=%d", endNumber, reads, want)
   }
 }
