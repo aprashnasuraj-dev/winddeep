@@ -1,0 +1,40 @@
+name: ETN SNAP isolated fanout PoC
+on:
+  push:
+    branches:
+      - etn-snap-storage-poc-20261111
+    paths:
+      - audit_poc_snap/**
+      - .github/workflows/etn-snap-fanout-poc.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-snap-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout PoC branch
+        uses: actions/checkout@v4
+      - name: Checkout exact upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc
+          ref: db0eb8792dd57304fbc66a60377c7663e1bd44d2
+          path: target-etn-sc
+          persist-credentials: false
+      - name: Install Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25.3'
+          cache: false
+      - name: Verify upstream and run real-source SNAP PoC
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd target-etn-sc
+          test "$(git rev-parse HEAD)" = "db0eb8792dd57304fbc66a60377c7663e1bd44d2"
+          cp ../audit_poc_snap/etn_snap_fanout_test.go eth/protocols/snap/etn_snap_fanout_test.go
+          go test -count=1 -timeout=12m -v -run '^TestETNSnapRepeatedEmptyStorageFanout$' ./eth/protocols/snap
