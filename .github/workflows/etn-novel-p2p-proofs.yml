@@ -37,9 +37,11 @@ jobs:
           cp -a "$WINDEEP_ETN_SOURCE/." "$scratch/"
           chmod -R u+w "$scratch"
           cp reports/electroneum/novel/novel_p2p_test.go "$scratch/eth/protocols/eth/novel_p2p_test.go"
+          cp reports/electroneum/novel/novel_tx_fetcher_test.go "$scratch/eth/fetcher/novel_tx_fetcher_test.go"
           cd "$scratch"
-          GOTOOLCHAIN=local go test -count=3 -timeout=12m -run '^TestNovel' -v ./eth/protocols/eth | tee "$RUNNER_TEMP/novel-pinned.log"
+          GOTOOLCHAIN=local go test -count=3 -timeout=12m -run '^TestNovel' -v ./eth/protocols/eth ./eth/fetcher | tee "$RUNNER_TEMP/novel-pinned.log"
           grep -q 'NOVEL_POOL_LOOKUP' "$RUNNER_TEMP/novel-pinned.log"
+          grep -q 'NATIVE_TXFETCHER_BOUNDARY' "$RUNNER_TEMP/novel-pinned.log"
           grep -q 'NOVEL_HASH_ANNOUNCE' "$RUNNER_TEMP/novel-pinned.log"
           echo NOVEL_PINNED_NATIVE_GO_PASS
       - name: Verify upstream master commit and repeat target tests
@@ -50,9 +52,11 @@ jobs:
           git clone --quiet --depth 1 https://github.com/electroneum/electroneum-sc.git "$scratch"
           test "$(git -C "$scratch" rev-parse HEAD)" = "db0eb8792dd57304fbc66a60377c7663e1bd44d2"
           cp reports/electroneum/novel/novel_p2p_test.go "$scratch/eth/protocols/eth/novel_p2p_test.go"
+          cp reports/electroneum/novel/novel_tx_fetcher_test.go "$scratch/eth/fetcher/novel_tx_fetcher_test.go"
           cd "$scratch"
-          GOTOOLCHAIN=local go test -count=3 -timeout=12m -run '^TestNovel' -v ./eth/protocols/eth | tee "$RUNNER_TEMP/novel-current.log"
+          GOTOOLCHAIN=local go test -count=3 -timeout=12m -run '^TestNovel' -v ./eth/protocols/eth ./eth/fetcher | tee "$RUNNER_TEMP/novel-current.log"
           grep -q 'NOVEL_POOL_LOOKUP' "$RUNNER_TEMP/novel-current.log"
+          grep -q 'NATIVE_TXFETCHER_BOUNDARY' "$RUNNER_TEMP/novel-current.log"
           grep -q 'NOVEL_HASH_ANNOUNCE' "$RUNNER_TEMP/novel-current.log"
           echo NOVEL_UPSTREAM_NATIVE_GO_PASS
       - name: Preserve raw proof logs and source identities
