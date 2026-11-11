@@ -1,0 +1,42 @@
+name: Research - ETN QBFT status span real-chain test
+on:
+  push:
+    branches: [research-etn-istanbul-status-20261111]
+    paths:
+      - reports/electroneum/research/status_span_real_qbft_test.go
+      - .github/workflows/research-etn-status-span.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  novel-status-span:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Extract immutable certified ETN source from audit tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = "7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = "de7f3c75a2db7e87a89918f1257820703d5b731e"
+          echo "RESEARCH_CERTIFIED_SOURCE_READY $WINDEEP_ETN_SOURCE"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Execute one targeted canonical QBFT Status CPU-work scaling test
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d)"
+          cp -a "$WINDEEP_ETN_SOURCE/." "$scratch/"
+          chmod -R u+w "$scratch"
+          cp reports/electroneum/research/status_span_real_qbft_test.go "$scratch/consensus/istanbul/backend/adversarial_status_span_test.go"
+          cd "$scratch"
+          go test -count=1 -run '^TestAuditStatusRangeLinearRealQBFT$' -timeout 8m -v ./consensus/istanbul/backend
