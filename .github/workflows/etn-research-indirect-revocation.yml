@@ -37,7 +37,18 @@ jobs:
           chmod -R u+w "$RUNNER_TEMP/etn-scratch"
           cp "$GITHUB_WORKSPACE/reports/electroneum/C/research_indirect_revocation_test.go" "$RUNNER_TEMP/etn-scratch/core/research_indirect_revocation_test.go"
           cd "$RUNNER_TEMP/etn-scratch"
-          go test -count=3 -timeout=10m -run '^TestResearchIndirectRevocationBypass$' -v ./core 2>&1 | tee "$RUNNER_TEMP/etn-new-poc.log"
+          go test -count=3 -timeout=10m -run '^TestResearchIndirect(RevocationBypass|StateProcessor) -v ./core 2>&1 | tee "$RUNNER_TEMP/etn-new-poc.log"
+          sha256sum "$RUNNER_TEMP/etn-new-poc.log" | tee "$RUNNER_TEMP/etn-new-poc.sha256"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: etn-novel-indirect-revocation
+          path: |
+            ${{ runner.temp }}/etn-new-poc.log
+            ${{ runner.temp }}/etn-new-poc.sha256
+          if-no-files-found: warn
+          retention-days: 14
+ -v ./core 2>&1 | tee "$RUNNER_TEMP/etn-new-poc.log"
           sha256sum "$RUNNER_TEMP/etn-new-poc.log" | tee "$RUNNER_TEMP/etn-new-poc.sha256"
       - uses: actions/upload-artifact@v4
         if: always()
