@@ -96,6 +96,13 @@ func TestResearchIndirectRevocationBypass(t *testing.T) {
     waiver,err:=types.SignNewPriorityTx(payerKey,waiverKey,signer,&types.PriorityTx{ChainID:cfg.ChainID,Nonce:0,GasTipCap:big.NewInt(0),GasFeeCap:big.NewInt(0),Gas:21000,To:&recipient,Value:big.NewInt(1)})
     if err!=nil {t.Fatal(err)}
     gp:=new(GasPool).AddGas(500000);used:=uint64(0)
+    if viaProxy {
+     snap := st.Snapshot()
+     probe := vm.NewEVM(context, vm.TxContext{}, st, cfg, vm.Config{})
+     data, gasLeft, probeErr := probe.Call(vm.AccountRef(admin), proxy, []byte{1}, 150000, big.NewInt(0))
+     t.Logf("PROXY_DEBUG probeErr=%v gasLeft=%d data=%x slot=%s", probeErr, gasLeft, data, st.GetState(registry,common.Hash{}))
+     st.RevertToSnapshot(snap)
+    }
     st.Prepare(revoke.Hash(),0)
     rc,err:=ApplyTransaction(cfg,nil,&miner,gp,st,header,revoke,&used,vm.Config{})
     if err!=nil||rc==nil||rc.Status!=types.ReceiptStatusSuccessful {t.Fatalf("revoke failed receipt=%v err=%v",rc,err)}
