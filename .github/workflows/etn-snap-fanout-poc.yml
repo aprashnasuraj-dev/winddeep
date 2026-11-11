@@ -37,4 +37,6 @@ jobs:
           cd target-etn-sc
           test "$(git rev-parse HEAD)" = "db0eb8792dd57304fbc66a60377c7663e1bd44d2"
           cp ../audit_poc_snap/etn_snap_fanout_test.go eth/protocols/snap/etn_snap_fanout_test.go
-          go test -count=1 -timeout=12m -v -run '^TestETNSnapRepeatedEmptyStorageFanout$' ./eth/protocols/snap
+          cp ../audit_poc_snap/etn_snap_disk_test.go eth/protocols/snap/etn_snap_disk_test.go
+          go test -count=1 -timeout=12m -v -run '^TestETNSnap.*StorageFanout
+ ./eth/protocols/snap
