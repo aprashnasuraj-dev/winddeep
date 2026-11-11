@@ -1,0 +1,59 @@
+name: ETN fresh validator lock-order and proposer race evidence
+on:
+  push:
+    branches: [electroneum-sc-master-audit]
+    paths:
+      - '.github/workflows/etn-novel-validator-lock.yml'
+      - 'reports/electroneum/B/tests/audit_novel_validator_lock_test.go'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-target-lock-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: electroneum-sc-master-audit
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Execute exact-source isolated lock and race proof
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          echo "CERTIFIED_SOURCE_TREE=$WINDEEP_ETN_SOURCE_TREE_SHA"
+          scratch="$RUNNER_TEMP/etn-fresh-valset"
+          mkdir -p "$scratch"
+          cp -a "$WINDEEP_ETN_SOURCE"/. "$scratch"/
+          chmod u+w "$scratch/consensus/istanbul/validator"
+          cp reports/electroneum/B/tests/audit_novel_validator_lock_test.go "$scratch/consensus/istanbul/validator/audit_novel_validator_lock_test.go"
+          cd "$scratch"
+          go test -count=1 -timeout=10m -v -run '^TestAuditNovelValidatorPendingWriterDeadlock$' ./consensus/istanbul/validator | tee "$RUNNER_TEMP/etn-validator-deadlock.log"
+          grep -q 'DEADLOCK_CONFIRMED' "$RUNNER_TEMP/etn-validator-deadlock.log"
+          grep -q 'CONTROL_NO_CONTENTION_CALC_COMPLETED' "$RUNNER_TEMP/etn-validator-deadlock.log"
+          echo "TARGET_VALIDATOR_DEADLOCK_REPRODUCED"
+          set +e
+          go test -race -count=1 -timeout=10m -v -run '^TestAuditNovelValidatorProposerDataRace$' ./consensus/istanbul/validator > "$RUNNER_TEMP/etn-validator-race.log" 2>&1
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/etn-validator-race.log"
+          if (( rc == 0 )); then
+            echo "RACE_NEGATIVE_CONTROL: no observed concurrent write race"
+            exit 1
+          fi
+          grep -q 'WARNING: DATA RACE' "$RUNNER_TEMP/etn-validator-race.log"
+          grep -q 'default.go' "$RUNNER_TEMP/etn-validator-race.log"
+          echo "TARGET_VALIDATOR_DATA_RACE_REPRODUCED"
+          {
+            echo "## Certified-source validator concurrency probes"
+            echo "- Target cert/tree: $WINDEEP_ETN_SOURCE_TREE_SHA"
+            echo "- Nested read-lock pending-writer test: expected-deadlock reproduced"
+            echo "- Race detector: expected concurrent proposer write race reproduced"
+            echo "- External P2P/RPC exploit precondition: **NOT TESTED**"
+          } >> "$GITHUB_STEP_SUMMARY"
