@@ -40,5 +40,4 @@ jobs:
           cp reports/electroneum/research/status_span_real_qbft_test.go "$scratch/consensus/istanbul/backend/adversarial_status_span_test.go"
           cp reports/electroneum/research/istanbul_rpc_validator_vote_test.go "$scratch/consensus/istanbul/backend/adversarial_rpc_vote_test.go"
           cd "$scratch"
-          go test -count=1 -run '^(TestAuditStatusRangeLinearRealQBFT|TestResearchIstanbulRPCValidatorVoteAuthorization)
- -timeout 15m -v ./consensus/istanbul/backend
+          go test -count=1 -run '^Test(AuditStatusRangeLinearRealQBFT|ResearchIstanbulRPCValidatorVoteAuthorization)$' -timeout 15m -v ./consensus/istanbul/backend
