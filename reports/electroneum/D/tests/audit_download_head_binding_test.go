@@ -119,4 +119,3 @@ func TestAuditDownloaderFetchHeadAdvertisedHashBinding(t *testing.T) {
   t.Fatal("sync cleanup timed out after releasing in-process peer")
  }
 }
-}
