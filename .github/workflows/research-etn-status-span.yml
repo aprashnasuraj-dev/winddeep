@@ -3,7 +3,7 @@ on:
   push:
     branches: [research-etn-istanbul-status-20261111]
     paths:
-      - reports/electroneum/research/status_span_real_qbft_test.go
+      - 'reports/electroneum/research/*_test.go'
       - .github/workflows/research-etn-status-span.yml
   workflow_dispatch:
 permissions:
@@ -38,5 +38,7 @@ jobs:
           cp -a "$WINDEEP_ETN_SOURCE/." "$scratch/"
           chmod -R u+w "$scratch"
           cp reports/electroneum/research/status_span_real_qbft_test.go "$scratch/consensus/istanbul/backend/adversarial_status_span_test.go"
+          cp reports/electroneum/research/istanbul_rpc_validator_vote_test.go "$scratch/consensus/istanbul/backend/adversarial_rpc_vote_test.go"
           cd "$scratch"
-          go test -count=1 -run '^TestAuditStatusRangeLinearRealQBFT$' -timeout 8m -v ./consensus/istanbul/backend
+          go test -count=1 -run '^(TestAuditStatusRangeLinearRealQBFT|TestResearchIstanbulRPCValidatorVoteAuthorization)
+ -timeout 15m -v ./consensus/istanbul/backend
