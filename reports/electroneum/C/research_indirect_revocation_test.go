@@ -8,6 +8,7 @@ import (
 
  "github.com/electroneum/electroneum-sc/accounts/abi"
  "github.com/electroneum/electroneum-sc/common"
+ "github.com/electroneum/electroneum-sc/consensus/ethash"
  "github.com/electroneum/electroneum-sc/contracts/prioritytransactors"
  "github.com/electroneum/electroneum-sc/core/rawdb"
  "github.com/electroneum/electroneum-sc/core/state"
@@ -15,6 +16,7 @@ import (
  "github.com/electroneum/electroneum-sc/core/vm"
  "github.com/electroneum/electroneum-sc/crypto"
  "github.com/electroneum/electroneum-sc/params"
+ "github.com/electroneum/electroneum-sc/trie"
 )
 
 // registryCode returns ABI-encoded getTransactors() based on storage slot 0.
@@ -121,6 +123,61 @@ func TestResearchIndirectRevocationBypass(t *testing.T) {
      if cachePresent||waiverErr==nil||receipt!=nil {t.Fatalf("direct guard failed cache=%v err=%v receipt=%v",cachePresent,waiverErr,receipt)}
      if st.GetBalance(recipient).Sign()!=0 {t.Fatal("direct negative control credited recipient")}
      t.Logf("POC_DIRECT_REJECTED revoked_registry=1 refreshed_cached_key=0 err=%v",waiverErr)
+    }
+   })
+  }
+ }
+}
+
+
+// Process-level coverage: one actual block StateProcessor.Process execution
+// using signed transactions and the same two independent registry conditions.
+// Uses a disposable Ethash fake-chain for execution only; NOT QBFT canonical import.
+func TestResearchIndirectStateProcessor(t *testing.T) {
+ for i:=1;i<=3;i++ {
+  for _,viaProxy:=range []bool{false,true} {
+   label:="direct";if viaProxy {label="via_proxy"}
+   t.Run(label+"_"+string(rune('0'+i)),func(t *testing.T){
+    kb:=make([]byte,32);kb[31]=byte(30+i)
+    adminKey,err:=crypto.ToECDSA(kb);if err!=nil{t.Fatal(err)}
+    kb[31]=byte(80+i);payerKey,err:=crypto.ToECDSA(kb);if err!=nil{t.Fatal(err)}
+    kb[31]=byte(120+i);waiverKey,err:=crypto.ToECDSA(kb);if err!=nil{t.Fatal(err)}
+    admin:=crypto.PubkeyToAddress(adminKey.PublicKey)
+    payer:=crypto.PubkeyToAddress(payerKey.PublicKey)
+    registry:=common.HexToAddress("0x0000000000000000000000000000000000001234")
+    proxy:=common.HexToAddress("0x0000000000000000000000000000000000005678")
+    recipient:=common.HexToAddress("0x000000000000000000000000000000000000abcd")
+    miner:=common.HexToAddress("0x000000000000000000000000000000000000eeef")
+    cfg:=*params.TestChainConfig
+    cfg.ChainID=big.NewInt(1337)
+    cfg.PriorityTransactorsContractAddress=registry
+    db:=rawdb.NewMemoryDatabase()
+    genesis:=(&Genesis{Config:&cfg,GasLimit:1000000,Difficulty:big.NewInt(1),BaseFee:big.NewInt(1),Alloc:GenesisAlloc{
+     admin:{Balance:big.NewInt(100000000)},payer:{Balance:big.NewInt(100000000)},
+     registry:{Balance:big.NewInt(0),Code:indirectRegistryCode(t,hex.EncodeToString(crypto.FromECDSAPub(&waiverKey.PublicKey))),Storage:map[common.Hash]common.Hash{{}:common.HexToHash("0x1")}},
+     proxy:{Balance:big.NewInt(0),Code:indirectProxyCode(registry)},
+    }}).MustCommit(db)
+    engine:=ethash.NewFaker()
+    chain,err:=NewBlockChain(db,nil,&cfg,engine,vm.Config{},nil,nil)
+    if err!=nil {t.Fatal(err)}
+    defer chain.Stop()
+    signer:=types.MakeSigner(&cfg,big.NewInt(1))
+    to:=registry;if viaProxy {to=proxy}
+    revoke,err:=types.SignNewTx(adminKey,signer,&types.DynamicFeeTx{ChainID:cfg.ChainID,Nonce:0,GasTipCap:big.NewInt(1),GasFeeCap:big.NewInt(2),Gas:180000,To:&to,Value:big.NewInt(0),Data:[]byte{1}})
+    if err!=nil {t.Fatal(err)}
+    waived,err:=types.SignNewPriorityTx(payerKey,waiverKey,signer,&types.PriorityTx{ChainID:cfg.ChainID,Nonce:0,GasTipCap:big.NewInt(0),GasFeeCap:big.NewInt(0),Gas:21000,To:&recipient,Value:big.NewInt(1)})
+    if err!=nil {t.Fatal(err)}
+    header:=&types.Header{ParentHash:genesis.Hash(),Number:big.NewInt(1),Difficulty:big.NewInt(1),GasLimit:1000000,BaseFee:big.NewInt(1),Coinbase:miner,Time:2}
+    block:=types.NewBlock(header,types.Transactions{revoke,waived},nil,nil,trie.NewStackTrie(nil))
+    st,err:=chain.StateAt(genesis.Root());if err!=nil {t.Fatal(err)}
+    processor:=NewStateProcessor(&cfg,chain,engine)
+    receipts,_,_,err:=processor.Process(block,st,vm.Config{})
+    if viaProxy {
+     if err!=nil || len(receipts)!=2 || receipts[1].Status!=types.ReceiptStatusSuccessful || st.GetBalance(recipient).Cmp(big.NewInt(1))!=0 {t.Fatalf("processor indirect failed err=%v receipts=%d balance=%s",err,len(receipts),st.GetBalance(recipient))}
+     t.Log("PROCESSOR_INDIRECT_ACCEPTED revoked_registry=1 zero_fee_waiver=1")
+    } else {
+     if err==nil {t.Fatal("processor accepted revoked priority key following direct revocation")}
+     t.Logf("PROCESSOR_DIRECT_REJECTED err=%v",err)
     }
    })
   }
