@@ -22,6 +22,8 @@ func TestBatchFilterAmplificationHTTPRealTarget(t *testing.T) {
  defer server.Stop()
  if err:=server.RegisterName("eth", api); err!=nil { t.Fatal(err) }
  baselineG := runtime.NumGoroutine()
+ var beforeMem runtime.MemStats
+ runtime.ReadMemStats(&beforeMem)
  var allIDs []rpc.ID
  for _, n:=range []int{1, 16, 128, 512} {
   batch:=make([]map[string]interface{},n)
@@ -56,6 +58,9 @@ func TestBatchFilterAmplificationHTTPRealTarget(t *testing.T) {
   t.Logf("REAL_ETN_HTTP_BATCH_ACCEPTED batch=%d request_bytes=%d persistent_filters=%d goroutines_now=%d",n,len(body),held,runtime.NumGoroutine())
  }
  peak:=runtime.NumGoroutine()
+ var peakMem runtime.MemStats
+ runtime.ReadMemStats(&peakMem)
+ t.Logf("REAL_ETN_MEMORY_ACCOUNTING stack_inuse_before=%d stack_inuse_peak=%d stack_delta=%d heap_alloc_before=%d heap_alloc_peak=%d heap_delta=%d", beforeMem.StackInuse, peakMem.StackInuse, int64(peakMem.StackInuse)-int64(beforeMem.StackInuse), beforeMem.HeapAlloc, peakMem.HeapAlloc, int64(peakMem.HeapAlloc)-int64(beforeMem.HeapAlloc))
  if peak <= baselineG+100 {t.Logf("GOROUTINE_SAMPLE_NONDETERMINISTIC baseline=%d peak=%d",baselineG,peak)} else {
   t.Logf("REAL_ETN_FILTER_WORKER_AMPLIFICATION baseline_goroutines=%d peak_goroutines=%d delta=%d persistent_filters=%d",baselineG,peak,peak-baselineG,len(allIDs))
  }
