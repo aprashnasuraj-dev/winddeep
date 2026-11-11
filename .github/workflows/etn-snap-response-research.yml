@@ -1,0 +1,48 @@
+name: Electroneum SNAP bounded response decoder research
+on:
+  push:
+    branches: [audit/snap-response-amplification-20261111]
+    paths:
+      - 'reports/electroneum/D/tests/audit_snap_unbounded_response_test.go'
+      - '.github/workflows/etn-snap-response-research.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  snap-decoder:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/snap-response-amplification-20261111
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Certified SNAP decode, bounded unsolicited input, controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          printf 'SOURCE_TREE=%s\n' "$WINDEEP_ETN_SOURCE_TREE_SHA"
+          scratch="$RUNNER_TEMP/etn-snap-research"
+          mkdir -p "$scratch"
+          cp -a "$WINDEEP_ETN_SOURCE"/. "$scratch"/
+          chmod u+w "$scratch/eth/protocols/snap"
+          cp reports/electroneum/D/tests/audit_snap_unbounded_response_test.go "$scratch/eth/protocols/snap/"
+          cd "$scratch"
+          go test -count=2 -timeout=12m -v -run '^TestAuditSnapUnsolicited(Accounts|NestedStorage)$' ./eth/protocols/snap | tee "$RUNNER_TEMP/etn-snap-research.log"
+          grep -q 'SNAP_ACCOUNT_UNCAPPED' "$RUNNER_TEMP/etn-snap-research.log"
+          grep -q 'SNAP_NESTED_STORAGE_UNCAPPED' "$RUNNER_TEMP/etn-snap-research.log"
+          grep -q 'SNAP_ACCOUNT_HONEST_CONTROL' "$RUNNER_TEMP/etn-snap-research.log"
+          grep -q 'SNAP_NESTED_STORAGE_HONEST_CONTROL' "$RUNNER_TEMP/etn-snap-research.log"
+          echo 'TARGET_SNAP_BOUNDED_DECODER_RESEARCH_PASSED'
+          {
+            echo '## SNAP decoder: evidence classification'
+            echo '- Target: certified 2026-10-20 upstream source, unchanged SNAP decoder in 2026-11-05 master'
+            echo '- Scope: isolated bounded in-process peer messages, no public network'
+            echo '- Confirmed P2: **NO** (no demonstrated node-level sustained outage)'
+          } >> "$GITHUB_STEP_SUMMARY"
