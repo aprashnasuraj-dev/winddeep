@@ -1,0 +1,50 @@
+name: Research - ETNBridge duplicate legacy hash local Hardhat proof
+on:
+  push:
+    branches: [research-etn-istanbul-status-20261111]
+    paths:
+      - reports/electroneum/research/bridge_case_duplicate_hardhat.js
+      - .github/workflows/research-etn-bridge-hash.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  bridge-hash-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: electroneum/electroneum-sc-contracts
+          ref: 7194f2c5997f2733056dfd4f5706b433547b6b8b
+          path: target
+          persist-credentials: false
+      - name: Check pinned contract source and substitute local-only Hardhat config
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = "7194f2c5997f2733056dfd4f5706b433547b6b8b"
+          cat > target/hardhat.config.js <<'CONFIG'
+          require("@nomicfoundation/hardhat-toolbox");
+          require("@openzeppelin/hardhat-upgrades");
+          module.exports = {
+            solidity: { version: "0.8.23", settings: { optimizer: {enabled:true,runs:1000}, evmVersion:"london" } }
+          };
+          CONFIG
+          mkdir -p target/test
+          cp reports/electroneum/research/bridge_case_duplicate_hardhat.js target/test/research_bridge_case_duplicate.js
+          echo "BRIDGE_PINNED_ORIGINAL_CONTRACT_SOURCE 7194f2c5997f2733056dfd4f5706b433547b6b8b"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: target/package-lock.json
+      - name: Install exact repository dependency lock
+        working-directory: target
+        run: npm ci --no-audit --no-fund
+      - name: Execute exact ETNBridge contract on disposable in-process Hardhat chain
+        working-directory: target
+        run: npx hardhat test test/research_bridge_case_duplicate.js
