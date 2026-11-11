@@ -39,5 +39,4 @@ jobs:
           cp ../audit_poc_snap/etn_snap_fanout_test.go eth/protocols/snap/etn_snap_fanout_test.go
           cp ../audit_poc_snap/etn_snap_disk_test.go eth/protocols/snap/etn_snap_disk_test.go
           cp ../audit_poc_snap/etn_snap_concurrent_test.go eth/protocols/snap/etn_snap_concurrent_test.go
-          go test -count=1 -timeout=12m -v -run '^TestETNSnap.* ./eth/protocols/snap
- ./eth/protocols/snap
+          go test -count=1 -timeout=12m -v -run '^TestETNSnap.*$' ./eth/protocols/snap
