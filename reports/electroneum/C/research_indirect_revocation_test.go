@@ -72,7 +72,7 @@ func TestResearchIndirectRevocationBypass(t *testing.T) {
     proxy:=common.HexToAddress("0x0000000000000000000000000000000000005678")
     recipient:=common.HexToAddress("0x000000000000000000000000000000000000abcd")
     miner:=common.HexToAddress("0x000000000000000000000000000000000000eeef")
-    cfg:=&params.ChainConfig{ChainID:big.NewInt(1337),HomesteadBlock:big.NewInt(0),EIP155Block:big.NewInt(0),EIP158Block:big.NewInt(0),
+    cfg:=&params.ChainConfig{ChainID:big.NewInt(1337),HomesteadBlock:big.NewInt(0),EIP150Block:big.NewInt(0),EIP155Block:big.NewInt(0),EIP158Block:big.NewInt(0),
      ByzantiumBlock:big.NewInt(0),BerlinBlock:big.NewInt(0),LondonBlock:big.NewInt(0),PriorityTransactorsContractAddress:registry}
     header:=&types.Header{Number:big.NewInt(1),Difficulty:big.NewInt(1),GasLimit:1000000,BaseFee:big.NewInt(1)}
     st,err:=state.New(common.Hash{},state.NewDatabase(rawdb.NewMemoryDatabase()),nil)
