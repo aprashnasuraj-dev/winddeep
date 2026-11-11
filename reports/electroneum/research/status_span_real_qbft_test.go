@@ -47,12 +47,12 @@ func TestAuditStatusRangeLinearRealQBFT(t *testing.T) {
     }
     want := uint64(endNumber-1)
     reads := atomic.LoadUint64(&spy.reads)
-    if reads != want {
-      t.Fatalf("header reads in range 1..%d = %d, want %d", endNumber, reads, want)
+    if reads != want+1 {
+      t.Fatalf("header reads in range 1..%d = %d, want %d (includes final-height validator snapshot lookup)", endNumber, reads, want+1)
     }
     if got == nil || got.NumBlocks != want {
       t.Fatalf("status result range 1..%d = %+v, expected %d blocks", endNumber, got, want)
     }
-    t.Logf("ETN_STATUS_REAL_QBFT end=%d scanned=%d requested=%d", endNumber, reads, want)
+    t.Logf("ETN_STATUS_REAL_QBFT end=%d observed_header_reads=%d requested_span=%d", endNumber, reads, want)
   }
 }
