@@ -25,7 +25,7 @@ func (p *auditWrongHeadPeer) RequestHeadersByHash(_ common.Hash,amount int,skip 
 func TestAuditDownloaderFetchHeadAdvertisedHashBinding(t *testing.T) {
  tester:=newTester(t)
  defer tester.terminate()
- chain:=testChainBase.shorten(8)
+ chain:=testChainBase.shorten(blockCacheMaxItems - 15)
  honest:=tester.newPeer("audit-honest",eth.ETH66,chain.blocks[1:])
  advertised,_:=honest.Head()
  head,pivot,err:=tester.downloader.fetchHead(tester.downloader.peers.Peer("audit-honest"))
