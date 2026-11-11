@@ -4,6 +4,7 @@ package backend
 
 import (
   "testing"
+  "net/http/httptest"
 
   "github.com/electroneum/electroneum-sc/common"
   "github.com/electroneum/electroneum-sc/core/types"
@@ -23,7 +24,10 @@ func TestResearchIstanbulRPCValidatorVoteAuthorization(t *testing.T) {
   }
   // This is an unauthenticated in-process JSON-RPC client, modelling an explicitly
   // exposed namespace (not the default HTTP module list). No private key.
-  caller := rpc.DialInProc(server)
+  endpoint := httptest.NewServer(server)
+  defer endpoint.Close()
+  caller, dialErr := rpc.DialHTTP(endpoint.URL)
+  if dialErr != nil { t.Fatal(dialErr) }
   defer caller.Close()
 
   outsider := common.HexToAddress("0x1111111111111111111111111111111111111111")
@@ -41,7 +45,7 @@ func TestResearchIstanbulRPCValidatorVoteAuthorization(t *testing.T) {
   if !candidates[outsider] {
     t.Fatal("RPC caller's choice not installed in backend candidate registry")
   }
-  t.Log("ETN_RPC_CANDIDATE_ACCEPTED_UNAUTH_NAMESPACE")
+  t.Log("ETN_HTTP_RPC_CANDIDATE_ACCEPTED_UNAUTH_NAMESPACE")
 
   // Create a real signed QBFT block using the normal consensus Prepare/Seal
   // path. On a single-validator private chain, one authentic validator vote
