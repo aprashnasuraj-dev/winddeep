@@ -1,0 +1,67 @@
+name: ETN novel resource-bound proofs (one-shot)
+on:
+  push:
+    branches: [etn-novel-p2p-evidence-20261111]
+    paths:
+      - 'reports/electroneum/novel/**'
+      - '.github/workflows/etn-novel-p2p-proofs.yml'
+permissions:
+  contents: read
+jobs:
+  isolated-go-proofs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.0'
+          cache: false
+      - name: Materialize certified immutable ETN source (no production peer calls)
+        shell: bash
+        run: |
+          set -euo pipefail
+          source tools/electroneum_target_bootstrap.sh
+          test "$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT" = "7eb84ee39bd01eaaf1f64afbd871b06c85ff3bb0"
+          test "$WINDEEP_ETN_SOURCE_TREE_SHA" = "de7f3c75a2db7e87a89918f1257820703d5b731e"
+          echo "NOVEL_SOURCE_CERTIFIED=$WINDEEP_ETN_CERTIFIED_SOURCE_COMMIT"
+          echo "WINDEEP_ETN_SOURCE=$WINDEEP_ETN_SOURCE" >> "$GITHUB_ENV"
+      - name: Execute actual ETN/66 handler helpers three times on certified pinned source
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d)"
+          cp -a "$WINDEEP_ETN_SOURCE/." "$scratch/"
+          chmod -R u+w "$scratch"
+          cp reports/electroneum/novel/novel_p2p_test.go "$scratch/eth/protocols/eth/novel_p2p_test.go"
+          cd "$scratch"
+          GOTOOLCHAIN=local go test -count=3 -timeout=12m -run '^TestNovel' -v ./eth/protocols/eth | tee "$RUNNER_TEMP/novel-pinned.log"
+          grep -q 'NOVEL_POOL_LOOKUP' "$RUNNER_TEMP/novel-pinned.log"
+          grep -q 'NOVEL_HASH_ANNOUNCE' "$RUNNER_TEMP/novel-pinned.log"
+          echo NOVEL_PINNED_NATIVE_GO_PASS
+      - name: Verify upstream master commit and repeat target tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d)"
+          git clone --quiet --depth 1 https://github.com/electroneum/electroneum-sc.git "$scratch"
+          test "$(git -C "$scratch" rev-parse HEAD)" = "db0eb8792dd57304fbc66a60377c7663e1bd44d2"
+          cp reports/electroneum/novel/novel_p2p_test.go "$scratch/eth/protocols/eth/novel_p2p_test.go"
+          cd "$scratch"
+          GOTOOLCHAIN=local go test -count=3 -timeout=12m -run '^TestNovel' -v ./eth/protocols/eth | tee "$RUNNER_TEMP/novel-current.log"
+          grep -q 'NOVEL_POOL_LOOKUP' "$RUNNER_TEMP/novel-current.log"
+          grep -q 'NOVEL_HASH_ANNOUNCE' "$RUNNER_TEMP/novel-current.log"
+          echo NOVEL_UPSTREAM_NATIVE_GO_PASS
+      - name: Preserve raw proof logs and source identities
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: etn-novel-resource-bounds
+          path: |
+            /home/runner/work/_temp/novel-pinned.log
+            /home/runner/work/_temp/novel-current.log
+          if-no-files-found: warn
+          retention-days: 14
