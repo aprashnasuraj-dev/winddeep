@@ -24,7 +24,7 @@ func TestBatchFilterAmplificationHTTPRealTarget(t *testing.T) {
  if err:=server.RegisterName("eth", api); err!=nil { t.Fatal(err) }
  baselineG := runtime.NumGoroutine()
  var allIDs []rpc.ID
- for _, n:=range []int{1, 16, 128} {
+ for _, n:=range []int{1, 16, 128, 512} {
   batch:=make([]map[string]interface{},n)
   for i:=range batch {
    batch[i]=map[string]interface{}{
@@ -77,5 +77,5 @@ func TestBatchFilterAmplificationHTTPRealTarget(t *testing.T) {
   t.Fatal("configured log query cap not enforced")
  }
  t.Logf("REAL_ETN_PER_QUERY_ADDRESS_CAP_CONTROL_PASS cap=%d over=%d",1000,1001)
- if len(allIDs)!=145 {t.Fatal(fmt.Sprintf("unexpected count %d",len(allIDs)))}
+ if len(allIDs)!=657 {t.Fatal(fmt.Sprintf("unexpected count %d",len(allIDs)))}
 }
